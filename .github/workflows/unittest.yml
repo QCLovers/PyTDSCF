@@ -1,0 +1,26 @@
+name: unittest
+on:
+  push:
+    paths:
+      - 'uv.lock'
+      - 'pyproject.toml'
+      - 'pytdscf/**'
+      - 'tests/**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: checkout
+      uses: actions/checkout@v4
+    - name: uv-install
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: pytdscf-dev-install
+      run: uv sync
+    - name: pytest
+      continue-on-error: true
+      id: pytest
+      run: uv run pytest
+    - name: pytest rerun failed
+      if: ${{ steps.pytest.outcome == 'failure'}}
+      run: uv run pytest --lf --showlocals --tb=long --log-level=DEBUG

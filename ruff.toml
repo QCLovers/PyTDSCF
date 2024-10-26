@@ -1,0 +1,25 @@
+line-length = 80
+target-version = "py310"
+extend-include = ["*.ipynb"]
+exclude = ["pytdscf/basis/*", "pytdscf/potentials/*", "pytdscf/util/*", "tests", "docs"]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint]
+select = [
+  # list of rules are available at https://beta.ruff.rs/docs/rules/
+  "E",  # pycodestyle (error)
+  "W",  # pycodestyle (warning)
+  "F",  # Pyflakes
+  "B",  # flake8-bugbear
+  "I",  # isort
+  "NPY201",  # Numpy 2.0
+]
+ignore = [
+  "B018", # useless-expression
+  "B023", # Function definition does not bind loop variable
+  "E501", # line too long
+  "E731", # do not assign a lambda expression, use a def
+]
+#ignore-init-module-imports = true
