@@ -32,7 +32,7 @@ PyTDSCF gives an option to use JAX as backend, which accelerate large tensornetw
 (In small calculation, Numpy in CPU is sometimes faster.)
 
 ## Documentation
-See [Here](https://qclovers.github.io/PyTDSCF/pytdscf.html) !!
+See [Here](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html) !!
 
 ## References
 - [Kurashige, Yuki. "Matrix product state formulation of the multiconfiguration time-dependent Hartree theory." The Journal of Chemical Physics 149.19 (2018): 194114.](https://aip.scitation.org/doi/abs/10.1063/1.5051498)
