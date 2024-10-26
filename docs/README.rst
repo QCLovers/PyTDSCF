@@ -54,7 +54,7 @@ Installation
    .. code:: bash
 
       $ git clone https://github.com/QCLovers/PyTDSCF.git
-      $ cd pytdscf
+      $ cd PyTDSCF
       $ uv version
       uv 0.4.18 (7b55e9790 2024-10-01)
       $ uv sync --all-extras
