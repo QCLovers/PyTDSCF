@@ -11,7 +11,7 @@ license = "GPL-3.0"
 requires-python = ">=3.10"
 dependencies = [
     "dill>=0.3.9",
-    "discvar>=0.0.2",
+    "discvar @ git+https://github.com/QCLovers/Discvar.git",
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
     "matplotlib>=3.9.2",
@@ -42,5 +42,8 @@ dev-dependencies = [
     "pandoc>=2.4",
 ]
 
-[tool.uv.sources]
-discvar = { git = "https://github.com/QCLovers/Discvar.git" }
+[tool.hatch.metadata]
+allow-direct-references = true
+
+# [tool.uv.sources]
+# discvar = { git = "https://github.com/QCLovers/Discvar.git" }
