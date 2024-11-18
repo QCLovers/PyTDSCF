@@ -1,6 +1,6 @@
 [project]
 name = "pytdscf"
-version = "1.0.1"
+version = "1.0.2"
 description = "Quantum dynamics simulator using tensor networks"
 authors = [
     { name = "Kentaro Hino", email = "hino@theoc.kuchem.kyoto-u.ac.jp" },
@@ -10,11 +10,13 @@ readme = "README.md"
 license = "GPL-3.0"
 requires-python = ">=3.10"
 dependencies = [
+    "ase>=3.23.0",
     "dill>=0.3.9",
     "discvar @ git+https://github.com/QCLovers/Discvar.git",
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
     "matplotlib>=3.9.2",
+    "netcdf4>=1.7.2",
     "numpy>=2.1.2",
     "polars>=1.10.0",
     "scipy>=1.14.1",
