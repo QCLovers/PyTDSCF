@@ -1,8 +1,5 @@
 """from prop_no1.mop"""
-
-from collections import defaultdict
-
-k_orig = defaultdict(float)
+k_orig = {}
 k_orig[(7,)] = -4.09675571370734e-07
 k_orig[(8,)] = 2.611198709841396e-07
 k_orig[(9,)] = -1.0139861057736511e-09

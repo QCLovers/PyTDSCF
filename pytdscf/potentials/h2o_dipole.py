@@ -1,7 +1,5 @@
 # output from gaussian
-from collections import defaultdict
-
-mu = defaultdict(float)
+mu = {}
 mu[()] = [-1.69908e-15, 1.24913e-14, -1.93795e00]
 mu[(3,)] = [-2.20831e-17, 8.53527e-03, -8.32759e-16]
 mu[(2,)] = [1.50857e-17, 2.08217e-15, -3.26347e-03]

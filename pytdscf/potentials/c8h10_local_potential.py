@@ -1,6 +1,4 @@
-from collections import defaultdict
-
-k_orig = defaultdict(float)
+k_orig = {}
 k_orig[(9,)] = 6.579162442806329e-09
 k_orig[(10,)] = 1.7110669985920903e-09
 k_orig[(11,)] = 2.941230354952756e-08

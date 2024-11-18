@@ -1,8 +1,6 @@
 # output from g16
 # noraml coodinate
-from collections import defaultdict
-
-mu = defaultdict(float)
+mu = {}
 mu[()] = [2.08920e00, -6.89625e-06, 4.08885e-04]
 mu[(6,)] = [-4.56816e-06, 2.46763e-02, 3.10704e-08]
 mu[(5,)] = [1.43667e-02, 8.22097e-06, 9.66802e-07]

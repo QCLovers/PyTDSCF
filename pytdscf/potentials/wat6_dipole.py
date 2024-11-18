@@ -1,7 +1,5 @@
 # grid dipole surface from MakePES
-from collections import defaultdict
-
-mu = defaultdict(float)
+mu = {}
 mu[(36,)] = [7.391415559096e-03, 8.835508276801e-03, 5.508325956296e-03]
 mu[(36, 36)] = [-1.840318305654e-04, -1.764446118458e-04, -7.415850698795e-05]
 mu[(36, 36, 36)] = [

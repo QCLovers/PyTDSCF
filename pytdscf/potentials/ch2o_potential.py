@@ -1,7 +1,5 @@
 # output from g16
-from collections import defaultdict
-
-k_orig = defaultdict(float)
+k_orig = {}
 k_orig[(1, 1)] = 2.8811410283972870e-05
 k_orig[(2, 2)] = 3.2448494255464496e-05
 k_orig[(3, 3)] = 4.7254662640164190e-05
