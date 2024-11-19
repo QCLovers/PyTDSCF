@@ -42,9 +42,11 @@ class Model:
 
     """
 
-    init_weight_GRID: list[list[float]] | None = None
     init_weight_VIBSTATE: list[list[float]] | None = None
     init_weight_ESTATE: list[float] | None = None
+    init_HartreeProduct: list[list[list[float]]] | None = (
+        None  # [state][dof][basis]
+    )
     ints_prim_file: str | None = None
     m_aux_max: int | None = None
 

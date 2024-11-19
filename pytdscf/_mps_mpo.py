@@ -71,19 +71,28 @@ class MPSCoefMPO(MPSCoef):
                 nspf_list_cas[istate], ndof_per_sites_cas
             )
             weight = weight_estate[istate]
-            dvr_unitary = [
-                dvr_prim.get_unitary()
-                if isinstance(dvr_prim := model.get_primbas(istate, idof), HO)
-                or isinstance(dvr_prim, _HO)
-                else None
-                for idof in range(model.get_ndof())
-            ]
-            superblock = lattice_info.alloc_superblock_random(
-                m_aux_max,
-                math.sqrt(weight),
-                weight_vib=weight_vib[istate],
-                site_unitary=dvr_unitary,  # type: ignore
-            )
+            if model.init_HartreeProduct is not None:
+                superblock = lattice_info.alloc_superblock_random(
+                    m_aux_max,
+                    math.sqrt(weight),
+                    weight_vib=model.init_HartreeProduct[istate],
+                )
+            else:
+                dvr_unitary = [
+                    dvr_prim.get_unitary()
+                    if isinstance(
+                        dvr_prim := model.get_primbas(istate, idof), HO
+                    )
+                    or isinstance(dvr_prim, _HO)
+                    else None
+                    for idof in range(model.get_ndof())
+                ]
+                superblock = lattice_info.alloc_superblock_random(
+                    m_aux_max,
+                    math.sqrt(weight),
+                    weight_vib=weight_vib[istate],
+                    site_unitary=dvr_unitary,  # type: ignore
+                )
             superblock_states.append(superblock)
             lattice_info_states.append(lattice_info)
 

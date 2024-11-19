@@ -1,6 +1,6 @@
 [project]
 name = "pytdscf"
-version = "1.0.2"
+version = "1.0.3"
 description = "Quantum dynamics simulator using tensor networks"
 authors = [
     { name = "Kentaro Hino", email = "hino@theoc.kuchem.kyoto-u.ac.jp" },
