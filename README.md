@@ -68,7 +68,7 @@ See [Here](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html) !!
     $ git clone https://github.com/QCLovers/PyTDSCF.git
     $ cd PyTDSCF
     $ uv version
-    uv 0.4.18 (7b55e9790 2024-10-01)
+    uv 0.5.4 (c62c83c37 2024-11-20)
     $ uv sync --all-extras
     ```
     will install all dependencies including development tools.

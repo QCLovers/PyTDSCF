@@ -103,15 +103,13 @@ class TensorOperator:
         else:
             if mpo is not None:
                 assert isinstance(mpo, list)
-                only_diag = (
-                    len(mpo[0].shape) == 3
-                )  # We have to check each site is only_diag or not, thus this is not good.
+                only_diag = all(len(core.shape) == 3 for core in mpo)
                 bond_dimension = [1]
                 for core in mpo:
                     bond_dimension.append(core.shape[-1])
                 bond_dimension.append(1)
                 self.bond_dimension = bond_dimension
-                shape = tuple([i for i in core.shape[1:-1] for core in mpo])
+                shape = tuple([i for _core in mpo for i in _core.shape[1:-1]])
                 self.tensor_decomposed = mpo
 
             if shape is None and tensor is None:
@@ -128,17 +126,30 @@ class TensorOperator:
                 self.tensor_orig = tensor
             self.only_diag = only_diag
             if legs is None:
-                if only_diag:
-                    self.legs = tuple([idof for idof in range(len(self.shape))])
+                if isinstance(mpo, list):
+                    _legs = []
+                    for i, core in enumerate(mpo):
+                        if core.ndim == 3:
+                            _legs.append(i)
+                        elif core.ndim == 4:
+                            _legs.extend([i, i])
+                        else:
+                            raise ValueError(
+                                f"core.ndim must be 3 or 4, but {core.ndim}"
+                            )
+                    self.legs = tuple(_legs)
                 else:
-                    self.legs = tuple(
-                        [idof // 2 for idof in range(len(self.shape))]
-                    )
+                    if only_diag:
+                        self.legs = tuple([i for i in range(len(self.shape))])
+                    else:
+                        raise ValueError(
+                            "leg is ambiguous. Please give leg argument."
+                        )
             else:
                 self.legs = legs
-                assert len(self.legs) == len(
-                    self.shape
-                ), "Tensor shape is not correspond to tensor legs"
+                assert (
+                    len(self.legs) == len(self.shape)
+                ), f"Tensor shape {self.shape} and legs {self.legs} are different"
 
     @property
     def dtype(self) -> np.dtype:
@@ -165,32 +176,7 @@ class TensorOperator:
             add_legs=self.legs, add_shape=self.shape
         )
         if tensor_op1.only_diag ^ tensor_op2.only_diag:
-            if tensor_op1.only_diag:
-                diag_tensor = tensor_op1
-                nondiag_tensor = tensor_op2
-            else:
-                diag_tensor = tensor_op2
-                nondiag_tensor = tensor_op1
-            if (
-                nondiag_tensor.shape[1::2]
-                == nondiag_tensor.shape[0::2]
-                == diag_tensor.shape
-                and nondiag_tensor.legs[1::2]
-                == nondiag_tensor.legs[0::2]
-                == diag_tensor.legs
-            ):
-                to = TensorOperator(
-                    tensor=deepcopy(nondiag_tensor.tensor_orig),
-                    legs=nondiag_tensor.legs,
-                    only_diag=False,
-                )
-                for leg in product(*[range(n) for n in diag_tensor.shape]):
-                    to.tensor_orig[self._repeat_leg(leg_diag=leg)] += (
-                        diag_tensor.tensor_orig[leg]
-                    )
-                return to
-            else:
-                raise ValueError("Tensor shape or legs are different.")
+            raise NotImplementedError
         else:
             if (
                 tensor_op1.shape == tensor_op2.shape

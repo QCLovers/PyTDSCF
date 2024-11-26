@@ -12,6 +12,14 @@ pytdscf.basis.abc module
    :undoc-members:
    :show-inheritance:
 
+pytdscf.basis.exciton module
+----------------------------
+
+.. automodule:: pytdscf.basis.exciton
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pytdscf.basis.exponential module
 --------------------------------
 

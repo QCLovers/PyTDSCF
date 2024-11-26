@@ -309,7 +309,7 @@ def short_iterative_lanczos(
             psi_next_sv = psi_next
     raise ValueError(
         f"Short Iterative Lanczos is not converged in {ldim} basis."
-        + "Try shoter time interval."
+        + "Try shorter time interval."
     )
 
 

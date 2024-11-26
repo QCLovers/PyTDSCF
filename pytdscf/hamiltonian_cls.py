@@ -652,11 +652,7 @@ class TensorHamiltonian(HamiltonianMixin):
             if potential[i][j] is not None:
                 for key, tensor in potential[i][j].items():
                     if key == ():
-                        if not (
-                            isinstance(tensor, float)
-                            or isinstance(tensor, complex)
-                            or isinstance(tensor, int)
-                        ):
+                        if not (isinstance(tensor, float | complex | int)):
                             raise ValueError(
                                 f"scalar term must be scalar but {tensor} is {type(tensor)}"
                             )
