@@ -159,7 +159,9 @@ class TensorOperator:
             return self.tensor_decomposed[0].dtype
 
     def __str__(self) -> str:
-        dum = self.tensor_orig.__str__()
+        dum = ""
+        if hasattr(self, "tensor_orig"):
+            dum += self.tensor_orig.__str__()
         if hasattr(self, "tensor_decomposed"):
             dum += "\n" + self.tensor_decomposed.__str__()
         return dum

@@ -3,14 +3,24 @@ from jax import config
 from . import (
     dvr_operator_cls,
     hamiltonian_cls,
-    property,
+    properties,
     spectra,
     units,
     util,
     wavefunction,
 )
 from .__version__ import __version__
-from .basis import Exponential, HarmonicOscillator, PrimBas_HO, Sine
+from .basis import Exciton, Exponential, HarmonicOscillator, PrimBas_HO, Sine
+from .dvr_operator_cls import (
+    construct_fulldimensional,
+    construct_kinetic_operator,
+    construct_nMR_recursive,
+)
+from .hamiltonian_cls import (
+    TensorHamiltonian,
+    TensorOperator,
+    read_potential_nMR,
+)
 from .model_cls import BasInfo, Model
 from .simulator_cls import Simulator
 
@@ -21,7 +31,7 @@ __all__ = [
     "__version__",
     "dvr_operator_cls",
     "hamiltonian_cls",
-    "property",
+    "properties",
     "spectra",
     "units",
     "util",
@@ -32,5 +42,12 @@ __all__ = [
     "HarmonicOscillator",
     "Sine",
     "Exponential",
+    "Exciton",
     "PrimBas_HO",
+    "TensorHamiltonian",
+    "TensorOperator",
+    "construct_kinetic_operator",
+    "construct_nMR_recursive",
+    "construct_fulldimensional",
+    "read_potential_nMR",
 ]

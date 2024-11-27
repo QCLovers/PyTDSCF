@@ -8,6 +8,7 @@ import copy
 import itertools
 import math
 from abc import ABC, abstractmethod
+from functools import partial
 from logging import getLogger
 from time import time
 
@@ -507,7 +508,9 @@ class MPSCoef(ABC):
             multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matC_states, matOp)  # type: ignore
 
         expectation_value = _integrator.expectation_Op(
-            matC_states, multiplyH, matC_states
+            matC_states,  # type: ignore
+            multiplyH,
+            matC_states,  # type: ignore
         )
         return expectation_value
 
@@ -524,6 +527,12 @@ class MPSCoef(ABC):
         Returns:
             complex: auto-correlation value
         """
+        nstate = len(self.superblock_states)
+        if const.use_jax and const.standard_method and nstate == 1:
+            # If the site basis is not orthogonal, the following code will not work.
+            cores = self.superblock_states[0]
+            return complex(_autocorr_single_state_jax(cores))
+
         self.assert_psite_canonical(psite)
         superblock_states = self.superblock_states
         nstate = len(superblock_states)
@@ -554,7 +563,7 @@ class MPSCoef(ABC):
 
         autocorr_tdh = 1.0 + 0.0j
         if "enable_tdh_dofs" in const.keys:
-            for statepair in itertools.product(range(self.nstate), repeat=2):
+            for statepair in itertools.product(range(nstate), repeat=2):
                 autocorr_tdh *= complex(
                     np.prod(
                         [
@@ -912,7 +921,7 @@ class MPSCoef(ABC):
                 superblock[psite - 1] = SiteCoef(matC, "C")
 
     def _get_normalized_reduced_density(
-        self, istate: int, dof_pair: tuple[int, ...]
+        self, istate: int, remain_nleg: tuple[int, ...]
     ) -> np.ndarray | jax.Array:
         """
         Wavefunction is written by
@@ -921,53 +930,78 @@ class MPSCoef(ABC):
 
         if dof_pair = (0, 2), then the reduced density matrix is
 
-        |ρ>[0, 1] = Tr_{1, 3, ..., f-1} |Ψ><Ψ|
+        |ρ>[0, 2] = Tr_{1, 3, ..., f-1} |Ψ><Ψ|
 
         Contraction of tensor cores should be executed from right to left.
 
         """
         assert self.is_psite_canonical(0)
-        core = self.superblock_states[istate][dof_pair[-1]].data
-        if use_jax := isinstance(core, jax.Array):
-            """
-            i‾|‾k
-              j |
-            a_|_k
-            """
-            density = jnp.einsum("ijk,ajk->iaj", jnp.conj(core), core)
+        cores = [
+            self.superblock_states[istate][isite].data
+            for isite in range(len(remain_nleg))
+        ]
+        if isinstance(cores[0], jax.Array):
+            return _get_normalized_reduced_density_jax(cores, remain_nleg)
         else:
-            density = np.einsum("ijk,ajk->iaj", np.conj(core), core)
-        for isite in range(dof_pair[-1] - 1, -1, -1):
-            core = self.superblock_states[istate][isite].data
-            if isite in dof_pair:
+            core = cores.pop()
+            nleg = remain_nleg[-1]
+            if nleg == 0:
+                raise ValueError("The number of legs must be greater than 0.")
+            elif nleg == 1:
                 """
-                l‾|‾i i‾|‾˙˙˙‾|
-                  m     ...   |
-                b_|_a a_|_..._|
+                i‾|‾k k‾|‾˙˙˙‾|
+                  j     |     |
+                a_|_k k_|_..._|
                 """
-                subscript = "lmi,bma,ia...->lbm..."
+                subscript = "ijk,ajk->iaj"
+            elif nleg == 2:
+                """
+                i‾|‾k k‾|‾˙˙˙‾|
+                  j     |     |
+                  l     |     |
+                a_|_k k_|_..._|
+                """
+                subscript = "ijk,alk->iajl"
             else:
-                subscript = "lmi,bma,ia...->lb..."
-            if use_jax:
-                density = jnp.einsum(subscript, jnp.conj(core), core, density)
-            else:
+                raise ValueError("The number of legs must be less than 3.")
+            density = np.einsum(subscript, np.conj(core), core)
+            isite = len(remain_nleg) - 1
+            while cores:
+                isite -= 1
+                nleg = remain_nleg[isite]
+                core = cores.pop()
+                if nleg == 2:
+                    # when dof_pair contains one isite
+                    """
+                    l‾|‾i i‾|‾˙˙˙‾|
+                      n     ...   |
+                      m     ...   |
+                    b_|_a a_|_..._|
+                    """
+                    subscript = "lmi,bna,ia...->lbmn..."
+                elif nleg == 1:
+                    """
+                    l‾|‾i i‾|‾˙˙˙‾|
+                      m     ...   |
+                    b_|_a a_|_..._|
+                    """
+                    subscript = "lmi,bma,ia...->lbm..."
+                elif nleg == 0:
+                    subscript = "lmi,bma,ia...->lb..."
+                else:
+                    raise ValueError("The number of legs must be less than 3.")
                 density = contract(subscript, np.conj(core), core, density)
-
-        if use_jax:
-            density = jnp.einsum("ij...->...", density)
-        else:
-            density = np.einsum("ij...->...", density)
-
-        return density
+            assert isite == 0
+            return density[0, 0, ...]
 
     def get_reduced_densities(
-        self, dof_pair: tuple[int, ...]
+        self, remain_nleg: tuple[int, ...]
     ) -> list[np.ndarray]:
         reduced_densities = []
         nstate = len(self.superblock_states)
         for istate in range(nstate):
             _reduced_density = self._get_normalized_reduced_density(
-                istate, dof_pair
+                istate, remain_nleg
             )
             if isinstance(_reduced_density, jax.Array):
                 reduced_density = np.array(_reduced_density)
@@ -1630,3 +1664,93 @@ def print_gauge(superblock_states: list[list[SiteCoef]]):
         logger.debug(f"gauge of state-{istate}: ")
         for isite, site_coef in enumerate(superblock):
             logger.debug(f"{isite}: {site_coef.gauge}")
+
+
+@partial(jax.jit, static_argnames=("remain_nleg",))
+def _get_normalized_reduced_density_jax(
+    cores: list[jax.Array],
+    remain_nleg: tuple[int, ...],
+) -> jax.Array:
+    """
+    Wavefunction is written by
+
+    |Ψ> = C[0] R[1] R[2] ... R[f-1]
+
+    if dof_pair = (0, 2), then the reduced density matrix is
+
+    |ρ>[0, 2] = Tr_{1, 3, ..., f-1} |Ψ><Ψ|
+
+    Contraction of tensor cores should be executed from right to left.
+
+    """
+    core = cores.pop()
+    nleg = remain_nleg[-1]
+    if nleg == 2:
+        """
+        i‾|‾k k‾|‾˙˙˙‾|
+          j     |     |
+          l     |     |
+        a_|_k k_|_..._|
+        """
+        subscript = "ijk,alk->iajl"
+    elif nleg == 1:
+        """
+        i‾|‾k k‾|‾˙˙˙‾|
+          j     |     |
+        a_|_k k_|_..._|
+        """
+        subscript = "ijk,ajk->iaj"
+    else:
+        raise ValueError(
+            "The number of legs must be either 1 or 2 at the last site."
+        )
+    density = jnp.einsum(subscript, jnp.conj(core), core)
+    isite = len(remain_nleg) - 1
+    while cores:
+        core = cores.pop()
+        isite -= 1
+        nleg = remain_nleg[isite]
+        if nleg == 2:
+            """
+            l‾|‾i i‾|‾˙˙˙‾|
+              n     ...   |
+              m     ...   |
+            b_|_a a_|_..._|
+            """
+            subscript = "lmi,bna,ia...->lbmn..."
+        elif nleg == 1:
+            """
+            l‾|‾i i‾|‾˙˙˙‾|
+              m     ...   |
+            b_|_a a_|_..._|
+            """
+            subscript = "lmi,bma,ia...->lbm..."
+        elif nleg == 0:
+            subscript = "lmi,bma,ia...->lb..."
+        else:
+            raise ValueError("The number of legs must be less than 3.")
+        density = jnp.einsum(subscript, jnp.conj(core), core, density)
+    assert isite == 0
+    return density[0, 0, ...]
+
+
+@jax.jit
+def _autocorr_single_state_jax(cores: list[jax.Array]) -> jax.Array:
+    """
+    i‾|‾k
+      j |
+    a_|_k
+    """
+    a = cores.pop()
+    adag = jnp.conj(a)
+    autocorr = jnp.einsum("ij,aj->ia", adag[:, :, 0], a[:, :, 0])
+    while cores:
+        a = cores.pop()
+        adag = jnp.conj(a)
+        """
+        l‾|‾i‾|
+          j   |
+        b_|_a_|
+        """
+        autocorr = jnp.einsum("lji,bja,ia->lb", adag, a, autocorr)
+    return autocorr[0, 0]

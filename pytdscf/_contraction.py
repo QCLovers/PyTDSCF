@@ -118,7 +118,7 @@ def contract_with_site_mpo(
     mat_bra: SiteCoef,
     mat_ket: SiteCoef,
     op_LorR: int | np.ndarray | jax.Array,
-    op_site: OperatorCore,
+    op_site: OperatorCore | int,
 ) -> np.ndarray | jax.Array:
     r"""Contraction between p-site bra, p-site ket, p-site operator and side-block
 
@@ -192,17 +192,19 @@ def contract_with_site_mpo(
         coef_ket = np.array(mat_ket)
 
     operator: list[jax.Array] | list[np.ndarray] = [coef_bra, coef_ket]  # type: ignore
-    assert isinstance(op_site, OperatorCore)
-    if op_site.only_diag:
-        contraction = contraction.replace("prsq", "psq").replace("r", "s")
+    if isinstance(op_site, int):
+        contraction = (
+            contraction.replace(",prsq", "").replace("r", "s").replace("p", "q")
+        )
     else:
-        assert isinstance(op_site.data, np.ndarray | jax.Array)
-        assert (
-            len(op_site.data.shape) == 4
-        ), f"op_site.data.shape = {op_site.data.shape}"
-    data = op_site.data
-    assert isinstance(data, np.ndarray | jax.Array)
-    operator.append(data)  # type: ignore
+        assert isinstance(op_site, OperatorCore), f"op_site = {op_site}"
+        data = op_site.data
+        assert isinstance(data, np.ndarray | jax.Array)
+        if op_site.only_diag:
+            contraction = contraction.replace("prsq", "psq").replace("r", "s")
+        else:
+            assert len(data.shape) == 4, f"op_site.data.shape = {data.shape}"
+        operator.append(data)  # type: ignore
     # if is_unitmat_op(op_LorR):
     if isinstance(op_LorR, int):
         if mat_bra.gauge == "L":
@@ -777,7 +779,7 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         return sig_lcr
 
     # @profile
-    def dot(self, trial_states):
+    def dot(self, trial_states) -> list[np.ndarray] | list[jax.Array]:
         """Only supported MPO"""
         if const.use_jax:
             sigvec_states = get_zeros_sigvec_states(trial_states)

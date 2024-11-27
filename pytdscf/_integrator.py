@@ -5,6 +5,7 @@ Integrator module for MPS time evolution & diagonalization.
 from __future__ import annotations
 
 import cmath
+from typing import overload
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +13,22 @@ import numpy as np
 import scipy.linalg
 
 from pytdscf._helper import _Debug
+
+
+@overload
+def expectation_Op(
+    bra_states: list[np.ndarray],
+    multiplyOp,
+    ket_states: list[np.ndarray],
+) -> complex: ...
+
+
+@overload
+def expectation_Op(
+    bra_states: list[jax.Array],
+    multiplyOp,
+    ket_states: list[jax.Array],
+) -> complex: ...
 
 
 def expectation_Op(
@@ -188,6 +205,24 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
     raise ValueError("Short Iterative Arnoldi is not converged in 20 basis")
 
 
+@overload
+def short_iterative_lanczos(
+    scale: float | complex,
+    multiplyOp,
+    psi_states: list[np.ndarray],
+    thresh: float,
+) -> list[np.ndarray]: ...
+
+
+@overload
+def short_iterative_lanczos(
+    scale: float | complex,
+    multiplyOp,
+    psi_states: list[jax.Array],
+    thresh: float,
+) -> list[jax.Array]: ...
+
+
 def short_iterative_lanczos(
     scale: float | complex,
     multiplyOp,
@@ -229,7 +264,8 @@ def short_iterative_lanczos(
             max(0, int(_Debug.niter_krylov / _Debug.ncall_krylov) - 2), 15
         )
 
-    ndim = min(sum([x.size for x in psi_states]), 20)
+    maxsize = sum([x.size for x in psi_states])
+    ndim = min(maxsize, 20)
     # short iterative lanczos should converge in a few steps
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
@@ -278,14 +314,16 @@ def short_iterative_lanczos(
         if ldim == 0:
             psi_next = psi * cmath.exp(scale * alpha[-1])
         else:
-            # Calculation of eigenvectors is not implemented in JAX
-            eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(alpha, beta[:-1])
-            expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
-            eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+            # If jax.scipy.linalg.eigh_tridiagonal(eigvals_only=True) is available,
+            # we will change whole loop implemented in JAX.
             if use_jax:
-                eigvec_expLU = jnp.array(eigvec_expLU, dtype=jnp.complex128)
-                psi_next = jnp.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+                psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
             else:
+                eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
+                    alpha, beta[:-1]
+                )
+                expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
+                eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
                 psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
         if is_converged:
             _Debug.niter_krylov += ldim
@@ -298,7 +336,7 @@ def short_iterative_lanczos(
                 err = jnp.linalg.norm(psi_next - psi_next_sv)
             else:
                 err = scipy.linalg.norm(psi_next - psi_next_sv)
-            if err < thresh:
+            if err < thresh or ldim == maxsize:
                 _Debug.niter_krylov += ldim
                 # |C| should be 1.0
                 if use_jax:
@@ -337,3 +375,21 @@ def _next_sigvec_cvecs_alpha_beta(
     sigvec /= beta
     cvecs = stack_to_cvecs(sigvec, cvecs)
     return sigvec, cvecs, alpha.astype(jnp.float64), beta.astype(jnp.float64)  # type: ignore
+
+
+@jax.jit
+def _get_psi_next_jax(
+    a: list[float], b: list[float], cvecs: jax.Array, scale: float | complex
+) -> jax.Array:
+    _a = jnp.array(a, dtype=jnp.float64)
+    _b = jnp.array(b, dtype=jnp.float64)
+    mat = jnp.diag(_a, 0) + jnp.diag(_b, -1) + jnp.diag(_b, 1)
+    eigvals, eigvecs = jax.scipy.linalg.eigh(
+        mat,
+        # lower=True,
+        eigvals_only=False,
+    )
+    expLU = jnp.exp(scale * eigvals) * jnp.conjugate(eigvecs).T[:, 0]
+    eigvec_expLU = jnp.einsum("ij,j->i", eigvecs, expLU)
+    psi_next = jnp.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+    return psi_next
