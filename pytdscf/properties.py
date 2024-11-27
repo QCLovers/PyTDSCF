@@ -29,7 +29,15 @@ class Properties:
         expectations (List[float]): observables of given operator
     """
 
-    def __init__(self, wf, model, time=0.0, t2_trick=True, wf_init=None):
+    def __init__(
+        self,
+        wf,
+        model,
+        time=0.0,
+        t2_trick=True,
+        wf_init=None,
+        reduced_density=None,
+    ):
         self.wf = wf
         self.model = model
         self.time = time
@@ -46,6 +54,29 @@ class Properties:
         self.nc_file: str | None = None
         assert t2_trick or (wf_init is None)
 
+        if reduced_density is not None:
+            self.rd_step = reduced_density[1]
+            self.remain_legs: list[tuple[int, ...]] | None = []
+            self.rd_keys = []
+            for key in reduced_density[0]:
+                rd_points = sorted(key, reverse=True)
+                _remain_legs = [0 for isite in range(rd_points[0] + 1)]
+                isite = 0
+                while rd_points:
+                    if isite == rd_points[-1]:
+                        _remain_legs[isite] += 1
+                        rd_points.pop()
+                    else:
+                        isite += 1
+                assert all([0 <= leg <= 2 for leg in _remain_legs])
+                self.remain_legs.append(tuple(_remain_legs))
+                self.rd_keys.append(key)
+            if self.nc_file is None:
+                self.nc_file = self._create_nc_file(reduced_density)
+        else:
+            self.rd_step = None
+            self.remain_legs = None
+
     def get_properties(
         self,
         autocorr=True,
@@ -53,7 +84,6 @@ class Properties:
         norm=True,
         populations=True,
         observables=True,
-        reduced_density=None,
     ):
         if autocorr:
             self._get_autocorr()
@@ -65,25 +95,25 @@ class Properties:
             self._get_pops()
         if observables:
             self._get_observables()
-        if reduced_density is not None:
-            if self.nc_file is None:
-                self.nc_file = self._create_nc_file(reduced_density)
-            self._export_reduced_density(reduced_density)
+        if self.remain_legs is not None:
+            if self.nstep % self.rd_step == 0:
+                self._export_reduced_density()
 
-    def _export_reduced_density(
-        self, reduced_density: tuple[list[tuple[int, ...]], int]
-    ):
-        if self.nstep % reduced_density[1] == 0:
-            assert isinstance(self.nc_file, str)
-            with nc.Dataset(self.nc_file, "a") as f:
-                f.variables["time"][self.nc_row] = self.time * units.au_in_fs
-                for key in reduced_density[0]:
-                    densities = self.wf.get_reduced_densities(key)
-                    for istate in range(self.model.nstate):
-                        f.variables[f"rho_{key}_{istate}"][self.nc_row] = (
-                            densities[istate].real
-                        )
-            self.nc_row += 1
+    def _export_reduced_density(self):
+        assert isinstance(self.nc_file, str)
+        assert isinstance(self.remain_legs, list)
+        with nc.Dataset(self.nc_file, "a") as f:
+            # Maybe we should keep files open while the simulation is running.
+            f.variables["time"][self.nc_row] = self.time * units.au_in_fs
+            for remain_leg, key in zip(
+                self.remain_legs, self.rd_keys, strict=True
+            ):
+                densities = self.wf.get_reduced_densities(remain_leg)
+                for istate in range(self.model.nstate):
+                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = densities[
+                        istate
+                    ].real
+        self.nc_row += 1
 
     def _create_nc_file(
         self, reduced_density: tuple[list[tuple[int, ...]], int]

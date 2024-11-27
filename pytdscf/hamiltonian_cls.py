@@ -6,6 +6,7 @@ import itertools
 import math
 import random
 from logging import getLogger
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -621,12 +622,14 @@ class TensorHamiltonian(HamiltonianMixin):
             list[dict[tuple[int | tuple[int, int], ...], TensorOperator]]
         ],
         name: str = "hamiltonian",
-        kinetic: list[list[dict[tuple[int, int], TensorOperator] | None]]
+        kinetic: list[
+            list[dict[tuple[tuple[int, int], ...], TensorOperator] | None]
+        ]
         | None = None,
-        decompose_type: str = "QRD",
+        decompose_type: Literal["QRD", "SVD"] = "QRD",
         rate: float | None = None,
         bond_dimension: list[int] | int | None = None,
-        backend="jax",
+        backend: Literal["jax", "numpy"] = "jax",
     ):
         """
         Args:

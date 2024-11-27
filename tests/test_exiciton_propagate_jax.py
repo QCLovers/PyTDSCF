@@ -20,7 +20,7 @@ prim_info = [HO(nprim, freq, units='cm-1') for freq in freqs_cm1] + [
 
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
-def test_exiciton_propagate_jax():
+def test_exiciton_propagate_jax(backend="jax"):
     """
     |Psi> = |HO1, HO2, HO3, E0>
 
@@ -147,7 +147,7 @@ def test_exiciton_propagate_jax():
         ]
     ]
     hamiltonian = TensorHamiltonian(
-        ndof=4, potential=potential, kinetic=kinetic, backend="jax"
+        ndof=4, potential=potential, kinetic=kinetic, backend=backend
     )
 
     operators = {"hamiltonian": hamiltonian}
@@ -160,9 +160,9 @@ def test_exiciton_propagate_jax():
     # Starts from the S1 state
 
     jobname = "LVC_Exciton_test"
-    simulator = Simulator(jobname, model, backend="jax")
-    simulator.propagate(stepsize=0.1, maxstep=20)
+    simulator = Simulator(jobname, model, backend=backend)
+    simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1))
 
 
 if __name__ == "__main__":
-    test_exiciton_propagate_jax()
+    test_exiciton_propagate_jax(backend='numpy')
