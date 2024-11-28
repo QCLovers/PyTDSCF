@@ -264,7 +264,8 @@ def short_iterative_lanczos(
             max(0, int(_Debug.niter_krylov / _Debug.ncall_krylov) - 2), 15
         )
 
-    ndim = min(sum([x.size for x in psi_states]), 20)
+    maxsize = sum([x.size for x in psi_states])
+    ndim = min(maxsize, 20)
     # short iterative lanczos should converge in a few steps
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
@@ -335,7 +336,7 @@ def short_iterative_lanczos(
                 err = jnp.linalg.norm(psi_next - psi_next_sv)
             else:
                 err = scipy.linalg.norm(psi_next - psi_next_sv)
-            if err < thresh:
+            if err < thresh or ldim == maxsize:
                 _Debug.niter_krylov += ldim
                 # |C| should be 1.0
                 if use_jax:
@@ -382,9 +383,11 @@ def _get_psi_next_jax(
 ) -> jax.Array:
     _a = jnp.array(a, dtype=jnp.float64)
     _b = jnp.array(b, dtype=jnp.float64)
-    lower_mat = jnp.diag(_a, 0) + jnp.diag(_b, -1)
+    mat = jnp.diag(_a, 0) + jnp.diag(_b, -1) + jnp.diag(_b, 1)
     eigvals, eigvecs = jax.scipy.linalg.eigh(
-        lower_mat, lower=True, eigvals_only=False
+        mat,
+        # lower=True,
+        eigvals_only=False,
     )
     expLU = jnp.exp(scale * eigvals) * jnp.conjugate(eigvecs).T[:, 0]
     eigvec_expLU = jnp.einsum("ij,j->i", eigvecs, expLU)
