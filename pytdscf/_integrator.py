@@ -317,7 +317,17 @@ def short_iterative_lanczos(
             # If jax.scipy.linalg.eigh_tridiagonal(eigvals_only=True) is available,
             # we will change whole loop implemented in JAX.
             if use_jax:
-                psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
+                # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale) # This method is slow when using GPU
+                eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
+                    alpha, beta[:-1]
+                )
+                expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
+                eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+                psi_next = jnp.einsum(
+                    "kj,k->j",
+                    cvecs[:-1, :],
+                    jnp.array(eigvec_expLU, dtype=jnp.complex128),
+                )
             else:
                 eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
                     alpha, beta[:-1]
@@ -381,6 +391,7 @@ def _next_sigvec_cvecs_alpha_beta(
 def _get_psi_next_jax(
     a: list[float], b: list[float], cvecs: jax.Array, scale: float | complex
 ) -> jax.Array:
+    # This method is slow when using GPU
     _a = jnp.array(a, dtype=jnp.float64)
     _b = jnp.array(b, dtype=jnp.float64)
     mat = jnp.diag(_a, 0) + jnp.diag(_b, -1) + jnp.diag(_b, 1)
