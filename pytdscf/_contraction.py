@@ -777,7 +777,7 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         return sig_lcr
 
     # @profile
-    def dot(self, trial_states):
+    def dot(self, trial_states) -> list[np.ndarray] | list[jax.Array]:
         """Only supported MPO"""
         if const.use_jax:
             sigvec_states = get_zeros_sigvec_states(trial_states)

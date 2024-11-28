@@ -508,7 +508,9 @@ class MPSCoef(ABC):
             multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matC_states, matOp)  # type: ignore
 
         expectation_value = _integrator.expectation_Op(
-            matC_states, multiplyH, matC_states
+            matC_states,  # type: ignore
+            multiplyH,
+            matC_states,  # type: ignore
         )
         return expectation_value
 
