@@ -4,6 +4,7 @@ import os
 from logging import getLogger
 
 import netCDF4 as nc
+import numpy as np
 
 import pytdscf._helper as helper
 from pytdscf import units
@@ -102,6 +103,7 @@ class Properties:
     def _export_reduced_density(self):
         assert isinstance(self.nc_file, str)
         assert isinstance(self.remain_legs, list)
+        complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
         with nc.Dataset(self.nc_file, "a") as f:
             # Maybe we should keep files open while the simulation is running.
             f.variables["time"][self.nc_row] = self.time * units.au_in_fs
@@ -110,9 +112,10 @@ class Properties:
             ):
                 densities = self.wf.get_reduced_densities(remain_leg)
                 for istate in range(self.model.nstate):
-                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = densities[
-                        istate
-                    ].real
+                    data = np.empty(densities[istate].shape, complex128)
+                    data["real"] = densities[istate].real
+                    data["imag"] = densities[istate].imag
+                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
         self.nc_row += 1
 
     def _create_nc_file(
@@ -128,6 +131,8 @@ class Properties:
         ) as f:
             f.createDimension("step", None)
             f.createDimension("state", self.model.nstate)
+            complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
+            complex128_t = f.createCompoundType(complex128, "complex128")
             modes = set()
             for key in reduced_density[0]:
                 # key must be ascending order.
@@ -148,7 +153,9 @@ class Properties:
                     )
                 for istate in range(self.model.nstate):
                     dimensions = ("step",) + tuple(f"Q{idof}" for idof in key)
-                    f.createVariable(f"rho_{key}_{istate}", "f8", dimensions)
+                    f.createVariable(
+                        f"rho_{key}_{istate}", complex128_t, dimensions
+                    )
         return path_to_nc
 
     def _get_autocorr(self):
