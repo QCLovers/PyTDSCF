@@ -308,7 +308,7 @@ def short_iterative_lanczos(
         if is_converged := (beta[-1] < 1e-15):
             pass
         else:
-            if ldim < nstep_skip_conv_check:
+            if ldim < min(nstep_skip_conv_check, maxsize):
                 continue
 
         if ldim == 0:
@@ -317,7 +317,8 @@ def short_iterative_lanczos(
             # If jax.scipy.linalg.eigh_tridiagonal(eigvals_only=True) is available,
             # we will change whole loop implemented in JAX.
             if use_jax:
-                # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale) # This method is slow when using GPU
+                # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
+                # # This method is slow when using GPU
                 eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
                     alpha, beta[:-1]
                 )
@@ -338,6 +339,16 @@ def short_iterative_lanczos(
         if is_converged:
             _Debug.niter_krylov += ldim
             return multiplyOp.split(psi_next)
+        elif ldim == maxsize:
+            # When Krylov subspace is the same as the whole space,
+            # calculated psi_next must be the exact solution.
+            # In this case `ncall_krylov` is not incremented.
+            _Debug.ncall_krylov -= 1
+            if use_jax:
+                psi_next /= jnp.linalg.norm(psi_next)
+            else:
+                psi_next /= np.linalg.norm(psi_next)
+            return multiplyOp.split(psi_next)
 
         if psi_next_sv is None:
             psi_next_sv = psi_next
@@ -346,7 +357,7 @@ def short_iterative_lanczos(
                 err = jnp.linalg.norm(psi_next - psi_next_sv)
             else:
                 err = scipy.linalg.norm(psi_next - psi_next_sv)
-            if err < thresh or ldim == maxsize:
+            if err < thresh:
                 _Debug.niter_krylov += ldim
                 # |C| should be 1.0
                 if use_jax:
@@ -356,8 +367,7 @@ def short_iterative_lanczos(
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
     raise ValueError(
-        f"Short Iterative Lanczos is not converged in {ldim} basis."
-        + "Try shorter time interval."
+        f"Short Iterative Lanczos is not converged in {ldim} basis when {maxsize=}. Try shorter time interval."
     )
 
 
