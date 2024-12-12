@@ -10,7 +10,14 @@ from . import (
     wavefunction,
 )
 from .__version__ import __version__
-from .basis import Exciton, Exponential, HarmonicOscillator, PrimBas_HO, Sine
+from .basis import (
+    Boson,
+    Exciton,
+    Exponential,
+    HarmonicOscillator,
+    PrimBas_HO,
+    Sine,
+)
 from .dvr_operator_cls import (
     construct_fulldimensional,
     construct_kinetic_operator,
@@ -37,6 +44,7 @@ __all__ = [
     "util",
     "wavefunction",
     "BasInfo",
+    "Boson",
     "Model",
     "Simulator",
     "HarmonicOscillator",

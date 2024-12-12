@@ -14,7 +14,7 @@ from pytdscf.units import au_in_cm1
 freqs_cm1 = [1000, 2000, 3000]
 omega2 = [(freq / au_in_cm1) ** 2 for freq in freqs_cm1]
 nspf = nprim = 8
-prim_info = [HO(nprim, freq, units='cm-1') for freq in freqs_cm1] + [
+prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
     Exciton(nstate=2, names=["S0", "S1"])
 ]
 
@@ -36,8 +36,8 @@ def test_exiciton_propagate_jax(backend="jax"):
     # lamb = 0.0002
     # kappa = 0.0001
 
-    dE = 0.01 # 0.27 eV
-    J = 0.001 # 0.027 eV
+    dE = 0.01  # 0.27 eV
+    J = 0.001  # 0.027 eV
     lamb = 0.0001
     kappa = 0.0001
 
@@ -105,11 +105,20 @@ def test_exiciton_propagate_jax(backend="jax"):
     W2_diag = np.zeros((4, nprim, nprim, 3), dtype=np.complex128)
     W2_diag[:, diag_indices, diag_indices, :] = W2
 
-    V = np.einsum("abcd,defg,ghij,klmn->behlcfim",
-                  W0_diag, W1_diag, W2_diag, W3)
-    V = V.reshape(nprim ** 3 * 2, nprim ** 3 * 2)
+    V = np.einsum(
+        "abcd,defg,ghij,klmn->behlcfim", W0_diag, W1_diag, W2_diag, W3
+    )
+    V = V.reshape(nprim**3 * 2, nprim**3 * 2)
     np.testing.assert_allclose(V, V.conj().T)
-    potential = [[{(0, 1, 2, (3, 3)): TensorOperator(mpo=potential_mpo, legs=(0, 1, 2, 3, 3))}]]
+    potential = [
+        [
+            {
+                (0, 1, 2, (3, 3)): TensorOperator(
+                    mpo=potential_mpo, legs=(0, 1, 2, 3, 3)
+                )
+            }
+        ]
+    ]
     kinetic_mpo = []
     """
     T = [0.5dq2 1] [[1 0.5dq2]  ... [[1     ]
@@ -154,9 +163,10 @@ def test_exiciton_propagate_jax(backend="jax"):
 
     model = Model(basinfo, operators)
     model.m_aux_max = 6
-    model.init_HartreeProduct = [[
-        ho.get_unitary()[0].tolist() for ho in prim_info[:3]
-    ] + [np.array([0.0, 1.0]).tolist()]]
+    model.init_HartreeProduct = [
+        [ho.get_unitary()[0].tolist() for ho in prim_info[:3]]
+        + [np.array([0.0, 1.0]).tolist()]
+    ]
     # Starts from the S1 state
 
     jobname = "LVC_Exciton_test"
@@ -165,4 +175,4 @@ def test_exiciton_propagate_jax(backend="jax"):
 
 
 if __name__ == "__main__":
-    test_exiciton_propagate_jax(backend='numpy')
+    test_exiciton_propagate_jax(backend="numpy")

@@ -85,16 +85,21 @@ class Properties:
         norm=True,
         populations=True,
         observables=True,
+        autocorr_per_step=1,
+        energy_per_step=1,
+        norm_per_step=1,
+        populations_per_step=1,
+        observables_per_step=1,
     ):
-        if autocorr:
+        if autocorr and self.nstep % autocorr_per_step == 0:
             self._get_autocorr()
-        if energy:
+        if energy and self.nstep % energy_per_step == 0:
             self._get_energy()
-        if norm:
+        if norm and self.nstep % norm_per_step == 0:
             self._get_norm()
-        if populations:
+        if populations and self.nstep % populations_per_step == 0:
             self._get_pops()
-        if observables:
+        if observables and self.nstep % observables_per_step == 0:
             self._get_observables()
         if self.remain_legs is not None:
             if self.nstep % self.rd_step == 0:
@@ -182,7 +187,7 @@ class Properties:
                 )
 
     def _get_energy(self):
-        self.energy = self.wf.expectation(self.model.observables["hamiltonian"])
+        self.energy = self.wf.expectation(self.model.hamiltonian)
 
     def _get_norm(self):
         self.norm = self.wf.norm()
@@ -197,9 +202,18 @@ class Properties:
             #         f'matOp {type(matOp)} is not implemented in Properties._get_observables')
             self.expectations[obs_key] = self.wf.expectation(matOp)
 
-    def export_properties(self):
-        self._export_autocorr()
-        self._export_populations()
+    def export_properties(
+        self,
+        autocorr_per_step=1,
+        populations_per_step=1,
+        observables_per_step=1,
+    ):
+        if self.nstep % autocorr_per_step == 0:
+            self._export_autocorr()
+        if self.nstep % populations_per_step == 0:
+            self._export_populations()
+        if self.nstep % observables_per_step == 0:
+            self._export_expectations()
         self._export_properties()
 
     def _export_autocorr(self):

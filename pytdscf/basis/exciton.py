@@ -1,6 +1,7 @@
 """
 Exciton basis module
 """
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -15,6 +16,7 @@ class Exciton:
             Defaults to None, in which case the names are set to ["S0", "S1", ...].
 
     """
+
     nstate: int
     names: list[str]
 
@@ -24,8 +26,12 @@ class Exciton:
             self.names = [f"S{i}" for i in range(nstate)]
         else:
             self.names = names
-        assert len(self.names) == nstate, f"len(names)={len(names)} != nstate={nstate}"
-        assert all(isinstance(name, str) for name in self.names), "names must be list of str"
+        assert (
+            len(self.names) == nstate
+        ), f"len(names)={len(names)} != nstate={nstate}"
+        assert all(
+            isinstance(name, str) for name in self.names
+        ), "names must be list of str"
 
     def get_creation_matrix(self) -> NDArray[np.float64]:
         """
@@ -84,5 +90,12 @@ if __name__ == "__main__":
     zero = np.array([0.0, 0.0])
     cmat = exciton.get_creation_matrix()
     amat = exciton.get_annihilation_matrix()
-    for state, mat, ans in zip([down, down, up, up], [cmat, amat, cmat, amat], [up, zero, zero, down]):
-        np.testing.assert_allclose(state @ mat, ans)
+    for state, mat, ans in zip(
+        [down, down, up, up],
+        [cmat, amat, cmat, amat],
+        [up, zero, zero, down],
+        strict=False,
+    ):
+        state = state.reshape(-1, 1)
+        ans = ans.reshape(-1, 1)
+        np.testing.assert_allclose(mat @ state, ans)

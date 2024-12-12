@@ -49,6 +49,7 @@ dev-dependencies = [
     "ruff>=0.7.0",
     "ase>=3.23.0",
     "netcdf4>=1.7.2",
+    "tqdm>=4.67.1",
 ]
 
 [tool.uv.sources]

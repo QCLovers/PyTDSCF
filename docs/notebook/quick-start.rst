@@ -14,6 +14,7 @@ Quick Start Examples
 .. _Example 9: grid-based-MPO-H2CO.html
 .. _Example 10: TD_reduced_density.html
 .. _Example 11: TD_reduced_density_exciton.html
+.. _Example 12: singlet_fission.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -36,6 +37,8 @@ Quick Start Examples
 | `Example 10`_ | Propagation | MPS-SM       | HDMR func  | Sine,Exp-DVR     | JAX        | periodic boundary condition    |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 11`_ | Propagation | MPS-SM       | Symbolic   | Exciton+Sine+Exp | JAX        | Same model as `Example 10`_    |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | JAX        | Singlet fission                |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
@@ -62,6 +65,7 @@ Quick Start Examples
    grid-based-MPO-H2CO.ipynb
    TD_reduced_density.ipynb
    TD_reduced_density_exciton.ipynb
+   singlet_fission.ipynb
 
 Indices and tables
 

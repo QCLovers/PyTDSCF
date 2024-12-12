@@ -11,7 +11,11 @@ from discvar.abc import DVRPrimitivesMixin
 
 import pytdscf
 from pytdscf._const_cls import const
-from pytdscf.hamiltonian_cls import HamiltonianMixin, PolynomialHamiltonian
+from pytdscf.hamiltonian_cls import (
+    HamiltonianMixin,
+    PolynomialHamiltonian,
+    TensorHamiltonian,
+)
 
 logger = getLogger("main").getChild(__name__)
 
@@ -58,7 +62,7 @@ class Model:
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
     ):
         self.basinfo = basinfo
-        self.hamiltonian = operators["hamiltonian"]
+        self.hamiltonian = operators.pop("hamiltonian")
         self.observables = operators
         self.build_td_hamiltonian = build_td_hamiltonian
         if self.hamiltonian.nstate != basinfo.get_nstate():
@@ -66,6 +70,7 @@ class Model:
                 "The number of states in Hamiltonian and BasInfo are different."
             )
         self.nstate = self.hamiltonian.nstate
+        self.use_mpo = isinstance(self.hamiltonian, TensorHamiltonian)
 
     def get_nstate(self) -> int:
         """
@@ -166,6 +171,9 @@ class BasInfo:
             isinstance(basis, pytdscf.basis.abc.DVRPrimitivesMixin)
             or isinstance(basis, DVRPrimitivesMixin)
             for basis in prim_info[0]
+        )
+        self.need_primints = any(
+            isinstance(basis, pytdscf.PrimBas_HO) for basis in prim_info[0]
         )
         if spf_info is None:
             if const.verbose > 1:

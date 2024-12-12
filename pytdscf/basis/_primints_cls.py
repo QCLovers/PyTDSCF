@@ -12,6 +12,7 @@ import numpy as np
 import scipy.special
 from discvar import HarmonicOscillator as HO
 
+import pytdscf
 from pytdscf import units
 from pytdscf.basis import HarmonicOscillator as _HO
 from pytdscf.basis import PrimBas_HO
@@ -278,11 +279,13 @@ class PrimInts:
 
     def __init__(self, model):
         self.set_ovi(model.basinfo)
-        if not model.basinfo.is_DVR:
+        assert isinstance(model.basinfo, pytdscf.BasInfo)
+        if model.basinfo.need_primints:
             self.set_poly_diag(model.basinfo)
             self.set_poly_nondiag(model.basinfo)
             for matOp in model.observables.values():
                 self.set_onesite(model.basinfo, matOp)
+            self.set_onesite(model.basinfo, model.hamiltonian)
         # NewIndx-BGN
         for state_pair in itertools.product(
             range(model.basinfo.get_nstate()), repeat=2

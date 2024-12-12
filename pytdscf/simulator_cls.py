@@ -141,6 +141,7 @@ class Simulator:
             use_jax=self.use_jax,
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
+            use_mpo=self.model.use_mpo,
         )
         return self._execute(autocorr, energy, norm, populations, observables)
 
@@ -160,6 +161,11 @@ class Simulator:
         reduced_density: tuple[list[tuple[int, ...]], int] | None = None,
         Δt: float | None = None,
         thresh_sil: float = 1.0e-09,
+        autocorr_per_step: int = 1,
+        observables_per_step: int = 1,
+        energy_per_step: int = 1,
+        norm_per_step: int = 1,
+        populations_per_step: int = 1,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -216,10 +222,21 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
             thresh_sil=thresh_sil,
+            use_mpo=self.model.use_mpo,
         )
 
         return self._execute(
-            autocorr, energy, norm, populations, observables, reduced_density
+            autocorr,
+            energy,
+            norm,
+            populations,
+            observables,
+            reduced_density,
+            autocorr_per_step=autocorr_per_step,
+            observables_per_step=observables_per_step,
+            energy_per_step=energy_per_step,
+            norm_per_step=norm_per_step,
+            populations_per_step=populations_per_step,
         )
 
     def operate(
@@ -258,6 +275,7 @@ class Simulator:
             use_jax=self.use_jax,
             standard_method=self.model.basinfo.is_standard_method,
             verbose=verbose,
+            use_mpo=self.model.use_mpo,
         )
 
         return self._execute(
@@ -276,6 +294,11 @@ class Simulator:
         populations=True,
         observables=True,
         reduced_density=None,
+        autocorr_per_step=1,
+        observables_per_step=1,
+        energy_per_step=1,
+        norm_per_step=1,
+        populations_per_step=1,
     ) -> tuple[Any, WFunc]:
         """Execute simulation
 
@@ -336,8 +359,17 @@ class Simulator:
                 norm,
                 populations,
                 observables,
+                autocorr_per_step=autocorr_per_step,
+                energy_per_step=energy_per_step,
+                norm_per_step=norm_per_step,
+                populations_per_step=populations_per_step,
+                observables_per_step=observables_per_step,
             )
-            properties.export_properties()
+            properties.export_properties(
+                autocorr_per_step=autocorr_per_step,
+                populations_per_step=populations_per_step,
+                observables_per_step=observables_per_step,
+            )
 
             helper._ElpTime.steps -= time()
             if const.standard_method:
@@ -410,7 +442,7 @@ class Simulator:
                     logger.info("Prepare MPS w.f.")
                 if self.do_init_proj_gs:
                     logger.debug("Initial SPF: projected from GS")
-                    if const.doDVR:
+                    if const.use_mpo:
                         raise NotImplementedError
                     else:
                         wf = WFunc(
@@ -420,7 +452,7 @@ class Simulator:
                         )
                 else:
                     logger.debug("Initial SPF: uniform (all 1.0)")
-                    if const.doDVR:
+                    if const.use_mpo:
                         wf = WFunc(
                             MPSCoefMPO.alloc_random(self.model),
                             SPFCoef.alloc_eye(self.model),

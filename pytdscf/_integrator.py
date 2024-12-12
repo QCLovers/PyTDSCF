@@ -251,9 +251,40 @@ def short_iterative_lanczos(
                 ``np.ndarray`` part shape is \
                 (tau_{p-1}, j_p, tau_p) or (tau_{p-1}, tau_p).
 
+    References:
+        - Tae Jun Park and J. C. Light. Unitary quantum time evolution by iterative Lanczos reduction. \
+          The Journal of Chemical Physics, Vol. 85, No. 10, pp. 5870–5876, November 1986.
+
     To Do:
         jax.lax.while_loop may achive acceleration.
 
+    Psuedo Code:
+
+    Prepare
+    - initial state |ψ0> `psi_states`
+    - Diagonal element of Hessenberg matrix α `alpha`
+    - Semi-diagonal element of Hessenberg matrix β `beta`
+    - Maxdimension of Krylov subspace n `ndim`
+    - Effective Hamiltonian `H`
+    - Step width Δt `scale`
+
+    ```
+    for k in 1..n:
+        α[k-1] = <ψk|H|ψk>
+        if k == 0:
+            |ψk+1> = H|ψk> - α[k-1]|ψk>
+        else:
+            |ψk+1> = H|ψk> - α[k-1]|ψk> - β[k-1]|ψk-1>
+        β[k-1] = |ψk+1|
+        |ψk+1> = |ψk+1>/β[k-1]
+
+        Λ, |φ> = eigh() of Tridiagonal matrix [α, β[:-1]]
+        |ψ(Δt)> = Σ_l,m Σ_i,j |ψm><ψm| |φi><φi| exp(-iHΔt) |φj><φj| |ψl><ψl| |ψ0>
+                = Σ_m Σ_i |ψi> <ψm|φi> exp(-iΛiΔt) <φi|ψ0> (∵ <φi|exp(-iHΔt)|φj> = δ_ij exp(-iΛiΔt), <ψl|ψ0> = δ_l0)
+
+        if is_converged:
+            return |ψ(Δt)>
+    ```
     """
     _Debug.ncall_krylov += 1
     psi_next_sv = None
@@ -317,25 +348,40 @@ def short_iterative_lanczos(
             # If jax.scipy.linalg.eigh_tridiagonal(eigvals_only=True) is available,
             # we will change whole loop implemented in JAX.
             if use_jax:
-                # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
                 # # This method is slow when using GPU
+                # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
                 eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
                     alpha, beta[:-1]
                 )
                 expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
-                eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
-                psi_next = jnp.einsum(
-                    "kj,k->j",
-                    cvecs[:-1, :],
-                    jnp.array(eigvec_expLU, dtype=jnp.complex128),
+                # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+                eigvec_expLU = scipy.linalg.blas.zgemv(
+                    alpha=1.0,
+                    a=eigvecs,
+                    x=expLU,
                 )
+                # psi_next = jnp.einsum(
+                #    "kj,k->j",
+                #    cvecs[:-1, :],
+                #    jnp.array(eigvec_expLU, dtype=jnp.complex128),
+                # )
+                psi_next = jnp.dot(
+                    jnp.array(eigvec_expLU, dtype=jnp.complex128), cvecs[:-1, :]
+                )
+
             else:
                 eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
                     alpha, beta[:-1]
                 )
                 expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
-                eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
-                psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+                # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+                eigvec_expLU = scipy.linalg.blas.zgemv(
+                    alpha=1.0,
+                    a=eigvecs,
+                    x=expLU,
+                )
+                # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+                psi_next = np.dot(eigvec_expLU, cvecs[:-1, :])
         if is_converged:
             _Debug.niter_krylov += ldim
             return multiplyOp.split(psi_next)
