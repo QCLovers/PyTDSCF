@@ -7,7 +7,6 @@ authors = [
     { name = "Yuki Kurashige", email = "kura@kuchem.kyoto-u.ac.jp" },
 ]
 readme = "README.md"
-license = "GPL-3.0"
 requires-python = ">=3.10"
 dependencies = [
     "ase>=3.23.0",
@@ -38,6 +37,14 @@ docs = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# [tool.scikit-build]
+# minimum-version = "build-system.requires"
+# build-dir = "build/{wheel_tag}"
+#
+# [build-system]
+# requires = ["scikit-build-core>=0.10", "pybind11"]
+# build-backend = "scikit_build_core.build"
+
 [tool.uv]
 dev-dependencies = [
     "jupyterlab>=4.2.5",
@@ -55,8 +62,9 @@ dev-dependencies = [
 [tool.uv.sources]
 pympo = { git = "https://github.com/KenHino/PyMPO.git" }
 
-[tool.hatch.metadata]
-allow-direct-references = true
 
 # [tool.uv.sources]
 # discvar = { git = "https://github.com/QCLovers/Discvar.git" }
+
+[tool.hatch.metadata]
+allow-direct-references = true

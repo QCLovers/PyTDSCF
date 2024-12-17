@@ -928,10 +928,10 @@ def _sweep_compress_term_by_term(
                 left_cores, right_cores, strict=True
             )
         ]
-        norm: float = np.sqrt(
+        norm: np.float64 = np.sqrt(
             np.sum([np.linalg.norm(core) ** 2 for core in merged_cores])
         )
-        merged_cores = [core / norm for core in merged_cores]
+        merged_cores = [core / norm for core in merged_cores]  # type: ignore
         decomposed_cores: list[tuple[NDArray, NDArray, NDArray]] = [
             _twodot_svd(core) for core in merged_cores
         ]

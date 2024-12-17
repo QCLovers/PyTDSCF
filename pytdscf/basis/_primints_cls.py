@@ -1,7 +1,7 @@
 """
 The integral between Q^n or P^n and HO primitive basis χ.
 The evaluation of integrals takes a while,
-so you may probably use the pybind option with `primints_in_cpp.cpp`.
+so you may probably use the pybind option with `_primints.cpp`.
 """
 
 import copy
@@ -151,6 +151,22 @@ def ovi_HO_FBR(
         float : The overlap integral (density) matrix element of HO primitive basis.
 
     """
+    try:
+        from pytdscf.basis._primints import ovi_HO_FBR_cpp
+
+        return ovi_HO_FBR_cpp(
+            v0,
+            v1,
+            pbas_bra.freq_cm1,
+            pbas_ket.freq_cm1,
+            pbas_bra.origin,
+            pbas_ket.origin,
+        )
+    except ModuleNotFoundError:
+        print(
+            "You cannot use the fast C++ version. If you want to use it, please reinstall with scikit-build."
+        )
+        pass
     a0 = (pbas_bra.freq_cm1 / units.au_in_cm1) / 1.0  # ω / hbar
     a1 = (pbas_ket.freq_cm1 / units.au_in_cm1) / 1.0  # ω' / hbar
     x0 = pbas_bra.origin / math.sqrt(a0)  # ζ
@@ -206,6 +222,23 @@ def poly_HO_FBR(v0: int, v1: int, pbas_bra, pbas_ket, order: int) -> float:
         Implement return matrix (like ``ovi_HO_FBR_matrix``).
 
     """
+    try:
+        from pytdscf.basis._primints import poly_HO_FBR_cpp
+
+        return poly_HO_FBR_cpp(
+            v0,
+            v1,
+            pbas_bra.freq_cm1,
+            pbas_ket.freq_cm1,
+            pbas_bra.origin,
+            pbas_ket.origin,
+            order,
+        )
+    except ModuleNotFoundError:
+        print(
+            "You cannot use the fast C++ version. If you want to use it, please reinstall with scikit-build."
+        )
+        pass
     a0 = (pbas_bra.freq_cm1 / units.au_in_cm1) / 1.0  # ω / hbar
     a1 = (pbas_ket.freq_cm1 / units.au_in_cm1) / 1.0  # ω' / hbar
     x0 = pbas_bra.origin / math.sqrt(a0)  # ζ
@@ -470,8 +503,10 @@ class PrimInts:
                         )
                     ovi_dof[idof] = np.identity(len(pbas_bra))
                 else:
-                    raise NotImplementedError(f"Not implemented overlap integral between \
-                            {type(pbas_bra)} and {type(pbas_ket)}")
+                    raise NotImplementedError(
+                        f"Not implemented overlap integral between \
+                            {type(pbas_bra)} and {type(pbas_ket)}"
+                    )
 
             return copy.deepcopy(ovi_dof)
 
