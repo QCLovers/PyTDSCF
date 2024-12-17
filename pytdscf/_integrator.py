@@ -88,8 +88,6 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
                 ``np.ndarray`` part shape is (tau_{p-1}, j_p, tau_p).
 
     """
-    _Debug.ncall_krylov += 1
-
     ndim = sum([x.size for x in psi_states])
     n_iter = min(ndim, 3000)
 
@@ -117,7 +115,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         ).reshape(ndim)
         if scipy.linalg.norm(beta[-1]) < 1e-15:
             next_psi_states = multiplyOp.split(psi_next)
-            _Debug.niter_krylov += i_iter
+            _Debug.niter_krylov[_Debug.site_now] = i_iter
             return next_psi_states
         elif i_iter == 0:
             psi_next_sv = psi_next
@@ -125,7 +123,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh or i_iter == ndim:
                 next_psi_states = multiplyOp.split(psi_next)
-                _Debug.niter_krylov += i_iter
+                _Debug.niter_krylov[_Debug.site_now] = i_iter
                 return next_psi_states
             psi_next_sv = psi_next
         cveclist.append(sigvec)
@@ -159,7 +157,6 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
                 (tau_{p-1}, j_p, tau_p) or (tau_{p-1}, tau_p).
 
     """
-    _Debug.ncall_krylov += 1
     ndim = min(sum([x.size for x in psi_states]), 20)
     # short iterative lanczos should converge in a few steps
     hessen = np.zeros((ndim + 1, ndim + 1), dtype=complex)
@@ -190,14 +187,14 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
         )
 
         if scipy.linalg.norm(sigvec) < 1e-15:
-            _Debug.niter_krylov += ldim
+            _Debug.niter_krylov[_Debug.site_now] = ldim
             return multiplyOp.split(psi_next)
         elif ldim == 0:
             psi_next_sv = psi_next
         else:
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
-                _Debug.niter_krylov += ldim
+                _Debug.niter_krylov[_Debug.site_now] = ldim
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
         hessen[ldim + 1, ldim] = scipy.linalg.norm(sigvec)
@@ -286,14 +283,11 @@ def short_iterative_lanczos(
             return |ψ(Δt)>
     ```
     """
-    _Debug.ncall_krylov += 1
     psi_next_sv = None
-    if _Debug.ncall_krylov == 0:
-        nstep_skip_conv_check = 0
-    else:
-        nstep_skip_conv_check = min(
-            max(0, int(_Debug.niter_krylov / _Debug.ncall_krylov) - 2), 15
-        )
+    nstep_skip_conv_check = min(
+        max(0, _Debug.niter_krylov[_Debug.site_now] - 2),
+        15,
+    )
 
     maxsize = sum([x.size for x in psi_states])
     ndim = min(maxsize, 20)
@@ -383,13 +377,12 @@ def short_iterative_lanczos(
                 # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
                 psi_next = np.dot(eigvec_expLU, cvecs[:-1, :])
         if is_converged:
-            _Debug.niter_krylov += ldim
+            _Debug.niter_krylov[_Debug.site_now] = ldim
             return multiplyOp.split(psi_next)
         elif ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
-            # In this case `ncall_krylov` is not incremented.
-            _Debug.ncall_krylov -= 1
+            _Debug.niter_krylov[_Debug.site_now] = ldim
             if use_jax:
                 psi_next /= jnp.linalg.norm(psi_next)
             else:
@@ -404,7 +397,7 @@ def short_iterative_lanczos(
             else:
                 err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
-                _Debug.niter_krylov += ldim
+                _Debug.niter_krylov[_Debug.site_now] = ldim
                 # |C| should be 1.0
                 if use_jax:
                     psi_next /= jnp.linalg.norm(psi_next)

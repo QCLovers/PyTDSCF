@@ -1890,7 +1890,7 @@ wheels = [
 
 [[package]]
 name = "pytdscf"
-version = "1.0.3"
+version = "1.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "ase" },
@@ -1899,6 +1899,7 @@ dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
     { name = "matplotlib" },
+    { name = "mpmath" },
     { name = "netcdf4" },
     { name = "numpy" },
     { name = "polars" },
@@ -1939,6 +1940,7 @@ requires-dist = [
     { name = "jax", specifier = ">=0.4.35" },
     { name = "jaxlib", specifier = ">=0.4.35" },
     { name = "matplotlib", specifier = ">=3.9.2" },
+    { name = "mpmath", specifier = ">=1.3.0" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=4.0.0" },
     { name = "nbsphinx", marker = "extra == 'docs'", specifier = ">=0.9.5" },
     { name = "netcdf4", specifier = ">=1.7.2" },

@@ -17,6 +17,19 @@ from pytdscf import units
 from pytdscf.basis import HarmonicOscillator as _HO
 from pytdscf.basis import PrimBas_HO
 
+try:
+    from pytdscf.basis._primints import ovi_HO_FBR_cpp as _ovi_HO_FBR
+    from pytdscf.basis._primints import poly_HO_FBR_cpp as _poly_HO_FBR
+except ModuleNotFoundError:
+    # <HO|Q^n|HO> will be calculated by Python code.
+    # If you need faster integral preparation, please change pyproject.toml to use pybind11.
+
+    def _ovi_HO_FBR(*args):
+        raise ModuleNotFoundError
+
+    def _poly_HO_FBR(*args):
+        raise ModuleNotFoundError
+
 
 def ovi_HO_FBR_matrix(pbas_bra, pbas_ket) -> np.ndarray:
     """ Get HO overlap integral matrix H_ij = <HO_i(ω)|HO_j(ω')>
@@ -152,9 +165,7 @@ def ovi_HO_FBR(
 
     """
     try:
-        from pytdscf.basis._primints import ovi_HO_FBR_cpp
-
-        return ovi_HO_FBR_cpp(
+        return _ovi_HO_FBR(
             v0,
             v1,
             pbas_bra.freq_cm1,
@@ -163,9 +174,6 @@ def ovi_HO_FBR(
             pbas_ket.origin,
         )
     except ModuleNotFoundError:
-        print(
-            "You cannot use the fast C++ version. If you want to use it, please reinstall with scikit-build."
-        )
         pass
     a0 = (pbas_bra.freq_cm1 / units.au_in_cm1) / 1.0  # ω / hbar
     a1 = (pbas_ket.freq_cm1 / units.au_in_cm1) / 1.0  # ω' / hbar
@@ -223,9 +231,7 @@ def poly_HO_FBR(v0: int, v1: int, pbas_bra, pbas_ket, order: int) -> float:
 
     """
     try:
-        from pytdscf.basis._primints import poly_HO_FBR_cpp
-
-        return poly_HO_FBR_cpp(
+        return _poly_HO_FBR(
             v0,
             v1,
             pbas_bra.freq_cm1,
@@ -235,9 +241,6 @@ def poly_HO_FBR(v0: int, v1: int, pbas_bra, pbas_ket, order: int) -> float:
             order,
         )
     except ModuleNotFoundError:
-        print(
-            "You cannot use the fast C++ version. If you want to use it, please reinstall with scikit-build."
-        )
         pass
     a0 = (pbas_bra.freq_cm1 / units.au_in_cm1) / 1.0  # ω / hbar
     a1 = (pbas_ket.freq_cm1 / units.au_in_cm1) / 1.0  # ω' / hbar

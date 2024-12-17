@@ -38,7 +38,7 @@ Quick Start Examples
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 11`_ | Propagation | MPS-SM       | Symbolic   | Exciton+Sine+Exp | JAX        | Same model as `Example 10`_    |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | JAX        | Singlet fission                |
+| `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Singlet fission + 183-D bath   |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 

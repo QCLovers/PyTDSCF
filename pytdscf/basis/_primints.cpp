@@ -1,7 +1,7 @@
 /**
- * @brief primints_cls.py functions in c++. Compile with gcc and c++17.
- *        ex.) For Linux, "g++ -O3 -Wall -shared -std=c++17 -fPIC $(python3 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
- *             For MacOS, "g++ -O3 -Wall -shared -std=c++17 -undefined dynamic_lookup $(python3.8 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
+ * @brief primints_cls.py functions in c++. Compile with gcc (not clang!!) and c++20.
+ *        ex.) For Linux, "g++ -O3 -Wall -shared -std=c++20 -fPIC $(python3 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
+ *             For MacOS, "g++ -O3 -Wall -shared -std=c++20 -undefined dynamic_lookup $(python3 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
  *        Please do not forget fixing PYTHONPATH to import this library.
  */
 

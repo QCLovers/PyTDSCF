@@ -17,5 +17,5 @@ add_compile_options(-O3 -Wall)
 set(PYBIND11_FINDPYTHON ON)
 find_package(pybind11 CONFIG REQUIRED)
 
-pybind11_add_module(basis._primints MODULE pytdscf/basis/_primints.cpp)
-install(TARGETS basis._primints DESTINATION ${SKBUILD_PROJECT_NAME})
+pybind11_add_module(_primints MODULE pytdscf/basis/_primints.cpp)
+install(TARGETS _primints DESTINATION ${SKBUILD_PROJECT_NAME}.basis)

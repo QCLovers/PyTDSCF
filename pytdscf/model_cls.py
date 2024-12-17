@@ -7,6 +7,7 @@ from __future__ import annotations
 import copy
 from logging import getLogger
 
+import discvar
 from discvar.abc import DVRPrimitivesMixin
 
 import pytdscf
@@ -173,7 +174,8 @@ class BasInfo:
             for basis in prim_info[0]
         )
         self.need_primints = any(
-            isinstance(basis, pytdscf.PrimBas_HO) for basis in prim_info[0]
+            isinstance(basis, pytdscf.PrimBas_HO | discvar.ho.PrimBas_HO)
+            for basis in prim_info[0]
         )
         if spf_info is None:
             if const.verbose > 1:

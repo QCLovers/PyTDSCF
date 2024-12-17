@@ -343,10 +343,13 @@ class Simulator:
         for istep in range(self.maxstep):
             time_fs = properties.time * units.au_in_fs
             if istep % 100 == 1:
+                niter_krylov_list = list(helper._Debug.niter_krylov.values())
+                niter_krylov_total = sum(niter_krylov_list)
+                ncall_krylov_total = len(niter_krylov_list)
                 message = (
                     f"End {istep - 1:5d} step; "
                     + f"propagated {time_fs:8.3f} [fs]; "
-                    + f"AVG Krylov iteration: {helper._Debug.niter_krylov / helper._Debug.ncall_krylov:.2f}"
+                    + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
                 )
                 logger.info(message)
             if istep % self.backup_interval == self.backup_interval - 1:
@@ -387,10 +390,13 @@ class Simulator:
             properties.update(stepsize_actual)
             if properties.time * units.au_in_fs > 2000.0:
                 break
+        niter_krylov_list = list(helper._Debug.niter_krylov.values())
+        niter_krylov_total = sum(niter_krylov_list)
+        ncall_krylov_total = len(niter_krylov_list)
         message = (
             f"End {self.maxstep - 1:5d} step; "
             + f"propagated {time_fs:8.3f} [fs]; "
-            + f"AVG Krylov iteration: {helper._Debug.niter_krylov / helper._Debug.ncall_krylov:.2f}"
+            + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
         )
         logger.info(message)
         logger.info("End simulation and save wavefunction")

@@ -701,19 +701,23 @@ class MPSCoef(ABC):
             helper._ElpTime.ci_rnm -= time()
         op_sys = self.construct_op_zerosite(superblock_states, matH_cas)
         if self.op_sys_sites is None:
+            # If t==0 or Include SPF or time-dependent Hamiltonian
             op_env_sites = self.construct_op_sites(
                 superblock_states, ints_site, not left_is_sys, matH_cas
             )
-        else:
             if left_is_sys:
-                # op_env_sites = copy.deepcopy(self.op_sys_sites)[::-1]
-                op_env_sites = self.op_sys_sites[::-1]
-            else:
-                # op_env_sites = copy.deepcopy(self.op_sys_sites)
-                op_env_sites = self.op_sys_sites[:]
+                op_env_sites = op_env_sites[::-1]
+        else:
+            op_env_sites = self.op_sys_sites[:]
+        # When left_is_sys,
+        # [sys0, sys1, ..., sysN-1, envM-1, ..., env1, env0]
+        # When not left_is_sys,
+        # [env0, env1, ..., envM-1, sysN-1, ..., sys1, sys0]
 
-        if not const.doTDHamil and const.standard_method:
+        if not const.standard_method or const.doTDHamil:
             self.op_sys_sites = [op_sys]
+        else:
+            self.op_sys_sites = None
 
         if const.verbose == 4:
             helper._ElpTime.ci_rnm += time()
@@ -724,10 +728,12 @@ class MPSCoef(ABC):
         for psite in psites_sweep:
             if const.verbose == 4:
                 helper._ElpTime.ci_etc -= time()
+            helper._Debug.site_now = psite
+            op_env = op_env_sites.pop()
             op_lcr = self.operators_for_superH(
                 psite,
                 op_sys,
-                op_env_sites[psite],
+                op_env,
                 ints_site,
                 matH_cas,
                 left_is_sys,
@@ -760,7 +766,7 @@ class MPSCoef(ABC):
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc -= time()
                 op_lr = self.operators_for_superK(
-                    psite, op_sys, op_env_sites[psite], matH_cas, left_is_sys
+                    psite, op_sys, op_env, matH_cas, left_is_sys
                 )
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc += time()
