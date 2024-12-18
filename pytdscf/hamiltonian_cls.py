@@ -6,6 +6,7 @@ import itertools
 import math
 import random
 from logging import getLogger
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -621,12 +622,14 @@ class TensorHamiltonian(HamiltonianMixin):
             list[dict[tuple[int | tuple[int, int], ...], TensorOperator]]
         ],
         name: str = "hamiltonian",
-        kinetic: list[list[dict[tuple[int, int], TensorOperator] | None]]
+        kinetic: list[
+            list[dict[tuple[tuple[int, int], ...], TensorOperator] | None]
+        ]
         | None = None,
-        decompose_type: str = "QRD",
+        decompose_type: Literal["QRD", "SVD"] = "QRD",
         rate: float | None = None,
         bond_dimension: list[int] | int | None = None,
-        backend="jax",
+        backend: Literal["jax", "numpy"] = "jax",
     ):
         """
         Args:
@@ -652,11 +655,7 @@ class TensorHamiltonian(HamiltonianMixin):
             if potential[i][j] is not None:
                 for key, tensor in potential[i][j].items():
                     if key == ():
-                        if not (
-                            isinstance(tensor, float)
-                            or isinstance(tensor, complex)
-                            or isinstance(tensor, int)
-                        ):
+                        if not (isinstance(tensor, float | complex | int)):
                             raise ValueError(
                                 f"scalar term must be scalar but {tensor} is {type(tensor)}"
                             )

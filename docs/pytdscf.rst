@@ -45,10 +45,10 @@ pytdscf.model\_cls module
    :undoc-members:
    :show-inheritance:
 
-pytdscf.property module
------------------------
+pytdscf.properties module
+-------------------------
 
-.. automodule:: pytdscf.property
+.. automodule:: pytdscf.properties
    :members:
    :undoc-members:
    :show-inheritance:

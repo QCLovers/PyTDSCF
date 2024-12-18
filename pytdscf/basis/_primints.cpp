@@ -1,7 +1,7 @@
 /**
- * @brief primints_cls.py functions in c++. Compile with gcc and c++17.
- *        ex.) For Linux, "g++ -O3 -Wall -shared -std=c++17 -fPIC $(python3 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
- *             For MacOS, "g++ -O3 -Wall -shared -std=c++17 -undefined dynamic_lookup $(python3.8 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
+ * @brief primints_cls.py functions in c++. Compile with gcc (not clang!!) and c++20.
+ *        ex.) For Linux, "g++ -O3 -Wall -shared -std=c++20 -fPIC $(python3 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
+ *             For MacOS, "g++ -O3 -Wall -shared -std=c++20 -undefined dynamic_lookup $(python3 -m pybind11 --includes) $1.cpp -o $1$(python3-config --extension-suffix)"
  *        Please do not forget fixing PYTHONPATH to import this library.
  */
 
@@ -70,7 +70,7 @@ unsigned long long fact2(int n) {
  * @return double : The overlap integral (density) matrix element of HO primitive basis.
  * @
  */
-double ovi_HO_VBR_cpp(int v0, int v1,
+double ovi_HO_FBR_cpp(int v0, int v1,
                       double freq_cm1_bra, double freq_cm1_ket,
                       double origin_bra,   double origin_ket) {
 
@@ -120,7 +120,7 @@ double ovi_HO_VBR_cpp(int v0, int v1,
  * @return double : The integral (density) of HO primitive with q^n <v0|q^n|v1>.
  * @
  */
-double poly_HO_VBR_cpp(int v0, int v1,
+double poly_HO_FBR_cpp(int v0, int v1,
                        double freq_cm1_bra, double freq_cm1_ket,
                        double origin_bra,   double origin_ket,
                        int norder) {
@@ -158,9 +158,9 @@ double poly_HO_VBR_cpp(int v0, int v1,
     return C * val;
 }
 
-PYBIND11_MODULE(primints_in_cpp, m)
+PYBIND11_MODULE(_primints, m)
 {
     m.doc() = "primints_cls.py functions in c++";
-    m.def("ovi_HO_VBR_cpp", &ovi_HO_VBR_cpp, "similar to ovi_HO_VBR in primints_cls.py");
-    m.def("poly_HO_VBR_cpp", &poly_HO_VBR_cpp, "similar to poly_HO_VBR in primints_cls.py");
+    m.def("ovi_HO_FBR_cpp", &ovi_HO_FBR_cpp, "similar to ovi_HO_FBR in _primints_cls.py");
+    m.def("poly_HO_FBR_cpp", &poly_HO_FBR_cpp, "similar to poly_HO_FBR in _primints_cls.py");
 }

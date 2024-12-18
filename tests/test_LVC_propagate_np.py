@@ -22,7 +22,7 @@ prim_info = [s0, s1]
 @pytest.mark.parametrize(
     "coupleJ, bonddim, proj_gs", [[-0.04, 5, True], [0.0, 4, False]]
 )
-def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs):
+def test_LVC_propagate_np(coupleJ, bonddim, proj_gs):
     deltaE = 0.007
 
     basinfo = BasInfo(prim_info)
@@ -51,4 +51,4 @@ def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs):
 
 
 if __name__ == "__main__":
-    test_Ambrosec_propagate_np_projgs(-0.04, 5, True)
+    test_LVC_propagate_np(-0.04, 5, True)

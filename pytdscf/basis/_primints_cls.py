@@ -1,7 +1,7 @@
 """
 The integral between Q^n or P^n and HO primitive basis χ.
 The evaluation of integrals takes a while,
-so you may probably use the pybind option with `primints_in_cpp.cpp`.
+so you may probably use the pybind option with `_primints.cpp`.
 """
 
 import copy
@@ -12,9 +12,23 @@ import numpy as np
 import scipy.special
 from discvar import HarmonicOscillator as HO
 
+import pytdscf
 from pytdscf import units
 from pytdscf.basis import HarmonicOscillator as _HO
 from pytdscf.basis import PrimBas_HO
+
+try:
+    from pytdscf.basis._primints import ovi_HO_FBR_cpp as _ovi_HO_FBR
+    from pytdscf.basis._primints import poly_HO_FBR_cpp as _poly_HO_FBR
+except ModuleNotFoundError:
+    # <HO|Q^n|HO> will be calculated by Python code.
+    # If you need faster integral preparation, please change pyproject.toml to use pybind11.
+
+    def _ovi_HO_FBR(*args):
+        raise ModuleNotFoundError
+
+    def _poly_HO_FBR(*args):
+        raise ModuleNotFoundError
 
 
 def ovi_HO_FBR_matrix(pbas_bra, pbas_ket) -> np.ndarray:
@@ -150,6 +164,17 @@ def ovi_HO_FBR(
         float : The overlap integral (density) matrix element of HO primitive basis.
 
     """
+    try:
+        return _ovi_HO_FBR(
+            v0,
+            v1,
+            pbas_bra.freq_cm1,
+            pbas_ket.freq_cm1,
+            pbas_bra.origin,
+            pbas_ket.origin,
+        )
+    except ModuleNotFoundError:
+        pass
     a0 = (pbas_bra.freq_cm1 / units.au_in_cm1) / 1.0  # ω / hbar
     a1 = (pbas_ket.freq_cm1 / units.au_in_cm1) / 1.0  # ω' / hbar
     x0 = pbas_bra.origin / math.sqrt(a0)  # ζ
@@ -205,6 +230,18 @@ def poly_HO_FBR(v0: int, v1: int, pbas_bra, pbas_ket, order: int) -> float:
         Implement return matrix (like ``ovi_HO_FBR_matrix``).
 
     """
+    try:
+        return _poly_HO_FBR(
+            v0,
+            v1,
+            pbas_bra.freq_cm1,
+            pbas_ket.freq_cm1,
+            pbas_bra.origin,
+            pbas_ket.origin,
+            order,
+        )
+    except ModuleNotFoundError:
+        pass
     a0 = (pbas_bra.freq_cm1 / units.au_in_cm1) / 1.0  # ω / hbar
     a1 = (pbas_ket.freq_cm1 / units.au_in_cm1) / 1.0  # ω' / hbar
     x0 = pbas_bra.origin / math.sqrt(a0)  # ζ
@@ -278,11 +315,13 @@ class PrimInts:
 
     def __init__(self, model):
         self.set_ovi(model.basinfo)
-        if not model.basinfo.is_DVR:
+        assert isinstance(model.basinfo, pytdscf.BasInfo)
+        if model.basinfo.need_primints:
             self.set_poly_diag(model.basinfo)
             self.set_poly_nondiag(model.basinfo)
             for matOp in model.observables.values():
                 self.set_onesite(model.basinfo, matOp)
+            self.set_onesite(model.basinfo, model.hamiltonian)
         # NewIndx-BGN
         for state_pair in itertools.product(
             range(model.basinfo.get_nstate()), repeat=2
@@ -467,8 +506,10 @@ class PrimInts:
                         )
                     ovi_dof[idof] = np.identity(len(pbas_bra))
                 else:
-                    raise NotImplementedError(f"Not implemented overlap integral between \
-                            {type(pbas_bra)} and {type(pbas_ket)}")
+                    raise NotImplementedError(
+                        f"Not implemented overlap integral between \
+                            {type(pbas_bra)} and {type(pbas_ket)}"
+                    )
 
             return copy.deepcopy(ovi_dof)
 

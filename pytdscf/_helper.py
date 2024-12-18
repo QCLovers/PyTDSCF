@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import sys
+from collections import defaultdict
 
 import jax
 import numpy as np
@@ -25,9 +26,8 @@ class _Debug:
     count0 = 0
     count1 = 0
     # number of iteration in SIL
-    niter_krylov = 0.0
-    # number of call in SIL
-    ncall_krylov = 0
+    niter_krylov = defaultdict(int)
+    site_now = 0  # which site is updating now
 
 
 class _NFlops:

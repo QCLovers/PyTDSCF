@@ -1,13 +1,12 @@
 [project]
 name = "pytdscf"
-version = "1.0.3"
-description = "Quantum dynamics simulator using tensor networks"
+version = "1.0.4"
+description = "Quantum dynamics simulator with tensor networks"
 authors = [
     { name = "Kentaro Hino", email = "hino@theoc.kuchem.kyoto-u.ac.jp" },
     { name = "Yuki Kurashige", email = "kura@kuchem.kyoto-u.ac.jp" },
 ]
 readme = "README.md"
-license = "GPL-3.0"
 requires-python = ">=3.10"
 dependencies = [
     "ase>=3.23.0",
@@ -16,15 +15,35 @@ dependencies = [
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
     "matplotlib>=3.9.2",
+    "mpmath>=1.3.0",
     "netcdf4>=1.7.2",
     "numpy>=2.1.2",
     "polars>=1.10.0",
     "scipy>=1.14.1",
 ]
 
+[project.optional-dependencies]
+pympo = [
+    "pympo>=0.1.1",
+]
+docs = [
+    "sphinx>=8.1.3",
+    "sphinx-rtd-theme>=3.0.1",
+    "myst-parser>=4.0.0",
+    "nbsphinx>=0.9.5",
+    "pandoc>=2.4",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+# If you want to use Pybind11, enable the following line and comment out the above line.
+# requires = ["scikit-build-core>=0.10", "pybind11"]
+# build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+build-dir = "build/{wheel_tag}"
 
 [tool.uv]
 dev-dependencies = [
@@ -37,15 +56,15 @@ dev-dependencies = [
     "ruff>=0.7.0",
     "ase>=3.23.0",
     "netcdf4>=1.7.2",
-    "sphinx>=8.1.3",
-    "sphinx-rtd-theme>=3.0.1",
-    "myst-parser>=4.0.0",
-    "nbsphinx>=0.9.5",
-    "pandoc>=2.4",
+    "tqdm>=4.67.1",
 ]
 
-[tool.hatch.metadata]
-allow-direct-references = true
+[tool.uv.sources]
+pympo = { git = "https://github.com/KenHino/PyMPO.git" }
+
 
 # [tool.uv.sources]
 # discvar = { git = "https://github.com/QCLovers/Discvar.git" }
+
+[tool.hatch.metadata]
+allow-direct-references = true

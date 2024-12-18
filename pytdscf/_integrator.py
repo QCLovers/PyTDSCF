@@ -5,6 +5,7 @@ Integrator module for MPS time evolution & diagonalization.
 from __future__ import annotations
 
 import cmath
+from typing import overload
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +13,22 @@ import numpy as np
 import scipy.linalg
 
 from pytdscf._helper import _Debug
+
+
+@overload
+def expectation_Op(
+    bra_states: list[np.ndarray],
+    multiplyOp,
+    ket_states: list[np.ndarray],
+) -> complex: ...
+
+
+@overload
+def expectation_Op(
+    bra_states: list[jax.Array],
+    multiplyOp,
+    ket_states: list[jax.Array],
+) -> complex: ...
 
 
 def expectation_Op(
@@ -71,8 +88,6 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
                 ``np.ndarray`` part shape is (tau_{p-1}, j_p, tau_p).
 
     """
-    _Debug.ncall_krylov += 1
-
     ndim = sum([x.size for x in psi_states])
     n_iter = min(ndim, 3000)
 
@@ -100,7 +115,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         ).reshape(ndim)
         if scipy.linalg.norm(beta[-1]) < 1e-15:
             next_psi_states = multiplyOp.split(psi_next)
-            _Debug.niter_krylov += i_iter
+            _Debug.niter_krylov[_Debug.site_now] = i_iter
             return next_psi_states
         elif i_iter == 0:
             psi_next_sv = psi_next
@@ -108,7 +123,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh or i_iter == ndim:
                 next_psi_states = multiplyOp.split(psi_next)
-                _Debug.niter_krylov += i_iter
+                _Debug.niter_krylov[_Debug.site_now] = i_iter
                 return next_psi_states
             psi_next_sv = psi_next
         cveclist.append(sigvec)
@@ -142,7 +157,6 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
                 (tau_{p-1}, j_p, tau_p) or (tau_{p-1}, tau_p).
 
     """
-    _Debug.ncall_krylov += 1
     ndim = min(sum([x.size for x in psi_states]), 20)
     # short iterative lanczos should converge in a few steps
     hessen = np.zeros((ndim + 1, ndim + 1), dtype=complex)
@@ -173,19 +187,37 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
         )
 
         if scipy.linalg.norm(sigvec) < 1e-15:
-            _Debug.niter_krylov += ldim
+            _Debug.niter_krylov[_Debug.site_now] = ldim
             return multiplyOp.split(psi_next)
         elif ldim == 0:
             psi_next_sv = psi_next
         else:
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
-                _Debug.niter_krylov += ldim
+                _Debug.niter_krylov[_Debug.site_now] = ldim
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
         hessen[ldim + 1, ldim] = scipy.linalg.norm(sigvec)
         cveclist.append(sigvec / hessen[ldim + 1, ldim])
     raise ValueError("Short Iterative Arnoldi is not converged in 20 basis")
+
+
+@overload
+def short_iterative_lanczos(
+    scale: float | complex,
+    multiplyOp,
+    psi_states: list[np.ndarray],
+    thresh: float,
+) -> list[np.ndarray]: ...
+
+
+@overload
+def short_iterative_lanczos(
+    scale: float | complex,
+    multiplyOp,
+    psi_states: list[jax.Array],
+    thresh: float,
+) -> list[jax.Array]: ...
 
 
 def short_iterative_lanczos(
@@ -216,20 +248,49 @@ def short_iterative_lanczos(
                 ``np.ndarray`` part shape is \
                 (tau_{p-1}, j_p, tau_p) or (tau_{p-1}, tau_p).
 
+    References:
+        - Tae Jun Park and J. C. Light. Unitary quantum time evolution by iterative Lanczos reduction. \
+          The Journal of Chemical Physics, Vol. 85, No. 10, pp. 5870–5876, November 1986.
+
     To Do:
         jax.lax.while_loop may achive acceleration.
 
-    """
-    _Debug.ncall_krylov += 1
-    psi_next_sv = None
-    if _Debug.ncall_krylov == 0:
-        nstep_skip_conv_check = 0
-    else:
-        nstep_skip_conv_check = min(
-            max(0, int(_Debug.niter_krylov / _Debug.ncall_krylov) - 2), 15
-        )
+    Psuedo Code:
 
-    ndim = min(sum([x.size for x in psi_states]), 20)
+    Prepare
+    - initial state |ψ0> `psi_states`
+    - Diagonal element of Hessenberg matrix α `alpha`
+    - Semi-diagonal element of Hessenberg matrix β `beta`
+    - Maxdimension of Krylov subspace n `ndim`
+    - Effective Hamiltonian `H`
+    - Step width Δt `scale`
+
+    ```
+    for k in 1..n:
+        α[k-1] = <ψk|H|ψk>
+        if k == 0:
+            |ψk+1> = H|ψk> - α[k-1]|ψk>
+        else:
+            |ψk+1> = H|ψk> - α[k-1]|ψk> - β[k-1]|ψk-1>
+        β[k-1] = |ψk+1|
+        |ψk+1> = |ψk+1>/β[k-1]
+
+        Λ, |φ> = eigh() of Tridiagonal matrix [α, β[:-1]]
+        |ψ(Δt)> = Σ_l,m Σ_i,j |ψm><ψm| |φi><φi| exp(-iHΔt) |φj><φj| |ψl><ψl| |ψ0>
+                = Σ_m Σ_i |ψi> <ψm|φi> exp(-iΛiΔt) <φi|ψ0> (∵ <φi|exp(-iHΔt)|φj> = δ_ij exp(-iΛiΔt), <ψl|ψ0> = δ_l0)
+
+        if is_converged:
+            return |ψ(Δt)>
+    ```
+    """
+    psi_next_sv = None
+    nstep_skip_conv_check = min(
+        max(0, _Debug.niter_krylov[_Debug.site_now] - 2),
+        15,
+    )
+
+    maxsize = sum([x.size for x in psi_states])
+    ndim = min(maxsize, 20)
     # short iterative lanczos should converge in a few steps
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
@@ -272,23 +333,60 @@ def short_iterative_lanczos(
         if is_converged := (beta[-1] < 1e-15):
             pass
         else:
-            if ldim < nstep_skip_conv_check:
+            if ldim < min(nstep_skip_conv_check, maxsize):
                 continue
 
         if ldim == 0:
             psi_next = psi * cmath.exp(scale * alpha[-1])
         else:
-            # Calculation of eigenvectors is not implemented in JAX
-            eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(alpha, beta[:-1])
-            expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
-            eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+            # If jax.scipy.linalg.eigh_tridiagonal(eigvals_only=True) is available,
+            # we will change whole loop implemented in JAX.
             if use_jax:
-                eigvec_expLU = jnp.array(eigvec_expLU, dtype=jnp.complex128)
-                psi_next = jnp.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+                # # This method is slow when using GPU
+                # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
+                eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
+                    alpha, beta[:-1]
+                )
+                expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
+                # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+                eigvec_expLU = scipy.linalg.blas.zgemv(
+                    alpha=1.0,
+                    a=eigvecs,
+                    x=expLU,
+                )
+                # psi_next = jnp.einsum(
+                #    "kj,k->j",
+                #    cvecs[:-1, :],
+                #    jnp.array(eigvec_expLU, dtype=jnp.complex128),
+                # )
+                psi_next = jnp.dot(
+                    jnp.array(eigvec_expLU, dtype=jnp.complex128), cvecs[:-1, :]
+                )
+
             else:
-                psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+                eigvals, eigvecs = scipy.linalg.eigh_tridiagonal(
+                    alpha, beta[:-1]
+                )
+                expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
+                # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+                eigvec_expLU = scipy.linalg.blas.zgemv(
+                    alpha=1.0,
+                    a=eigvecs,
+                    x=expLU,
+                )
+                # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+                psi_next = np.dot(eigvec_expLU, cvecs[:-1, :])
         if is_converged:
-            _Debug.niter_krylov += ldim
+            _Debug.niter_krylov[_Debug.site_now] = ldim
+            return multiplyOp.split(psi_next)
+        elif ldim == maxsize:
+            # When Krylov subspace is the same as the whole space,
+            # calculated psi_next must be the exact solution.
+            _Debug.niter_krylov[_Debug.site_now] = ldim
+            if use_jax:
+                psi_next /= jnp.linalg.norm(psi_next)
+            else:
+                psi_next /= np.linalg.norm(psi_next)
             return multiplyOp.split(psi_next)
 
         if psi_next_sv is None:
@@ -299,7 +397,7 @@ def short_iterative_lanczos(
             else:
                 err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
-                _Debug.niter_krylov += ldim
+                _Debug.niter_krylov[_Debug.site_now] = ldim
                 # |C| should be 1.0
                 if use_jax:
                     psi_next /= jnp.linalg.norm(psi_next)
@@ -308,8 +406,7 @@ def short_iterative_lanczos(
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
     raise ValueError(
-        f"Short Iterative Lanczos is not converged in {ldim} basis."
-        + "Try shoter time interval."
+        f"Short Iterative Lanczos is not converged in {ldim} basis when {maxsize=}. Try shorter time interval."
     )
 
 
@@ -337,3 +434,22 @@ def _next_sigvec_cvecs_alpha_beta(
     sigvec /= beta
     cvecs = stack_to_cvecs(sigvec, cvecs)
     return sigvec, cvecs, alpha.astype(jnp.float64), beta.astype(jnp.float64)  # type: ignore
+
+
+@jax.jit
+def _get_psi_next_jax(
+    a: list[float], b: list[float], cvecs: jax.Array, scale: float | complex
+) -> jax.Array:
+    # This method is slow when using GPU
+    _a = jnp.array(a, dtype=jnp.float64)
+    _b = jnp.array(b, dtype=jnp.float64)
+    mat = jnp.diag(_a, 0) + jnp.diag(_b, -1) + jnp.diag(_b, 1)
+    eigvals, eigvecs = jax.scipy.linalg.eigh(
+        mat,
+        # lower=True,
+        eigvals_only=False,
+    )
+    expLU = jnp.exp(scale * eigvals) * jnp.conjugate(eigvecs).T[:, 0]
+    eigvec_expLU = jnp.einsum("ij,j->i", eigvecs, expLU)
+    psi_next = jnp.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
+    return psi_next

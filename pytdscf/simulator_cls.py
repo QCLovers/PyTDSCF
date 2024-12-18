@@ -9,7 +9,7 @@ import pickle
 from copy import deepcopy
 from logging import getLogger
 from time import time
-from typing import Any
+from typing import Any, Literal
 
 import dill
 
@@ -21,7 +21,7 @@ from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef
 from pytdscf.basis._primints_cls import PrimInts
 from pytdscf.model_cls import Model
-from pytdscf.property import Properties
+from pytdscf.properties import Properties
 from pytdscf.wavefunction import WFunc
 
 logger = getLogger("main").getChild(__name__)
@@ -48,13 +48,15 @@ class Simulator:
     """
 
     backup_interval: int
+    stepsize: float
+    maxstep: int
 
     def __init__(
         self,
         jobname: str,
         model: Model,
-        ci_type: str = "MPS",
-        backend: str = "JAX",
+        ci_type: Literal["mps", "mctdh", "ci"] = "mps",
+        backend: Literal["jax", "numpy"] = "jax",
         proj_gs: bool = False,
         t2_trick: bool = True,
         verbose: int = 2,
@@ -139,6 +141,7 @@ class Simulator:
             use_jax=self.use_jax,
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
+            use_mpo=self.model.use_mpo,
         )
         return self._execute(autocorr, energy, norm, populations, observables)
 
@@ -158,6 +161,11 @@ class Simulator:
         reduced_density: tuple[list[tuple[int, ...]], int] | None = None,
         Δt: float | None = None,
         thresh_sil: float = 1.0e-09,
+        autocorr_per_step: int = 1,
+        observables_per_step: int = 1,
+        energy_per_step: int = 1,
+        norm_per_step: int = 1,
+        populations_per_step: int = 1,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -178,11 +186,16 @@ class Simulator:
             populations (bool, optional): Calculate populations. Defaults to ``True``.
             observables (bool, optional): Calculate observables. Defaults to ``False``.
             reduced_density (Dict[Tuple[int, ...], int], optional): Calculate reduced density of the \
-                given modes. For example, ``{(0, 1): 10}`` means calculate reduced density of the \
+                given modes.
+                For example, ``([(0, 1),], 10)`` means calculate the diagonal elements of reduced density of the \
                 :math:`\rho_{01}=\mathrm{Tr}_{p\notin \{0,1\}}\left|\Psi^{(\alpha)}\rangle\langle\Psi^(\alpha)\right|` \
-                in per 10 steps. Note that it requires enough disk space. Defaults to ``None``.
+                in per 10 steps.
+                Note that it requires enough disk space.
+                Defaults to ``None``.
                 It is better if the target modes are close to rightmost, i.e., 0. \
                 (Because this program calculate property in the most right-canonized form of MPS.)
+                If you want coherence, i.e., off-diagonal elements of density matrix, \
+                you need to set like ``([(0, 0), ], 10)``.
             Δt (float, optional): Same as ``stepsize``
             thresh_sil (float): Convergence threshold of short iterative Lanczos. Defaults to 1.e-09.
 
@@ -209,17 +222,27 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
             thresh_sil=thresh_sil,
+            use_mpo=self.model.use_mpo,
         )
 
         return self._execute(
-            autocorr, energy, norm, populations, observables, reduced_density
+            autocorr,
+            energy,
+            norm,
+            populations,
+            observables,
+            reduced_density,
+            autocorr_per_step=autocorr_per_step,
+            observables_per_step=observables_per_step,
+            energy_per_step=energy_per_step,
+            norm_per_step=norm_per_step,
+            populations_per_step=populations_per_step,
         )
 
     def operate(
         self,
         maxstep: int = 10,
         restart: bool = False,
-        backend: str = "jax",
         savefile_ext: str = "_operate",
         loadfile_ext: str = "_gs",
         verbose: int = 2,
@@ -252,6 +275,7 @@ class Simulator:
             use_jax=self.use_jax,
             standard_method=self.model.basinfo.is_standard_method,
             verbose=verbose,
+            use_mpo=self.model.use_mpo,
         )
 
         return self._execute(
@@ -270,6 +294,11 @@ class Simulator:
         populations=True,
         observables=True,
         reduced_density=None,
+        autocorr_per_step=1,
+        observables_per_step=1,
+        energy_per_step=1,
+        norm_per_step=1,
+        populations_per_step=1,
     ) -> tuple[Any, WFunc]:
         """Execute simulation
 
@@ -291,7 +320,10 @@ class Simulator:
         self.save_wavefunction(wf, log=True)
         if self.t2_trick:
             properties = Properties(
-                wf, self.model, time=time_fs / units.au_in_fs
+                wf,
+                self.model,
+                time=time_fs / units.au_in_fs,
+                reduced_density=reduced_density,
             )
         else:
             assert time_fs == 0.0
@@ -301,6 +333,7 @@ class Simulator:
                 time=time_fs / units.au_in_fs,
                 t2_trick=False,
                 wf_init=deepcopy(wf),
+                reduced_density=reduced_density,
             )
 
         logger.info(f"Start initial step {time_fs:8.3f} [fs]")
@@ -310,10 +343,13 @@ class Simulator:
         for istep in range(self.maxstep):
             time_fs = properties.time * units.au_in_fs
             if istep % 100 == 1:
+                niter_krylov_list = list(helper._Debug.niter_krylov.values())
+                niter_krylov_total = sum(niter_krylov_list)
+                ncall_krylov_total = len(niter_krylov_list)
                 message = (
                     f"End {istep - 1:5d} step; "
                     + f"propagated {time_fs:8.3f} [fs]; "
-                    + f"AVG Krylov iteration: {helper._Debug.niter_krylov / helper._Debug.ncall_krylov:.2f}"
+                    + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
                 )
                 logger.info(message)
             if istep % self.backup_interval == self.backup_interval - 1:
@@ -326,9 +362,17 @@ class Simulator:
                 norm,
                 populations,
                 observables,
-                reduced_density,
+                autocorr_per_step=autocorr_per_step,
+                energy_per_step=energy_per_step,
+                norm_per_step=norm_per_step,
+                populations_per_step=populations_per_step,
+                observables_per_step=observables_per_step,
             )
-            properties.export_properties()
+            properties.export_properties(
+                autocorr_per_step=autocorr_per_step,
+                populations_per_step=populations_per_step,
+                observables_per_step=observables_per_step,
+            )
 
             helper._ElpTime.steps -= time()
             if const.standard_method:
@@ -346,10 +390,13 @@ class Simulator:
             properties.update(stepsize_actual)
             if properties.time * units.au_in_fs > 2000.0:
                 break
+        niter_krylov_list = list(helper._Debug.niter_krylov.values())
+        niter_krylov_total = sum(niter_krylov_list)
+        ncall_krylov_total = len(niter_krylov_list)
         message = (
             f"End {self.maxstep - 1:5d} step; "
             + f"propagated {time_fs:8.3f} [fs]; "
-            + f"AVG Krylov iteration: {helper._Debug.niter_krylov / helper._Debug.ncall_krylov:.2f}"
+            + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
         )
         logger.info(message)
         logger.info("End simulation and save wavefunction")
@@ -396,12 +443,12 @@ class Simulator:
                 # Restart from wf.ints_prim has some problem because of the difference of the 'onesite' keys
             logger.info(f"Wave function is loaded from {path}")
         else:
-            if self.ci_type.lower().startswith("mps"):
+            if self.ci_type.lower() == "mps":
                 if const.verbose > 1:
                     logger.info("Prepare MPS w.f.")
                 if self.do_init_proj_gs:
                     logger.debug("Initial SPF: projected from GS")
-                    if const.doDVR:
+                    if const.use_mpo:
                         raise NotImplementedError
                     else:
                         wf = WFunc(
@@ -411,7 +458,7 @@ class Simulator:
                         )
                 else:
                     logger.debug("Initial SPF: uniform (all 1.0)")
-                    if const.doDVR:
+                    if const.use_mpo:
                         wf = WFunc(
                             MPSCoefMPO.alloc_random(self.model),
                             SPFCoef.alloc_eye(self.model),
@@ -423,7 +470,12 @@ class Simulator:
                             SPFCoef.alloc_eye(self.model),
                             ints_prim,
                         )
-            else:
+            elif self.ci_type.lower() in [
+                "mctdh",
+                "ci",
+                "standard-method",
+                "sm",
+            ]:
                 if const.doDVR:
                     raise NotImplementedError
 
@@ -449,6 +501,10 @@ class Simulator:
                         SPFCoef.alloc_eye(self.model),
                         ints_prim,
                     )
+            else:
+                raise ValueError(
+                    f"ci_type must be 'mps' or 'mctdh', but {self.ci_type} is given."
+                )
         return wf
 
     def save_wavefunction(self, wf: WFunc, log: bool = False):

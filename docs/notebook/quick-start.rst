@@ -13,27 +13,33 @@ Quick Start Examples
 .. _Example 8: electronic-structure-calculation.html
 .. _Example 9: grid-based-MPO-H2CO.html
 .. _Example 10: TD_reduced_density.html
+.. _Example 11: TD_reduced_density_exciton.html
+.. _Example 12: singlet_fission.html
 
 
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-|               | Run Type    | Wavefunction | Potential  | Basis        | Backend    | misc.                          |
-+===============+=============+==============+============+==============+============+================================+
-| `Example 1`_  | Relaxation  | MPS-SM       | Polynomial | HO-FBR       | Numpy      | H2O molecule                   |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 2`_  | Operation   | MPS-SM       | Polynomial | HO-FBR       | Numpy      | Restart from `Example 1`_      |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 3`_  | Propagation | MPS-SM       | Polynomial | HO-FBR       | Numpy      | Restart from `Example 2`_      |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 5`_  | Propagation | MPS-SM       | Polynomial | HO-FBR       | Numpy      | Linear vibronic coupling model |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 6`_  | Propagation | MPS-SM       | Arbitrary  | HO-DVR       | JAX        | Henon-Heiles Hamiltonian       |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 7`_  | Propagation | MPS-SM       | Arbitrary  | Sine-DVR     | JAX        | Henon-Heiles Hamiltonian       |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 9`_  | Relaxation  | MPS-SM       | Grid-based | HO-DVR       | JAX        | Restart from `Example 8`_      |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
-| `Example 10`_ | Propagation | MPS-SM       | Arbitrary  | Sine,Exp-DVR | JAX        | periodic boundary condition    |
-+---------------+-------------+--------------+------------+--------------+------------+--------------------------------+
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+|               | Run Type    | Wavefunction | Potential  | Basis            | Backend    | misc.                          |
++===============+=============+==============+============+==================+============+================================+
+| `Example 1`_  | Relaxation  | MPS-SM       | Polynomial | HO-FBR           | Numpy      | H2O molecule                   |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 2`_  | Operation   | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Restart from `Example 1`_      |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 3`_  | Propagation | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Restart from `Example 2`_      |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 5`_  | Propagation | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Linear vibronic coupling model |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 6`_  | Propagation | MPS-SM       | HDMR func  | HO-DVR           | JAX        | Henon-Heiles Hamiltonian       |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 7`_  | Propagation | MPS-SM       | HDMR func  | Sine-DVR         | JAX        | Henon-Heiles Hamiltonian       |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 9`_  | Relaxation  | MPS-SM       | HDMR grid  | HO-DVR           | JAX        | Restart from `Example 8`_      |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 10`_ | Propagation | MPS-SM       | HDMR func  | Sine,Exp-DVR     | JAX        | periodic boundary condition    |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 11`_ | Propagation | MPS-SM       | Symbolic   | Exciton+Sine+Exp | JAX        | Same model as `Example 10`_    |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Singlet fission + 183-D bath   |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
 +---------------+----------------------------------+---------------------------+
@@ -58,6 +64,8 @@ Quick Start Examples
    electronic-structure-calculation.ipynb
    grid-based-MPO-H2CO.ipynb
    TD_reduced_density.ipynb
+   TD_reduced_density_exciton.ipynb
+   singlet_fission.ipynb
 
 Indices and tables
 

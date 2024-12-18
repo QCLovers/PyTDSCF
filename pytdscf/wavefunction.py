@@ -52,14 +52,14 @@ class WFunc:
             self.ci_coef.op_sys_sites = None
 
     def get_reduced_densities(
-        self, dof_pair: tuple[int, ...]
+        self, remain_nleg: tuple[int, ...]
     ) -> list[np.ndarray]:
         """
         Calculate reduced density matrix of given degree of freedom pair.
         If (0,1) is given, calculate reduced density matrix of 0th and 1st degree of freedom.
 
         Args:
-            dof_pair (Tuple[int, ...]) : degree of freedom pair
+            remain_nleg (Tuple[int, ...]) : degree of freedom pair
 
         Returns:
             List[np.ndarray] : reduced density matrix of given degree of freedom pair for each state.
@@ -72,7 +72,7 @@ class WFunc:
             raise NotImplementedError(
                 "Cannot calculate reduced density for MPS-MCTDH"
             )
-        return self.ci_coef.get_reduced_densities(dof_pair)
+        return self.ci_coef.get_reduced_densities(remain_nleg)
 
     def expectation(self, matOp):
         """

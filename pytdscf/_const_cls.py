@@ -116,6 +116,7 @@ class Const:
         standard_method: bool = True,
         thresh_sil: float = 1.0e-09,
         verbose: int = 2,
+        use_mpo: bool = True,
     ):
         """
 
@@ -142,6 +143,7 @@ class Const:
                 Defaults to 1.e-09.
             verbose (int) : Defaults to 4. 4=noisy for debug and development, \
                 3=normal, 2=least calculation output, 1=only logging and warnig
+            use_mpo (bool) : Defaults to ``True``.
 
         """
         if jobname is None:
@@ -179,6 +181,11 @@ class Const:
         self.use_jax = use_jax
         const.thresh_exp = thresh_sil
         self.standard_method = standard_method
+        self.use_mpo = use_mpo
+        if self.use_mpo:
+            assert (
+                self.standard_method
+            ), "MPO is only available for standard method."
 
 
 const = Const()

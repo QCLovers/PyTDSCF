@@ -4,6 +4,7 @@ import os
 from logging import getLogger
 
 import netCDF4 as nc
+import numpy as np
 
 import pytdscf._helper as helper
 from pytdscf import units
@@ -29,7 +30,15 @@ class Properties:
         expectations (List[float]): observables of given operator
     """
 
-    def __init__(self, wf, model, time=0.0, t2_trick=True, wf_init=None):
+    def __init__(
+        self,
+        wf,
+        model,
+        time=0.0,
+        t2_trick=True,
+        wf_init=None,
+        reduced_density=None,
+    ):
         self.wf = wf
         self.model = model
         self.time = time
@@ -46,6 +55,29 @@ class Properties:
         self.nc_file: str | None = None
         assert t2_trick or (wf_init is None)
 
+        if reduced_density is not None:
+            self.rd_step = reduced_density[1]
+            self.remain_legs: list[tuple[int, ...]] | None = []
+            self.rd_keys = []
+            for key in reduced_density[0]:
+                rd_points = sorted(key, reverse=True)
+                _remain_legs = [0 for isite in range(rd_points[0] + 1)]
+                isite = 0
+                while rd_points:
+                    if isite == rd_points[-1]:
+                        _remain_legs[isite] += 1
+                        rd_points.pop()
+                    else:
+                        isite += 1
+                assert all([0 <= leg <= 2 for leg in _remain_legs])
+                self.remain_legs.append(tuple(_remain_legs))
+                self.rd_keys.append(key)
+            if self.nc_file is None:
+                self.nc_file = self._create_nc_file(reduced_density)
+        else:
+            self.rd_step = None
+            self.remain_legs = None
+
     def get_properties(
         self,
         autocorr=True,
@@ -53,37 +85,43 @@ class Properties:
         norm=True,
         populations=True,
         observables=True,
-        reduced_density=None,
+        autocorr_per_step=1,
+        energy_per_step=1,
+        norm_per_step=1,
+        populations_per_step=1,
+        observables_per_step=1,
     ):
-        if autocorr:
+        if autocorr and self.nstep % autocorr_per_step == 0:
             self._get_autocorr()
-        if energy:
+        if energy and self.nstep % energy_per_step == 0:
             self._get_energy()
-        if norm:
+        if norm and self.nstep % norm_per_step == 0:
             self._get_norm()
-        if populations:
+        if populations and self.nstep % populations_per_step == 0:
             self._get_pops()
-        if observables:
+        if observables and self.nstep % observables_per_step == 0:
             self._get_observables()
-        if reduced_density is not None:
-            if self.nc_file is None:
-                self.nc_file = self._create_nc_file(reduced_density)
-            self._export_reduced_density(reduced_density)
+        if self.remain_legs is not None:
+            if self.nstep % self.rd_step == 0:
+                self._export_reduced_density()
 
-    def _export_reduced_density(
-        self, reduced_density: tuple[list[tuple[int, ...]], int]
-    ):
-        if self.nstep % reduced_density[1] == 0:
-            assert isinstance(self.nc_file, str)
-            with nc.Dataset(self.nc_file, "a") as f:
-                f.variables["time"][self.nc_row] = self.time * units.au_in_fs
-                for key in reduced_density[0]:
-                    densities = self.wf.get_reduced_densities(key)
-                    for istate in range(self.model.nstate):
-                        f.variables[f"rho_{key}_{istate}"][self.nc_row] = (
-                            densities[istate].real
-                        )
-            self.nc_row += 1
+    def _export_reduced_density(self):
+        assert isinstance(self.nc_file, str)
+        assert isinstance(self.remain_legs, list)
+        complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
+        with nc.Dataset(self.nc_file, "a") as f:
+            # Maybe we should keep files open while the simulation is running.
+            f.variables["time"][self.nc_row] = self.time * units.au_in_fs
+            for remain_leg, key in zip(
+                self.remain_legs, self.rd_keys, strict=True
+            ):
+                densities = self.wf.get_reduced_densities(remain_leg)
+                for istate in range(self.model.nstate):
+                    data = np.empty(densities[istate].shape, complex128)
+                    data["real"] = densities[istate].real
+                    data["imag"] = densities[istate].imag
+                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
+        self.nc_row += 1
 
     def _create_nc_file(
         self, reduced_density: tuple[list[tuple[int, ...]], int]
@@ -98,6 +136,8 @@ class Properties:
         ) as f:
             f.createDimension("step", None)
             f.createDimension("state", self.model.nstate)
+            complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
+            complex128_t = f.createCompoundType(complex128, "complex128")
             modes = set()
             for key in reduced_density[0]:
                 # key must be ascending order.
@@ -118,7 +158,9 @@ class Properties:
                     )
                 for istate in range(self.model.nstate):
                     dimensions = ("step",) + tuple(f"Q{idof}" for idof in key)
-                    f.createVariable(f"rho_{key}_{istate}", "f8", dimensions)
+                    f.createVariable(
+                        f"rho_{key}_{istate}", complex128_t, dimensions
+                    )
         return path_to_nc
 
     def _get_autocorr(self):
@@ -145,7 +187,7 @@ class Properties:
                 )
 
     def _get_energy(self):
-        self.energy = self.wf.expectation(self.model.observables["hamiltonian"])
+        self.energy = self.wf.expectation(self.model.hamiltonian)
 
     def _get_norm(self):
         self.norm = self.wf.norm()
@@ -160,9 +202,18 @@ class Properties:
             #         f'matOp {type(matOp)} is not implemented in Properties._get_observables')
             self.expectations[obs_key] = self.wf.expectation(matOp)
 
-    def export_properties(self):
-        self._export_autocorr()
-        self._export_populations()
+    def export_properties(
+        self,
+        autocorr_per_step=1,
+        populations_per_step=1,
+        observables_per_step=1,
+    ):
+        if self.nstep % autocorr_per_step == 0:
+            self._export_autocorr()
+        if self.nstep % populations_per_step == 0:
+            self._export_populations()
+        if self.nstep % observables_per_step == 0:
+            self._export_expectations()
         self._export_properties()
 
     def _export_autocorr(self):
