@@ -35,6 +35,8 @@ jobs:
         run: sudo apt update && sudo apt install pandoc
       - name: uv-install
         run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: install dependencies
+        run: uv sync --all-extras
       - name: build document
         run: |
             uv run sphinx-apidoc -f -o docs pytdscf pytdscf/potentials
