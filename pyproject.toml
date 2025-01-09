@@ -15,7 +15,6 @@ dependencies = [
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
     "matplotlib>=3.9.2",
-    "mpi4py>=4.0.1",
     "mpmath>=1.3.0",
     "netcdf4>=1.7.2",
     "numpy>=2.1.2",
@@ -33,6 +32,9 @@ docs = [
     "myst-parser>=4.0.0",
     "nbsphinx>=0.9.5",
     "pandoc>=2.4",
+]
+mpi = [
+    "mpi4py>=4.0.1",
 ]
 
 [build-system]

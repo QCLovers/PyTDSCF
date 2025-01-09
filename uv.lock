@@ -1928,7 +1928,6 @@ dependencies = [
     { name = "jax" },
     { name = "jaxlib" },
     { name = "matplotlib" },
-    { name = "mpi4py" },
     { name = "mpmath" },
     { name = "netcdf4" },
     { name = "numpy" },
@@ -1943,6 +1942,9 @@ docs = [
     { name = "pandoc" },
     { name = "sphinx" },
     { name = "sphinx-rtd-theme" },
+]
+mpi = [
+    { name = "mpi4py" },
 ]
 pympo = [
     { name = "pympo" },
@@ -1970,7 +1972,7 @@ requires-dist = [
     { name = "jax", specifier = ">=0.4.35" },
     { name = "jaxlib", specifier = ">=0.4.35" },
     { name = "matplotlib", specifier = ">=3.9.2" },
-    { name = "mpi4py", specifier = ">=4.0.1" },
+    { name = "mpi4py", marker = "extra == 'mpi'", specifier = ">=4.0.1" },
     { name = "mpmath", specifier = ">=1.3.0" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=4.0.0" },
     { name = "nbsphinx", marker = "extra == 'docs'", specifier = ">=0.9.5" },

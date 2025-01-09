@@ -15,8 +15,10 @@ jobs:
       uses: actions/checkout@v4
     - name: uv-install
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: install-mpi
+      run: sudo apt update && sudo apt install libopenmpi-dev
     - name: pytdscf-dev-install
-      run: uv sync
+      run: uv sync --extra mpi
     - name: pytest
       continue-on-error: true
       id: pytest
