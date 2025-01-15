@@ -307,7 +307,7 @@ class MPSCoef(ABC):
         prepare operators for multiplying the full-matrix PolynomialHamiltonian on-the-fly
 
         Args:
-            psite (int): site index on "C"
+            psite (int): site index on "Psi"
             op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
             op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
             ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral
@@ -343,7 +343,7 @@ class MPSCoef(ABC):
         construct full-matrix Kamiltonian
 
         Args:
-            psite (int): site index on "C"
+            psite (int): site index on "Psi"
             op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
             op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
             matH_cas (PolynomialHamiltonian) : Hamiltonian
@@ -356,10 +356,10 @@ class MPSCoef(ABC):
         pass
 
     def is_psite_canonical(self, psite: int) -> bool:
-        """check if mps = L..L(p-1)C(p)R(p+1)..R
+        """check if mps = A..A(p-1)Psi(p)B(p+1)..B
 
         Args:
-            psite (int): guess of "C" site
+            psite (int): guess of "Psi" site
 
         Returns:
             bool : Correct or Incorrect
@@ -367,7 +367,7 @@ class MPSCoef(ABC):
         for superblock in self.superblock_states:
             for isite, site_coef in enumerate(superblock):
                 expected_gauge = (
-                    "L" if isite < psite else "C" if isite == psite else "R"
+                    "A" if isite < psite else "Psi" if isite == psite else "B"
                 )
                 if site_coef.gauge != expected_gauge:
                     return False
@@ -376,7 +376,7 @@ class MPSCoef(ABC):
     def assert_psite_canonical(self, psite: int):
         assert self.is_psite_canonical(
             psite
-        ), "wrong gauge status. It's assumed to be L..L(p-1)C(p)R(p+1)..R in superblock"
+        ), "wrong gauge status. It's assumed to be A..A(p-1)Psi(p)B(p+1)..B in superblock"
 
     def apply_dipole(self, ints_spf: SPFInts, ci_coef_init, matO) -> float:
         if (not const.standard_method) or (
@@ -466,7 +466,7 @@ class MPSCoef(ABC):
     def expectation(
         self, ints_spf: SPFInts, matOp: HamiltonianMixin, psite: int = 0
     ) -> complex | float:
-        """Get Expectation Value at "C" = p-site
+        """Get Expectation Value at "Psi" = p-site
 
         Args:
             ints_spf (SPFInts): SPF integral
@@ -493,24 +493,24 @@ class MPSCoef(ABC):
         )
 
         """concatenate PolynomialHamiltonian & Coefficients over the electronic states"""
-        matC_states: list[np.ndarray] | list[jax.Array]
+        matPsi_states: list[np.ndarray] | list[jax.Array]
         if const.use_jax:
-            matC_states = [
+            matPsi_states = [
                 superblock[psite].data for superblock in superblock_states
             ]  # type: ignore
         else:
-            matC_states = [
+            matPsi_states = [
                 np.array(superblock[psite]) for superblock in superblock_states
             ]
         if isinstance(matOp, PolynomialHamiltonian):
-            multiplyH = multiplyH_MPS_direct(op_lcr, matC_states, matOp)
+            multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states, matOp)
         else:
-            multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matC_states, matOp)  # type: ignore
+            multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matPsi_states, matOp)  # type: ignore
 
         expectation_value = _integrator.expectation_Op(
-            matC_states,  # type: ignore
+            matPsi_states,  # type: ignore
             multiplyH,
-            matC_states,  # type: ignore
+            matPsi_states,  # type: ignore
         )
         return expectation_value
 
@@ -522,7 +522,7 @@ class MPSCoef(ABC):
 
         Args:
             ints_spf (SPFInts): SPF integral
-            psite (int, optional): "C" site index. Defaults to 0.
+            psite (int, optional): "Psi" site index. Defaults to 0.
 
         Returns:
             complex: auto-correlation value
@@ -547,19 +547,19 @@ class MPSCoef(ABC):
         )
 
         """concatenate PolynomialHamiltonian & Coefficients over the electronic states"""
-        matC_states: list[np.ndarray] | list[jax.Array]
+        matPsi_states: list[np.ndarray] | list[jax.Array]
         if const.use_jax:
-            matC_states = [
+            matPsi_states = [
                 superblock[psite].data for superblock in superblock_states
             ]  # type: ignore
         else:
-            matC_states = [
+            matPsi_states = [
                 np.array(superblock[psite]) for superblock in superblock_states
             ]
-        multiplyH = multiplyH_MPS_direct(op_lcr, matC_states)
+        multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states)
 
-        psivec = multiplyH.stack(matC_states)
-        sigvec = multiplyH.stack(multiplyH.dot_autocorr(matC_states))
+        psivec = multiplyH.stack(matPsi_states)
+        sigvec = multiplyH.stack(multiplyH.dot_autocorr(matPsi_states))
 
         autocorr_tdh = 1.0 + 0.0j
         if "enable_tdh_dofs" in const.keys:
@@ -667,8 +667,10 @@ class MPSCoef(ABC):
             )
 
             if psite != psites_sweep[-1]:
-                superblock_transLCR_psite(psite, superblock_states, left_is_sys)
-                superblock_transLCR_psite(
+                superblock_trans_APsiB_psite(
+                    psite, superblock_states, left_is_sys
+                )
+                superblock_trans_APsiB_psite(
                     psite, superblock_states_unperturb, left_is_sys
                 )
                 op_sys = self.renormalize_op_psite(
@@ -752,7 +754,7 @@ class MPSCoef(ABC):
             if psite != psites_sweep[-1]:
                 if const.verbose == 4:
                     helper._ElpTime.ci_rnm -= time()
-                svalues, op_sys = self.trans_next_psite_LSR(
+                svalues, op_sys = self.trans_next_psite_AsigmaB(
                     psite,
                     self.superblock_states,
                     op_sys,
@@ -807,45 +809,49 @@ class MPSCoef(ABC):
         stepsize: float,
     ):
         """concatenate PolynomialHamiltonian & coefficients"""
-        matC_states: list[np.ndarray] | list[jax.Array]
+        matPsi_states: list[np.ndarray] | list[jax.Array]
         if const.use_jax:
-            matC_states = [
+            matPsi_states = [
                 superblock[psite].data for superblock in superblock_states
             ]  # type: ignore
         else:
-            matC_states = [
+            matPsi_states = [
                 np.array(superblock[psite]) for superblock in superblock_states
             ]
 
         """exponentiation PolynomialHamiltonian"""
         if isinstance(matH_cas, PolynomialHamiltonian):
-            multiplyH = multiplyH_MPS_direct(op_lcr, matC_states, matH_cas)
+            multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states, matH_cas)
         else:
             assert isinstance(matH_cas, TensorHamiltonian)
-            multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matC_states, matH_cas)  # type: ignore
+            multiplyH = multiplyH_MPS_direct_MPO(
+                op_lcr,  # type: ignore
+                matPsi_states,
+                matH_cas,
+            )
 
         if not const.doRelax:
-            matC_states_new = _integrator.short_iterative_lanczos(
-                -1.0j * stepsize / 2, multiplyH, matC_states, const.thresh_exp
+            matPsi_states_new = _integrator.short_iterative_lanczos(
+                -1.0j * stepsize / 2, multiplyH, matPsi_states, const.thresh_exp
             )
 
         elif const.doRelax == "improved":
-            matC_states_new = _integrator.matrix_diagonalize_lanczos(
-                multiplyH, matC_states
+            matPsi_states_new = _integrator.matrix_diagonalize_lanczos(
+                multiplyH, matPsi_states
             )
-            norm = get_C_sval_states_norm(matC_states_new)
-            matC_states_new = [x / norm for x in matC_states_new]  # type: ignore
+            norm = get_C_sval_states_norm(matPsi_states_new)
+            matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
 
         else:
-            matC_states_new = _integrator.short_iterative_lanczos(
-                -1.0 * stepsize / 2, multiplyH, matC_states, const.thresh_exp
+            matPsi_states_new = _integrator.short_iterative_lanczos(
+                -1.0 * stepsize / 2, multiplyH, matPsi_states, const.thresh_exp
             )
-            norm = get_C_sval_states_norm(matC_states_new)
-            matC_states_new = [x / norm for x in matC_states_new]  # type: ignore
+            norm = get_C_sval_states_norm(matPsi_states_new)
+            matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
 
-        """update(over-write) matC(psite)"""
+        """update(over-write) matPsi(psite)"""
         for istate, superblock in enumerate(superblock_states):
-            superblock[psite] = SiteCoef(matC_states_new[istate], "C")
+            superblock[psite] = SiteCoef(matPsi_states_new[istate], "Psi")
 
     def exp_superK_propagation_direct(
         self,
@@ -900,31 +906,35 @@ class MPSCoef(ABC):
 
         """over-write sval"""
         for istate, superblock in enumerate(superblock_states):
-            matC: np.ndarray | jax.Array
+            matPsi: np.ndarray | jax.Array
             if left_is_sys:
-                """sval x R(p+1) -> C(p+1)"""
+                """sval x B(p+1) -> Psi(p+1)"""
                 matL = superblock[psite]
                 matR = superblock[psite + 1]
-                assert matL.gauge == "L"
-                assert matR.gauge == "R"
+                assert matL.gauge == "A"
+                assert matR.gauge == "B"
                 sval = svalues_states_new[istate]
                 if const.use_jax:
-                    matC = jnp.einsum("ij,jbc->ibc", sval, matR.data)
+                    matPsi = jnp.einsum("ij,jbc->ibc", sval, matR.data)
                 else:
-                    matC = np.tensordot(sval, matR, axes=1)
-                superblock[psite + 1] = SiteCoef(matC, "C")
+                    matPsi = np.tensordot(sval, matR, axes=1)
+                superblock[psite + 1] = SiteCoef(matPsi, "Psi")
             else:
-                """L(p-1) x sval -> C(p-1)"""
+                """A(p-1) x sval -> Psi(p-1)"""
                 matR = superblock[psite]
                 matL = superblock[psite - 1]
-                assert matR.gauge == "R"
-                assert matL.gauge == "L"
+                assert (
+                    matR.gauge == "B"
+                ), f"matR.gauge should be B, but {matR.gauge}"
+                assert (
+                    matL.gauge == "A"
+                ), f"matL.gauge should be A, but {matL.gauge}"
                 sval = svalues_states_new[istate]
                 if const.use_jax:
-                    matC = jnp.einsum("ijk,kb->ijb", matL.data, sval)
+                    matPsi = jnp.einsum("ijk,kb->ijb", matL.data, sval)
                 else:
-                    matC = np.tensordot(matL, sval, axes=1)
-                superblock[psite - 1] = SiteCoef(matC, "C")
+                    matPsi = np.tensordot(matL, sval, axes=1)
+                superblock[psite - 1] = SiteCoef(matPsi, "Psi")
 
     def _get_normalized_reduced_density(
         self, istate: int, remain_nleg: tuple[int, ...]
@@ -932,7 +942,7 @@ class MPSCoef(ABC):
         """
         Wavefunction is written by
 
-        |Ψ> = C[0] R[1] R[2] ... R[f-1]
+        |Ψ> = Psi[0] B[1] B[2] ... B[f-1]
 
         if dof_pair = (0, 2), then the reduced density matrix is
 
@@ -1122,7 +1132,7 @@ class MPSCoef(ABC):
 
         return op_block_isites if set_op_left else op_block_isites[::-1]
 
-    def trans_next_psite_LSR(
+    def trans_next_psite_AsigmaB(
         self,
         psite: int,
         superblock_states: list[list[SiteCoef]],
@@ -1135,28 +1145,28 @@ class MPSCoef(ABC):
         superblock_states_ket=None,
         regularize=False,
     ):
-        """..C(p) R(p+1).. -> ..L(p) sval R(p+1)"""
+        """..Psi(p) B(p+1).. -> ..A(p) sval B(p+1)"""
 
-        def _transCR2LR_psite(superblock_states):
+        def _trans_PsiB2AB_psite(superblock_states):
             svalues = []
             for superblock in superblock_states:
                 if left_is_sys:
                     svalues.append(
-                        superblock_transCR2LR_psite(
+                        superblock_trans_PsiB2AB_psite(
                             psite, superblock, regularize
                         )
                     )
                 else:
                     svalues.append(
-                        superblock_transLC2LR_psite(
+                        superblock_trans_APsi2AB_psite(
                             psite, superblock, regularize
                         )
                     )
             return svalues
 
-        svalues = _transCR2LR_psite(superblock_states)
+        svalues = _trans_PsiB2AB_psite(superblock_states)
         if superblock_states_ket:
-            _ = _transCR2LR_psite(superblock_states_ket)
+            _ = _trans_PsiB2AB_psite(superblock_states_ket)
         op_sys_next = self.renormalize_op_psite(
             psite,
             superblock_states,
@@ -1169,7 +1179,7 @@ class MPSCoef(ABC):
 
         return svalues, op_sys_next
 
-    def trans_next_psite_LCR(
+    def trans_next_psite_APsiB(
         self,
         psite: int,
         superblock_states: list[list[SiteCoef]],
@@ -1181,18 +1191,18 @@ class MPSCoef(ABC):
         left_is_sys: bool,
         superblock_states_ket=None,
     ):
-        """..C(p) R(p+1).. -> ..L(p) C(p+1)"""
+        """..Psi(p) B(p+1).. -> ..A(p) Psi(p+1)"""
 
-        def _transCR2LC_psite(superblock_states):
+        def _trans_PsiB2APsi_psite(superblock_states):
             for superblock in superblock_states:
                 if left_is_sys:
-                    superblock_transCR2LC_psite(psite, superblock)
+                    superblock_trans_PsiB2APsi_psite(psite, superblock)
                 else:
-                    superblock_transLC2CR_psite(psite, superblock)
+                    superblock_trans_APsi2PsiB_psite(psite, superblock)
 
-        _transCR2LC_psite(superblock_states)
+        _trans_PsiB2APsi_psite(superblock_states)
         if superblock_states_ket:
-            _transCR2LC_psite(superblock_states_ket)
+            _trans_PsiB2APsi_psite(superblock_states_ket)
 
         op_sys_next = self.renormalize_op_psite(
             psite,
@@ -1232,7 +1242,7 @@ class MPSCoef(ABC):
         prepare operators for multiplying the full-matrix auto-correlation operator on-the-fly
 
         Args:
-            psite (int): site index on "C"
+            psite (int): site index on "Psi"
             op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
             op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
             ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray | jax.Array]]): Site integral
@@ -1345,7 +1355,7 @@ class LatticeInfo:
         Returns:
             List[SiteCoef]: site coefficient for each sites
         """
-        superblock = []
+        superblock: list[SiteCoef] = []
         for isite in range(self.nsite):
             is_lend = isite == 0
             is_rend = isite == self.nsite - 1
@@ -1381,48 +1391,54 @@ class LatticeInfo:
                         )
                     else:
                         matC = SiteCoef(
-                            np.einsum("abc,bd->adc", matC, unitary), gauge="C"
+                            np.einsum("abc,bd->adc", matC, unitary),
+                            gauge="C",
                         )
             superblock.append(matC)
 
         for isite in range(self.nsite - 1, 0, -1):
-            matR, sval = superblock[isite].gauge_trf("C2R")
-            superblock[isite] = matR
+            matB, sval = superblock[isite].gauge_trf("C2sigmaB")
+            superblock[isite] = matB
             matC = superblock[isite - 1]
             if const.use_jax:
-                superblock[isite - 1] = SiteCoef(
-                    jnp.einsum("abc,cd->abd", matC.data, sval), gauge="C"
-                )
+                data = jnp.einsum("abc,cd->abd", matC.data, sval)
             else:
-                superblock[isite - 1] = SiteCoef(
-                    np.einsum("abc,cd->abd", matC, sval), gauge="C"
-                )
+                data = np.einsum("abc,cd->abd", matC, sval)
+            superblock[isite - 1] = SiteCoef(data, gauge="C")
 
         superblock[0] *= scale / np.linalg.norm(superblock[0].data)
+        superblock[0].gauge = "Psi"
 
         logger.debug("Initial MPS Lattice")
         logger.debug(helper.get_tensornetwork_diagram_MPS(superblock))
         return superblock
 
+    def __repr__(self) -> str:
+        return (
+            f"LatticeInfo(nsite={self.nsite}, dim_of_sites={self.dim_of_sites})"
+        )
+
 
 def get_C_sval_states_norm(
-    matC_or_sval_states: list[np.ndarray] | list[jax.Array],
+    matPsi_or_sval_states: list[np.ndarray] | list[jax.Array],
 ) -> float:
-    """matC in all electronic states norm
+    """matPsi in all electronic states norm
 
     Args:
-        matC_or_sval_states (List[np.ndarray | jax.Array]): i-electronic states matC or sval
+        matPsi_or_sval_states (List[np.ndarray | jax.Array]): i-electronic states matPsi or sval
 
     Returns:
         float: norm
     """
     if const.use_jax:
         norm = math.sqrt(
-            np.sum([jnp.linalg.norm(x) ** 2 for x in matC_or_sval_states])
+            np.sum([jnp.linalg.norm(x) ** 2 for x in matPsi_or_sval_states])
         )
     else:
         norm = math.sqrt(
-            np.sum([linalg.norm(x.flatten()) ** 2 for x in matC_or_sval_states])
+            np.sum(
+                [linalg.norm(x.flatten()) ** 2 for x in matPsi_or_sval_states]
+            )
         )
     return norm
 
@@ -1435,37 +1451,37 @@ def apply_superOp_direct(
     superblock_states_unperturb: list[list[SiteCoef]],
 ) -> float:
     """concatenate PolynomialHamiltonian & coefficients"""
-    matC_states_init: list[np.ndarray] | list[jax.Array]
+    matPsi_states_init: list[np.ndarray] | list[jax.Array]
     if const.use_jax:
-        matC_states_init = [
+        matPsi_states_init = [
             superblock_init[psite].data
             for superblock_init in superblock_states_unperturb
         ]  # type: ignore
     else:
-        matC_states_init = [
+        matPsi_states_init = [
             np.array(superblock_init[psite])
             for superblock_init in superblock_states_unperturb
         ]
 
     """exponentiation PolynomialHamiltonian"""
     if isinstance(matO_cas, PolynomialHamiltonian):
-        multiplyOp = multiplyH_MPS_direct(op_lcr, matC_states_init, matO_cas)
+        multiplyOp = multiplyH_MPS_direct(op_lcr, matPsi_states_init, matO_cas)
     else:
         multiplyOp = multiplyH_MPS_direct_MPO(
-            op_lcr, matC_states_init, matO_cas
+            op_lcr, matPsi_states_init, matO_cas
         )
 
-    matC_states_new = multiplyOp.dot(matC_states_init)
-    norm = get_C_sval_states_norm(matC_states_new)
-    matC_states_new = [x / norm for x in matC_states_new]
+    matPsi_states_new = multiplyOp.dot(matPsi_states_init)
+    norm = get_C_sval_states_norm(matPsi_states_new)
+    matPsi_states_new = [x / norm for x in matPsi_states_new]
 
-    """update(over-write) matC(psite)"""
+    """update(over-write) matPsi(psite)"""
     for istate, superblock in enumerate(superblock_states):
-        superblock[psite] = SiteCoef(matC_states_new[istate], "C")
+        superblock[psite] = SiteCoef(matPsi_states_new[istate], "Psi")
     return norm
 
 
-def superblock_transLCR_psite(
+def superblock_trans_APsiB_psite(
     psite: int,
     superblock_states: list[list[SiteCoef]],
     left_is_sys: bool,
@@ -1473,59 +1489,59 @@ def superblock_transLCR_psite(
 ):
     if left_is_sys:
         for superblock in superblock_states:
-            superblock_transCR2LC_psite(psite, superblock, regularize)
+            superblock_trans_PsiB2APsi_psite(psite, superblock, regularize)
     else:
         for superblock in superblock_states:
-            superblock_transLC2CR_psite(psite, superblock, regularize)
+            superblock_trans_APsi2PsiB_psite(psite, superblock, regularize)
 
 
-def superblock_transCR2LC_psite(
+def superblock_trans_PsiB2APsi_psite(
     psite: int, superblock: list[SiteCoef], regularize: bool = False
 ):
-    """..C(p) R(p+1).. -> ..L(p) C(p+1)"""
-    matC = superblock[psite]
-    matL, sval = matC.gauge_trf("C2L", regularize)
-    matR = superblock[psite + 1]
+    """..Psi(p) B(p+1).. -> ..A(p) Psi(p+1)"""
+    matPsi = superblock[psite]
+    matA, sval = matPsi.gauge_trf("Psi2Asigma", regularize)
+    matB = superblock[psite + 1]
     if const.use_jax:
-        matC = SiteCoef(jnp.einsum("ij,jbc->ibc", sval, matR.data), "C")
+        matPsi = SiteCoef(jnp.einsum("ij,jbc->ibc", sval, matB.data), "Psi")
     else:
-        matC = SiteCoef(np.tensordot(sval, matR, axes=1), "C")
-    superblock[psite] = matL
-    superblock[psite + 1] = matC
+        matPsi = SiteCoef(np.tensordot(sval, matB, axes=1), "Psi")
+    superblock[psite] = matA
+    superblock[psite + 1] = matPsi
 
 
-def superblock_transLC2CR_psite(
+def superblock_trans_APsi2PsiB_psite(
     psite: int, superblock: list[SiteCoef], regularize: bool = False
 ):
-    """..L(p-1) C(p).. -> ..C(p-1) R(p)"""
-    matC = superblock[psite]
-    matR, sval = matC.gauge_trf("C2R", regularize)
-    matL = superblock[psite - 1]
+    """..A(p-1) Psi(p).. -> ..Psi(p-1) B(p)"""
+    matPsi = superblock[psite]
+    matB, sval = matPsi.gauge_trf("Psi2sigmaB", regularize)
+    matA = superblock[psite - 1]
     if const.use_jax:
-        matC = SiteCoef(jnp.einsum("ijk,kb->ijb", matL.data, sval), "C")
+        matPsi = SiteCoef(jnp.einsum("ijk,kb->ijb", matA.data, sval), "Psi")
     else:
-        matC = SiteCoef(np.tensordot(matL, sval, axes=1), "C")
-    superblock[psite] = matR
-    superblock[psite - 1] = matC
+        matPsi = SiteCoef(np.tensordot(matA, sval, axes=1), "Psi")
+    superblock[psite] = matB
+    superblock[psite - 1] = matPsi
 
 
-def superblock_transCR2LR_psite(
+def superblock_trans_PsiB2AB_psite(
     psite: int, superblock: list[SiteCoef], regularize: bool = False
 ) -> jax.Array | np.ndarray:
-    """..C(p) R(p+1).. -> ..L(p) R(p+1)"""
-    matC = superblock[psite]
-    matL, sval = matC.gauge_trf("C2L", regularize)
-    superblock[psite] = matL
+    """..Psi(p) B(p+1).. -> ..A(p) sigma(p) B(p+1)"""
+    matPsi = superblock[psite]
+    matA, sval = matPsi.gauge_trf("Psi2Asigma", regularize)
+    superblock[psite] = matA
     return sval
 
 
-def superblock_transLC2LR_psite(
+def superblock_trans_APsi2AB_psite(
     psite: int, superblock: list[SiteCoef], regularize: bool = False
 ) -> np.ndarray | jax.Array:
-    """..L(p-1) C(p).. -> ..L(p-1) R(p)"""
-    matC = superblock[psite]
-    matR, sval = matC.gauge_trf("C2R", regularize)
-    superblock[psite] = matR
+    """..A(p-1) Psi(p).. -> ..A(p-1) B(p)"""
+    matPsi = superblock[psite]
+    matB, sval = matPsi.gauge_trf("Psi2sigmaB", regularize)
+    superblock[psite] = matB
     return sval
 
 
@@ -1651,12 +1667,12 @@ def distance_MPS(mps_A_inp: MPSCoef, mps_B_inp: MPSCoef) -> float:
         for istate in range(nstate):
             superblock_A = mps_A.superblock_states[istate]
             superblock_B = mps_B.superblock_states[istate]
-            matC_A = superblock_A[psite]
-            matC_B = superblock_B[psite]
-            innerdot += (matC_A - matC_B).norm() ** 2
+            matPsi_A = superblock_A[psite]
+            matPsi_B = superblock_B[psite]
+            innerdot += (matPsi_A - matPsi_B).norm() ** 2
             if psite < nsite - 1:
-                superblock_transCR2LC_psite(psite, superblock_A)
-                superblock_transCR2LC_psite(psite, superblock_B)
+                superblock_trans_PsiB2APsi_psite(psite, superblock_A)
+                superblock_trans_PsiB2APsi_psite(psite, superblock_B)
         if const.use_jax:
             dist_max = max(dist_max, innerdot**0.5)
         else:
@@ -1680,7 +1696,7 @@ def _get_normalized_reduced_density_jax(
     """
     Wavefunction is written by
 
-    |Ψ> = C[0] R[1] R[2] ... R[f-1]
+    |Ψ> = Psi[0] B[1] B[2] ... B[f-1]
 
     if dof_pair = (0, 2), then the reduced density matrix is
 

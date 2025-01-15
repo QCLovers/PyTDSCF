@@ -510,7 +510,7 @@ class MPSCoefMPO(MPSCoef):
         prepare operators for multiplying the full-matrix PolynomialHamiltonian on-the-fly
 
         Args:
-            psite (int): site index on "C"
+            psite (int): site index on "Psi"
             op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
             op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
             ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral

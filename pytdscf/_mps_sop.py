@@ -26,7 +26,7 @@ from pytdscf._mps_cls import (
     MPSCoef,
     ints_spf2site_prod,
     ints_spf2site_sum,
-    superblock_transLCR_psite,
+    superblock_trans_APsiB_psite,
 )
 from pytdscf._site_cls import SiteCoef
 from pytdscf._spf_cls import SPFInts
@@ -968,7 +968,7 @@ class MPSCoefSoP(MPSCoef):
         )
 
         for psite in psites_sweep_forward[:-1]:
-            superblock_transLCR_psite(
+            superblock_trans_APsiB_psite(
                 psite, superblock_states, left_is_sys, regularize=regularize_MPS
             )
         op_sys_sites = self.construct_op_sites(
@@ -976,7 +976,7 @@ class MPSCoefSoP(MPSCoef):
         )
 
         for psite in psites_sweep_backward[:-1]:
-            superblock_transLCR_psite(
+            superblock_trans_APsiB_psite(
                 psite,
                 superblock_states,
                 not left_is_sys,
@@ -1027,14 +1027,14 @@ class MPSCoefSoP(MPSCoef):
                         mfop_spf[mfop_type][statepair].extend(data_site)
 
             if psite != psites_sweep_forward[-1]:
-                superblock_transLCR_psite(
+                superblock_trans_APsiB_psite(
                     psite,
                     superblock_states,
                     left_is_sys,
                     regularize=regularize_MPS,
                 )
             else:
-                _svalues, op_block_cas = self.trans_next_psite_LSR(
+                _svalues, op_block_cas = self.trans_next_psite_AsigmaB(
                     psite,
                     superblock_states,
                     op_sys_sites[psite],
@@ -1125,7 +1125,7 @@ class MPSCoefSoP(MPSCoef):
                         mfop_spf[mfop_type][statepair].extend(data_site)
 
             if psite != psites_sweep[-1]:
-                op_sys = self.trans_next_psite_LCR(
+                op_sys = self.trans_next_psite_APsiB(
                     psite,
                     superblock_states_bra,
                     op_sys,
@@ -1689,7 +1689,7 @@ class MPSCoefSoP(MPSCoef):
         construct full-matrix Kamiltonian
 
         Args:
-            psite (int): site index on "C"
+            psite (int): site index on "Psi"
             op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
             op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
             matH_cas (PolynomialHamiltonian) : Hamiltonian

@@ -5,6 +5,7 @@ Core tensor (site coefficient) class for MPS & MPO
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -21,16 +22,30 @@ class SiteCoef:
 
     Args:
         data (np.ndarray) : data (3 rank tensor)
-        gauge (str) : Canonical gauge "L" or "C" or "R".
+        gauge (str) : gauge type
 
     """
 
-    gauge = None
+    gauge: Literal["C", "A", "B", "Psi", "Gamma", "sigma", "Lambda", "V"]
+    # "C" : Arbitrary 3-rank tensor
+    # "A" : A tensor (left canonical) (A†A=I)
+    # "B" : B tensor (right canonical) (BB†=I)
+    # "Psi" : 3-rank orthogonal center tensor (Psi=A*Lambda=Lambda*B)
+    # "Gamma" : 3-rank tensor introduced by Vidal (A=Lambda*Gamma, B=Gamma*Lambda)
+    # "sigma" : Arbitrary 2-rank tensor
+    # "Lambda" : Diagonal matrix defined by Lambda=diag(lambda_1,lambda_2,...)
+    # "V" : 2-rank tensor introduced by Stoudenmire and White (V=Lambda^(-1))
+
+    # Static index
     l_indx = 0
     n_indx = 1
     r_indx = 2
 
-    def __init__(self, data: np.ndarray | jax.Array, gauge: str | None):
+    def __init__(
+        self,
+        data: np.ndarray | jax.Array,
+        gauge: Literal["C", "A", "B", "Psi", "Gamma", "sigma", "Lambda", "V"],
+    ):
         self.data = data
         self.gauge = gauge
         self.shape = data.shape
@@ -90,42 +105,75 @@ class SiteCoef:
         return self.data.size
 
     def norm(self):
-        assert self.gauge == "C"
         if const.use_jax:
             return jnp.linalg.norm(self.data)
         else:
             return linalg.norm(np.array(self.data))
 
     def gauge_trf(
-        self, key: str, regularize: bool = False
+        self,
+        key: Literal["Psi2Asigma", "Psi2sigmaB", "C2Asigma", "C2sigmaB"],
+        regularize: bool = False,
     ) -> tuple[SiteCoef, np.ndarray | jax.Array]:
         r""" Gauge transformation of MPS site
 
         .. math ::
-           C_{\tau_{p-1}\tau_p}^{j_p} \to \sum_{\tau_{p-1}^\prime}
-           \sigma_{\tau_{p-1}\tau_{p-1}^\prime}R_{\tau_{p-1}^\prime\tau_p}^{j_p}
+           \Psi_{\tau_{p-1}\tau_p}^{j_p} \to \sum_{\tau_{p-1}^\prime}
+           \sigma_{\tau_{p-1}\tau_{p-1}^\prime}B_{\tau_{p-1}^\prime\tau_p}^{j_p}
 
         or
 
         .. math ::
-           C_{\tau_{p-1}\tau_p}^{j_p} \to \sum_{\tau_{p}^\prime}
-           L_{\tau_{p-1}\tau_p^\prime}^{j_p}\sigma_{\tau_p^\prime\tau_p}
+           \Psi_{\tau_{p-1}\tau_p}^{j_p} \to \sum_{\tau_{p}^\prime}
+           A_{\tau_{p-1}\tau_p^\prime}^{j_p}\sigma_{\tau_p^\prime\tau_p}
 
         Args:
-            key (str): "C2L" or "C2R"
+            key (str): "Psi2Asigma" or "Psi2sigmaB"
             regularize (bool, optional): Defaults to False.
 
         Returns:
             Tuple[SiteCoef, np.ndarray | jax.Array]: \
                 (L or R site, :math:`\sigma`)
         """
-        if key == "C2L":
-            sys_indx, env_indx, dot_indx = self.l_indx, self.r_indx, self.n_indx
-        elif key == "C2R":
-            sys_indx, env_indx, dot_indx = self.r_indx, self.l_indx, self.n_indx
-        else:
-            raise ValueError(f"Key must be 'C2L' or 'C2R', but got {key}")
-        assert self.gauge == "C"
+        match key:
+            case "Psi2Asigma":
+                assert (
+                    self.gauge == "Psi"
+                ), f"Gauge must be Psi but got {self.gauge}"
+                sys_indx, env_indx, dot_indx = (
+                    self.l_indx,
+                    self.r_indx,
+                    self.n_indx,
+                )
+            case "C2Asigma":
+                assert (
+                    self.gauge == "C"
+                ), f"Gauge must be C but got {self.gauge}"
+                sys_indx, env_indx, dot_indx = (
+                    self.l_indx,
+                    self.r_indx,
+                    self.n_indx,
+                )
+            case "Psi2sigmaB":
+                assert (
+                    self.gauge == "Psi"
+                ), f"Gauge must be Psi but got {self.gauge}"
+                sys_indx, env_indx, dot_indx = (
+                    self.r_indx,
+                    self.l_indx,
+                    self.n_indx,
+                )
+            case "C2sigmaB":
+                assert (
+                    self.gauge == "C"
+                ), f"Gauge must be C but got {self.gauge}"
+                sys_indx, env_indx, dot_indx = (
+                    self.r_indx,
+                    self.l_indx,
+                    self.n_indx,
+                )
+            case _:
+                raise ValueError(f"Invalid key: {key}")
         if const.use_jax:
             matC = self.data
         else:
@@ -173,7 +221,7 @@ class SiteCoef:
                 )
                 sval = R.transpose()
                 matR = Q.reshape(-1, nspf, m_aux_env).transpose((2, 1, 0))
-            coef = SiteCoef(data=matR, gauge="R")
+            coef = SiteCoef(data=matR, gauge="B")
         else:
             if const.use_jax:
                 sval, matL = jax.jit(
@@ -188,7 +236,7 @@ class SiteCoef:
                 Q, R = linalg.qr(matC.reshape(ndim, -1), mode="economic")
                 sval = R
                 matL = Q.reshape(-1, nspf, m_aux_env)
-            coef = SiteCoef(data=matL, gauge="L")
+            coef = SiteCoef(data=matL, gauge="A")
         return (coef, sval)
 
     @classmethod
@@ -255,3 +303,63 @@ def gauge_trf_QR(
         matC.reshape(m_aux_sys * nspf, m_aux_env), mode="economic"
     )
     return R, Q.reshape(m_aux_sys, nspf, m_aux_env)
+
+
+def validate_Btensor(coef: np.ndarray | jax.Array | SiteCoef) -> None:
+    r"""Check if data is B tensor
+
+    Args:
+        coef (np.ndarray | jax.Array | SiteCoef): Data to check
+
+    Returns:
+        bool: Whether data is B tensor
+
+    B tensor satisfies the following condition:
+
+    sum_(sigma_p) B_p^(sigma_p) B_p^(sigma_p)† = I
+    """
+    subscript = "ipk,lpk->il"
+    if isinstance(coef, SiteCoef):
+        assert coef.gauge == "B", "Gauge must be B but got {coef.gauge}"
+        data = coef.data
+    else:
+        data = coef
+    assert data.ndim == 3, "Data must be 3 rank tensor but got {data.ndim}"
+    if const.use_jax:
+        _BB = jnp.einsum(subscript, data, jnp.conj(data))
+        BB = np.array(_BB)
+    else:
+        BB = np.einsum(subscript, data, np.conj(data))
+    assert BB.ndim == 2
+    assert BB.shape[0] == BB.shape[1]
+    np.testing.assert_allclose(BB, np.eye(BB.shape[0]), atol=1.0e-15)
+
+
+def validate_Atensor(coef: np.ndarray | jax.Array | SiteCoef) -> None:
+    r"""Check if data is A tensor
+
+    Args:
+        coef (np.ndarray | jax.Array | SiteCoef): Data to check
+
+    Returns:
+        bool: Whether data is A tensor
+
+    A tensor satisfies the following condition:
+
+    sum_(sigma_p) A_p^(sigma_p)† A_p^(sigma_p) = I
+    """
+    subscript = "ipj,ipk->jk"
+    if isinstance(coef, SiteCoef):
+        assert coef.gauge == "A", "Gauge must be A but got {coef.gauge}"
+        data = coef.data
+    else:
+        data = coef
+    assert data.ndim == 3, "Data must be 3 rank tensor but got {data.ndim}"
+    if const.use_jax:
+        _AA = jnp.einsum(subscript, jnp.conj(data), data)
+        AA = np.array(_AA)
+    else:
+        AA = np.einsum(subscript, np.conj(data), data)
+    assert AA.ndim == 2
+    assert AA.shape[0] == AA.shape[1]
+    np.testing.assert_allclose(AA, np.eye(AA.shape[0]))

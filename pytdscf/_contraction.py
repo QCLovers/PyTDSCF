@@ -30,13 +30,13 @@ def is_unitmat_op(op_block_single: int | np.ndarray | jax.Array) -> bool:
 
 
 def contract_with_site_concat(mat_bra, mat_ket, op_LorR_concat, op_site_concat):
-    if mat_bra.gauge == "L":
+    if mat_bra.gauge == "A":
         contraction = "xmn,mri,xrs,nsj->xij"
-    elif mat_bra.gauge == "R":
+    elif mat_bra.gauge == "B":
         contraction = "xmn,irm,xrs,jsn->xij"
     else:
         raise AssertionError(
-            f"mat_bra.gauge is neither L nor R, but {mat_bra.gauge}"
+            f"mat_bra.gauge is neither A nor B, but {mat_bra.gauge}"
         )
     if const.use_jax:
         coef_bra = jnp.conj(mat_bra.data)
@@ -77,13 +77,13 @@ def contract_with_site(
               np.einsum('mn,mri->nri',op_LorR,coef_bra),\
               np.einsum('rs,nsj->nrj',op_site,coef_ket))
     """
-    if mat_bra.gauge == "L":
+    if mat_bra.gauge == "A":
         contraction = "mri,nsj,rs,mn->ij"
-    elif mat_bra.gauge == "R":
+    elif mat_bra.gauge == "B":
         contraction = "irm,jsn,rs,mn->ij"
     else:
         raise AssertionError(
-            f"mat_bra.gauge is neither L nor R, but {mat_bra.gauge}"
+            f"mat_bra.gauge is neither A nor B, but {mat_bra.gauge}"
         )
     coef_bra: np.ndarray | jax.Array
     coef_ket: np.ndarray | jax.Array
@@ -173,13 +173,13 @@ def contract_with_site_mpo(
     j-|-n n-
 
     """
-    if mat_bra.gauge == "L":
+    if mat_bra.gauge == "A":
         contraction = "mri,nsj,prsq,mpn->iqj"
-    elif mat_bra.gauge == "R":
+    elif mat_bra.gauge == "B":
         contraction = "irm,jsn,prsq,mqn->ipj"
     else:
         raise AssertionError(
-            f"mat_bra.gauge is neither L nor R, but {mat_bra.gauge}"
+            f"mat_bra.gauge is neither A nor B, but {mat_bra.gauge}"
         )
 
     coef_bra: np.ndarray | jax.Array
@@ -207,10 +207,14 @@ def contract_with_site_mpo(
         operator.append(data)  # type: ignore
     # if is_unitmat_op(op_LorR):
     if isinstance(op_LorR, int):
-        if mat_bra.gauge == "L":
+        if mat_bra.gauge == "A":
             contraction = contraction.replace(",mpn", "").replace("m", "n")
-        else:
+        elif mat_bra.gauge == "B":
             contraction = contraction.replace(",mqn", "").replace("m", "n")
+        else:
+            raise AssertionError(
+                f"mat_bra.gauge is neither A nor B, but {mat_bra.gauge}"
+            )
     else:
         assert isinstance(op_LorR, np.ndarray | jax.Array)
         operator.append(op_LorR)  # type: ignore
@@ -221,23 +225,23 @@ def contract_with_site_mpo(
     return op_next
 
 
-def mfop_site(matC_bra, matC_ket, op_left, op_right):
+def mfop_site(matPsi_bra, matPsi_ket, op_left, op_right):
     """
-    mfop_site = np.einsum('imr,inr->mn',np.conj(matC_bra),\
+    mfop_site = np.einsum('imr,inr->mn',np.conj(matPsi_bra),\
                 np.einsum('ij,jnr->inr',op_left,\
-                np.einsum('rs,jns->jnr',op_right,matC_ket)))
+                np.einsum('rs,jns->jnr',op_right,matPsi_ket)))
     """
-    assert matC_bra.gauge == "C"
-    assert matC_ket.gauge == "C"
+    assert matPsi_bra.gauge == "Psi"
+    assert matPsi_ket.gauge == "Psi"
 
     # if is_unitmat_op(op_right):
     if isinstance(op_right, int):
-        dum_jnr = matC_ket.data
+        dum_jnr = matPsi_ket.data
     else:
         if const.use_jax:
-            dum_jnr = jnp.einsum("rs,jns->jnr", op_right, matC_ket.data)
+            dum_jnr = jnp.einsum("rs,jns->jnr", op_right, matPsi_ket.data)
         else:
-            dum_jnr = np.einsum("rs,jns->jnr", op_right, matC_ket)
+            dum_jnr = np.einsum("rs,jns->jnr", op_right, matPsi_ket)
 
     # if is_unitmat_op(op_left):
     if isinstance(op_left, int):
@@ -249,31 +253,33 @@ def mfop_site(matC_bra, matC_ket, op_left, op_right):
             dum_inr = np.einsum("ij,jnr->inr", op_left, dum_jnr)
 
     if const.use_jax:
-        mfop_site = jnp.einsum("imr,inr->mn", jnp.conj(matC_bra.data), dum_inr)
+        mfop_site = jnp.einsum(
+            "imr,inr->mn", jnp.conj(matPsi_bra.data), dum_inr
+        )
     else:
-        mfop_site = np.einsum("imr,inr->mn", np.conj(matC_bra), dum_inr)
+        mfop_site = np.einsum("imr,inr->mn", np.conj(matPsi_bra), dum_inr)
     return mfop_site
 
 
-def mfop_site_concat(matC_bra, matC_ket, op_left_concat, op_right_concat):
-    assert matC_bra.gauge == "C"
-    assert matC_ket.gauge == "C"
+def mfop_site_concat(matPsi_bra, matPsi_ket, op_left_concat, op_right_concat):
+    assert matPsi_bra.gauge == "Psi"
+    assert matPsi_ket.gauge == "Psi"
     subscripts = "imr,kij,krs,jns->mn"
     if const.use_jax:
         mfop_site_concat = jnp.einsum(
             subscripts,
-            jnp.conj(matC_bra.data),
+            jnp.conj(matPsi_bra.data),
             op_left_concat,
             op_right_concat,
-            matC_ket.data,
+            matPsi_ket.data,
         )
     else:
         mfop_site_concat = contract(
             subscripts,
-            np.conj(matC_bra),
+            np.conj(matPsi_bra),
             op_left_concat,
             op_right_concat,
-            matC_ket,
+            matPsi_ket,
         )
     return mfop_site_concat
 
@@ -285,7 +291,7 @@ class SplitStack:
         ).tolist()[:-1]  # type: ignore
         # if const.use_jax:
         #     self._split_idx = jnp.array(self._split_idx)
-        self.matC_sval_shapes: list[tuple[int, ...]] = [
+        self.matPsi_sval_shapes: list[tuple[int, ...]] = [
             x.shape for x in psi_states
         ]
 
@@ -331,12 +337,12 @@ class SplitStack:
         if const.use_jax:
             # Splitting is difficult to be jit-compiled because of the variable length
             psi_states = [
-                jnp.reshape(x, self.matC_sval_shapes[i])
+                jnp.reshape(x, self.matPsi_sval_shapes[i])
                 for i, x in enumerate(jnp.split(psi, self._split_idx))
             ]
         else:
             psi_states = [
-                x.reshape(self.matC_sval_shapes[i])
+                x.reshape(self.matPsi_sval_shapes[i])
                 for i, x in enumerate(np.split(psi, self._split_idx))
             ]
         return psi_states

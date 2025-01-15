@@ -12,7 +12,6 @@ from logging import getLogger
 
 import numpy as np
 import scipy.linalg
-import scipy.misc
 
 import pytdscf._ode_cls as ode_cls
 from pytdscf._const_cls import const
