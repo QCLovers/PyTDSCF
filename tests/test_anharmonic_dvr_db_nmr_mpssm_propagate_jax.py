@@ -60,7 +60,7 @@ def test_anharmonic_dvr_func_nmr_mpssm_propagate_jax():
 
     jobname = "anharmonic_dvr_nMR"
     simulator = Simulator(jobname, model, backend="jax")
-    simulator.propagate(stepsize=0.1, maxstep=3)
+    simulator.propagate(stepsize=0.1, maxstep=10, autocorr=True, autocorr_per_step=1)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import pytdscf._helper as helper
 from pytdscf import units
 from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef
+from pytdscf.wavefunction import WFunc
 
 logger = getLogger("main").getChild(__name__)
 auto_logger = getLogger("autocorr")
@@ -32,7 +33,7 @@ class Properties:
 
     def __init__(
         self,
-        wf,
+        wf: WFunc,
         model,
         time=0.0,
         t2_trick=True,
@@ -46,9 +47,9 @@ class Properties:
         self.nc_row = 0
         self.t2_trick = t2_trick
 
-        self.autocorr = None
-        self.energy = None
-        self.norm = None
+        self.autocorr: complex | None = None
+        self.energy: float | None = None
+        self.norm: float | None = None
         self.pops = None
         self.expectations = {}
         self.wf_zero = wf_init

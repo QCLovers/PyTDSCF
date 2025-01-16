@@ -10,7 +10,7 @@ import numpy as np
 
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
-from pytdscf._mps_cls import MPSCoef
+from pytdscf._mps_cls import MPSCoef, _ovlp_single_state_jax
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef, SPFInts
 from pytdscf.basis._primints_cls import PrimInts
@@ -194,12 +194,18 @@ class WFunc:
             ket: np.ndarray | jax.Array
             bra: np.ndarray | jax.Array
             if const.use_jax:
-                block = jnp.ones((1, 1), dtype=jnp.complex128)
-                for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):
-                    bra = jnp.conj(site_bra.data) if conj else site_bra.data
-                    ket = site_ket.data
-                    block = jnp.einsum("abc,ibk,ai->ck", bra, ket, block)
-                ovlp += complex(block[0, 0])
+                # block = jnp.ones((1, 1), dtype=jnp.complex128)
+                # for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):
+                #     bra = jnp.conj(site_bra.data) if conj else site_bra.data
+                #     ket = site_ket.data
+                #     block = jnp.einsum("abc,ibk,ai->ck", bra, ket, block)
+                # ovlp += complex(block[0, 0])
+                bra_data = [
+                    jnp.conj(site_bra.data) if conj else site_bra.data
+                    for site_bra in ci_bra
+                ]
+                ket_data = [site_ket.data for site_ket in ci_ket]
+                ovlp += complex(_ovlp_single_state_jax(bra_data, ket_data))
             else:
                 block = np.ones((1, 1), dtype=complex)
                 for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):

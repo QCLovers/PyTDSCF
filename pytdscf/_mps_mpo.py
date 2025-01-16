@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import itertools
 import math
+from typing import Annotated, Any
 
 import jax
 import jax.numpy as jnp
@@ -13,12 +14,18 @@ from discvar import HarmonicOscillator as HO
 
 from pytdscf._const_cls import const
 from pytdscf._contraction import contract_with_site, contract_with_site_mpo
+from pytdscf._mpo_cls import MatrixProductOperators, OperatorCore
 from pytdscf._mps_cls import LatticeInfo, MPSCoef, ints_spf2site_prod
 from pytdscf._site_cls import SiteCoef
 from pytdscf._spf_cls import SPFInts
 from pytdscf.basis.ho import HarmonicOscillator as _HO
 from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
+
+_op_keys = Annotated[
+    str | tuple[int | tuple[int, int], ...],
+    "str | tuple[int | tuple[int, int], ...]",
+]
 
 
 class MPSCoefMPO(MPSCoef):
@@ -217,7 +224,7 @@ class MPSCoefMPO(MPSCoef):
         op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
         op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
         hamiltonian,
-        left_is_sys: bool,
+        A_is_sys: bool,
         ints_spf: SPFInts | None = None,
         mps_coef_bra=None,
     ):
@@ -231,7 +238,7 @@ class MPSCoefMPO(MPSCoef):
         ints_site: dict[tuple[int, int], dict[str, np.ndarray]],
         hamiltonian,
         *,
-        left_is_sys: bool,
+        A_is_sys: bool,
     ):
         raise NotImplementedError
         pass
@@ -241,7 +248,7 @@ class MPSCoefMPO(MPSCoef):
         ints_site: dict[tuple[int, int], dict[str, np.ndarray]],
         matO_cas,
         *,
-        left_is_sys: bool,
+        A_is_sys: bool,
         mps_coef_bra=None,
     ):
         raise NotImplementedError
@@ -276,15 +283,13 @@ class MPSCoefMPO(MPSCoef):
             if autocorr_only:
                 if isDiag:
                     if const.use_jax:
-                        op_block_ops["auto"] = get_ones()
+                        ones = get_ones()
+                        ones.is_identity = True
                     else:
-                        op_block_ops["auto"] = np.ones((1, 1), dtype=complex)
-                    if isinstance(op_block_ops["auto"], np.ndarray):
-                        op_block_ops["auto"] = myndarray(
-                            op_block_ops["auto"], is_identity=True
+                        ones = myndarray(
+                            np.ones((1, 1), dtype=complex), is_identity=True
                         )
-                    else:
-                        op_block_ops["auto"].is_identity = True
+                    op_block_ops["auto"] = ones
             else:
                 assert isinstance(operator, TensorHamiltonian)
                 if (
@@ -293,15 +298,13 @@ class MPSCoefMPO(MPSCoef):
                     or operator.mpo[istate_bra][istate_ket] is not None
                 ):
                     if const.use_jax:
-                        op_block_ops["ovlp"] = get_ones()
+                        ones = get_ones()
+                        ones.is_identity = True
                     else:
-                        op_block_ops["ovlp"] = np.ones((1, 1), dtype=complex)
-                    if isinstance(op_block_ops["ovlp"], np.ndarray):
-                        op_block_ops["ovlp"] = myndarray(
-                            op_block_ops["ovlp"], is_identity=True
+                        ones = myndarray(
+                            np.ones((1, 1), dtype=complex), is_identity=True
                         )
-                    else:
-                        op_block_ops["ovlp"].is_identity = True
+                    op_block_ops["ovlp"] = ones
 
             if len(op_block_ops) != 0:
                 op_block_states[statepair] = op_block_ops
@@ -314,13 +317,13 @@ class MPSCoefMPO(MPSCoef):
         superblock_states: list[list[SiteCoef]],
         op_block_states: dict[
             tuple[int, int],
-            dict[str, int | np.ndarray | myndarray | jax.Array],
+            dict[_op_keys, int | np.ndarray | myndarray | jax.Array],
         ],
         ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
         hamiltonian: TensorHamiltonian,
-        left_is_sys: bool,
+        A_is_sys: bool,
         superblock_states_ket: list[list[SiteCoef]],
-    ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, np.ndarray | jax.Array]]:
         """Contract with MPO and MPS and MPS renormalization
 
         Only grid-based DVR MPS-Standard Method is supported.
@@ -332,7 +335,7 @@ class MPSCoefMPO(MPSCoef):
             ints_site (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): integral between p-site.\
                 operator is only 'ovlp' or 'auto'
             hamiltonian (TensorHamiltonian): hamiltonian in mpo formulation.
-            left_is_sys (bool): Left block is MPS system block.
+            A_is_sys (bool): Left block is MPS system block.
 
         Returns:
             Dict[Tuple[int,int],Dict[str, int | np.ndarray | jax.Array]]: [i,j]['foo'] = \
@@ -352,7 +355,7 @@ class MPSCoefMPO(MPSCoef):
         ) in itertools.product(
             enumerate(superblock_states_bra), enumerate(superblock_states_ket)
         ):
-            op_block_next_ops = {}
+            op_block_next_ops: dict[_op_keys, Any] = {}
             statepair = (istate_bra, istate_ket)
             isDiag = istate_bra == istate_ket
 
@@ -368,16 +371,8 @@ class MPSCoefMPO(MPSCoef):
                 if isDiag:
                     op_block_auto = op_block_statepair["auto"]
                     op_psite_auto = ints_site_statepair["auto"][psite]
-                    if const.use_jax:
-                        matLorR_bra_conj = SiteCoef(
-                            jnp.conj(matLorR_bra.data), matLorR_bra.gauge
-                        )
-                    else:
-                        matLorR_bra_conj = SiteCoef(
-                            np.conj(matLorR_bra), matLorR_bra.gauge
-                        )
                     op_block_next_ops["auto"] = contract_with_site(
-                        matLorR_bra_conj,
+                        matLorR_bra.conj(),
                         matLorR_ket,
                         op_block_auto,
                         op_psite_auto,
@@ -401,7 +396,7 @@ class MPSCoefMPO(MPSCoef):
                     is_identity_next = False
                 is_identity_next &= isDiag
                 if is_identity_next:
-                    if matLorR_bra.gauge == "L":
+                    if matLorR_bra.gauge == "A":
                         new_shape = (
                             matLorR_bra.shape[-1],
                             matLorR_ket.shape[-1],
@@ -427,15 +422,17 @@ class MPSCoefMPO(MPSCoef):
                 else:
                     op_block_next_ops["ovlp"].is_identity = is_identity_next
 
-                if hamiltonian and hamiltonian.mpo[istate_bra][istate_ket]:
-                    for op_psite_mpo in hamiltonian.mpo[istate_bra][
-                        istate_ket
-                    ].calc_point[psite]:
+                if hamiltonian and isinstance(
+                    mpos := hamiltonian.mpo[istate_bra][istate_ket],
+                    MatrixProductOperators,
+                ):
+                    for op_psite_mpo in mpos.calc_point[psite]:
                         if (key := op_psite_mpo.key) == "ovlp":
+                            raise ValueError("key 'ovlp' is not expected")
                             # Already calculated above
                             continue
-                        if (op_psite_mpo.is_left_side and left_is_sys) or (
-                            op_psite_mpo.is_right_side and not left_is_sys
+                        if (op_psite_mpo.is_left_side and A_is_sys) or (
+                            op_psite_mpo.is_right_side and not A_is_sys
                         ):
                             """skip canonical block"""
                             op_block_mpo = op_block_ovlp
@@ -447,8 +444,8 @@ class MPSCoefMPO(MPSCoef):
                             op_LorR=op_block_mpo,
                             op_site=op_psite_mpo,
                         )
-                        if (op_psite_mpo.is_right_side and left_is_sys) or (
-                            op_psite_mpo.is_left_side and not left_is_sys
+                        if (op_psite_mpo.is_right_side and A_is_sys) or (
+                            op_psite_mpo.is_left_side and not A_is_sys
                         ):
                             """summed_up"""
                             if "summed" in op_block_next_ops:
@@ -460,6 +457,9 @@ class MPSCoefMPO(MPSCoef):
 
                     if "summed" in op_block_statepair:
                         op_block_summed = op_block_statepair["summed"]
+                        assert isinstance(
+                            op_psite_ovlp, int
+                        ), f"{op_psite_ovlp=}"
                         contracted_system_summed = contract_with_site_mpo(
                             matLorR_bra,
                             matLorR_ket,
@@ -488,47 +488,52 @@ class MPSCoefMPO(MPSCoef):
     def operators_for_superH(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
-        op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[
+            tuple[int, int],
+            dict[_op_keys, np.ndarray | jax.Array],
+        ],
+        op_env: dict[
+            tuple[int, int],
+            dict[_op_keys, np.ndarray | jax.Array],
+        ],
         ints_site: dict[tuple[int, int], dict[str, np.ndarray]],
         hamiltonian: TensorHamiltonian,
-        left_is_sys: bool,
+        A_is_sys: bool,
     ) -> list[
         list[
             dict[
-                str,
+                _op_keys,
                 tuple[
                     np.ndarray | jax.Array | int,
-                    np.ndarray | jax.Array | int,
+                    np.ndarray | jax.Array | int | OperatorCore,
                     np.ndarray | jax.Array | int,
                 ],
             ]
         ]
     ]:
-        """ LCR operator
+        """LCR operator
 
         prepare operators for multiplying the full-matrix PolynomialHamiltonian on-the-fly
 
         Args:
             psite (int): site index on "Psi"
-            op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
-            op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
+            op_sys (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): System operator
+            op_env (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): Environment operator
             ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral
             hamiltonian (TensorHamiltonian) : Hamiltonian
-            left_is_sys (bool): Whether left block is System
+            A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
-                [i-bra-state][j-ket-state][(0,1,2)] =  (op_l, op_c, op_r)
+            like op_lcr[i-bra-state][j-ket-state][(0,1,2)] =  (op_l, op_c, op_r)
         """
         nstate = len(hamiltonian.coupleJ)
         op_lcr: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         np.ndarray | jax.Array | int,
-                        np.ndarray | jax.Array | int,
+                        np.ndarray | jax.Array | int | OperatorCore,
                         np.ndarray | jax.Array | int,
                     ],
                 ]
@@ -545,19 +550,20 @@ class MPSCoefMPO(MPSCoef):
             op_l_ovlp: np.ndarray | jax.Array | int
             op_c_ovlp: np.ndarray | jax.Array | int
             op_r_ovlp: np.ndarray | jax.Array | int
+            mpos = hamiltonian.mpo[istate_bra][istate_ket]
             if need_ovlp := (
                 coupleJ != 0.0
                 or isDiag
-                or hamiltonian.mpo[istate_bra][istate_ket] is not None
+                or isinstance(mpos, MatrixProductOperators)
             ):
                 op_l_ovlp = (
                     op_sys[statepair]["ovlp"]
-                    if left_is_sys
+                    if A_is_sys
                     else op_env[statepair]["ovlp"]
                 )
                 op_r_ovlp = (
                     op_env[statepair]["ovlp"]
-                    if left_is_sys
+                    if A_is_sys
                     else op_sys[statepair]["ovlp"]
                 )
                 op_c_ovlp = ints_site[statepair]["ovlp"][psite]
@@ -581,11 +587,11 @@ class MPSCoefMPO(MPSCoef):
                         "ovlp": (op_l_ovlp, op_c_ovlp, op_r_ovlp)
                     }
 
-                op_l = op_sys[statepair] if left_is_sys else op_env[statepair]
-                op_r = op_env[statepair] if left_is_sys else op_sys[statepair]
-                op_c_core = hamiltonian.mpo[istate_bra][istate_ket].calc_point[
-                    psite
-                ]
+                op_l = op_sys[statepair] if A_is_sys else op_env[statepair]
+                op_r = op_env[statepair] if A_is_sys else op_sys[statepair]
+
+                assert isinstance(mpos, MatrixProductOperators)
+                op_c_core: list[OperatorCore] = mpos.calc_point[psite]
 
                 if "summed" in op_l:
                     op_lcr[istate_bra][istate_ket]["summ_l"] = (
@@ -619,14 +625,20 @@ class MPSCoefMPO(MPSCoef):
     def operators_for_superK(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
-        op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[
+            tuple[int, int],
+            dict[_op_keys, np.ndarray | jax.Array],
+        ],
+        op_env: dict[
+            tuple[int, int],
+            dict[_op_keys, np.ndarray | jax.Array],
+        ],
         hamiltonian: TensorHamiltonian,
-        left_is_sys: bool,
+        A_is_sys: bool,
     ) -> list[
         list[
             dict[
-                str,
+                _op_keys,
                 tuple[
                     np.ndarray | jax.Array | int, np.ndarray | jax.Array | int
                 ],
@@ -638,21 +650,21 @@ class MPSCoefMPO(MPSCoef):
         construct full-matrix Kamiltonian
 
         Args:
-            psite (int): site index on "C"
-            op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
-            op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
+            psite (int): site index on "Psi"
+            op_sys (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): System operator
+            op_env (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): Environment operator
             hamiltonian (PolynomialHamiltonian) : Hamiltonian
-            left_is_sys (bool): Whether left block is System
+            A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
+            List[List[Dict[_op_keys, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
                 [i-bra-state][j-ket-state][(0,1,2)] =  (op_l, op_r)
         """
         nstate = len(hamiltonian.coupleJ)
         op_lr: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         np.ndarray | jax.Array | int,
                         np.ndarray | jax.Array | int,
@@ -679,12 +691,12 @@ class MPSCoefMPO(MPSCoef):
             ):
                 op_l_ovlp = (
                     op_sys[statepair]["ovlp"]
-                    if left_is_sys
+                    if A_is_sys
                     else op_env[statepair]["ovlp"]
                 )
                 op_r_ovlp = (
                     op_env[statepair]["ovlp"]
-                    if left_is_sys
+                    if A_is_sys
                     else op_sys[statepair]["ovlp"]
                 )
 
@@ -703,8 +715,8 @@ class MPSCoefMPO(MPSCoef):
                         "ovlp": (op_l_ovlp, op_r_ovlp)
                     }
 
-                op_l = op_sys[statepair] if left_is_sys else op_env[statepair]
-                op_r = op_env[statepair] if left_is_sys else op_sys[statepair]
+                op_l = op_sys[statepair] if A_is_sys else op_env[statepair]
+                op_r = op_env[statepair] if A_is_sys else op_sys[statepair]
 
                 if "summed" in op_l:
                     op_lr[istate_bra][istate_ket]["summ_l"] = (

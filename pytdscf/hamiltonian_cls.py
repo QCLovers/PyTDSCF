@@ -615,6 +615,8 @@ class TensorHamiltonian(HamiltonianMixin):
 
     """
 
+    mpo: list[list[MatrixProductOperators | None]]
+
     def __init__(
         self,
         ndof: int,

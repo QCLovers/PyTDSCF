@@ -28,9 +28,9 @@ Quick Start Examples
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 5`_  | Propagation | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Linear vibronic coupling model |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 6`_  | Propagation | MPS-SM       | HDMR func  | HO-DVR           | JAX        | Henon-Heiles Hamiltonian       |
+| `Example 6`_  | Propagation | MPS-SM       | HDMR func  | HO-DVR           | Numpy      | Henon-Heiles Hamiltonian       |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 7`_  | Propagation | MPS-SM       | HDMR func  | Sine-DVR         | JAX        | Henon-Heiles Hamiltonian       |
+| `Example 7`_  | Propagation | MPS-SM       | HDMR func  | Sine-DVR         | Numpy      | Henon-Heiles Hamiltonian       |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 9`_  | Relaxation  | MPS-SM       | HDMR grid  | HO-DVR           | JAX        | Restart from `Example 8`_      |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+

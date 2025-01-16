@@ -45,10 +45,12 @@ class SiteCoef:
         self,
         data: np.ndarray | jax.Array,
         gauge: Literal["C", "A", "B", "Psi", "Gamma", "sigma", "Lambda", "V"],
+        isite: int,
     ):
         self.data = data
         self.gauge = gauge
         self.shape = data.shape
+        self.isite = isite
 
     def __array__(self, copy: bool | None = None):
         """
@@ -83,20 +85,22 @@ class SiteCoef:
 
     def __add__(self, other):
         assert self.gauge == other.gauge
-        return SiteCoef(self.data + other.data, self.gauge)
+        assert self.isite == other.isite
+        return SiteCoef(self.data + other.data, self.gauge, self.isite)
 
     def __sub__(self, other):
         assert self.gauge == other.gauge
-        return SiteCoef(self.data - other.data, self.gauge)
+        assert self.isite == other.isite
+        return SiteCoef(self.data - other.data, self.gauge, self.isite)
 
     def __mul__(self, scale):
-        return SiteCoef(self.data * scale, self.gauge)
+        return SiteCoef(self.data * scale, self.gauge, self.isite)
 
     def __rmul__(self, scale):
-        return SiteCoef(self.data * scale, self.gauge)
+        return SiteCoef(self.data * scale, self.gauge, self.isite)
 
     def __truediv__(self, scale):
-        return SiteCoef(self.data / scale, self.gauge)
+        return SiteCoef(self.data / scale, self.gauge, self.isite)
 
     def dot_conj(self, other):
         return np.inner(np.conj(other).flatten(), np.array(self).flatten())
@@ -109,6 +113,13 @@ class SiteCoef:
             return jnp.linalg.norm(self.data)
         else:
             return linalg.norm(np.array(self.data))
+
+    def conj(self) -> SiteCoef:
+        if isinstance(self.data, np.ndarray):
+            data = np.conj(self.data)
+        else:
+            data = jnp.conj(self.data)
+        return SiteCoef(data, self.gauge, self.isite)
 
     def gauge_trf(
         self,
@@ -221,7 +232,7 @@ class SiteCoef:
                 )
                 sval = R.transpose()
                 matR = Q.reshape(-1, nspf, m_aux_env).transpose((2, 1, 0))
-            coef = SiteCoef(data=matR, gauge="B")
+            coef = SiteCoef(data=matR, gauge="B", isite=self.isite)
         else:
             if const.use_jax:
                 sval, matL = jax.jit(
@@ -236,12 +247,13 @@ class SiteCoef:
                 Q, R = linalg.qr(matC.reshape(ndim, -1), mode="economic")
                 sval = R
                 matL = Q.reshape(-1, nspf, m_aux_env)
-            coef = SiteCoef(data=matL, gauge="A")
+            coef = SiteCoef(data=matL, gauge="A", isite=self.isite)
         return (coef, sval)
 
     @classmethod
     def init_random(
         cls,
+        isite: int,
         ndim: int,
         m_aux_l: int,
         m_aux_r: int,
@@ -280,7 +292,7 @@ class SiteCoef:
         if const.use_jax:
             data = jnp.array(data, dtype=jnp.complex128)
 
-        obj = SiteCoef(data, "C")
+        obj = SiteCoef(data, "C", isite=isite)
         return obj / obj.norm()
 
 
@@ -350,11 +362,11 @@ def validate_Atensor(coef: np.ndarray | jax.Array | SiteCoef) -> None:
     """
     subscript = "ipj,ipk->jk"
     if isinstance(coef, SiteCoef):
-        assert coef.gauge == "A", "Gauge must be A but got {coef.gauge}"
+        assert coef.gauge == "A", f"Gauge must be A but got {coef.gauge}"
         data = coef.data
     else:
         data = coef
-    assert data.ndim == 3, "Data must be 3 rank tensor but got {data.ndim}"
+    assert data.ndim == 3, f"Data must be 3 rank tensor but got {data.ndim}"
     if const.use_jax:
         _AA = jnp.einsum(subscript, jnp.conj(data), data)
         AA = np.array(_AA)
@@ -362,4 +374,4 @@ def validate_Atensor(coef: np.ndarray | jax.Array | SiteCoef) -> None:
         AA = np.einsum(subscript, np.conj(data), data)
     assert AA.ndim == 2
     assert AA.shape[0] == AA.shape[1]
-    np.testing.assert_allclose(AA, np.eye(AA.shape[0]))
+    np.testing.assert_allclose(AA, np.eye(AA.shape[0]), atol=1.0e-15)

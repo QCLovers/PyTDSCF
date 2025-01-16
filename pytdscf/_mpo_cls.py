@@ -75,6 +75,8 @@ class MatrixProductOperators:
         calc_point (List[List[OperatorCore]]) : [p] is the list of calculation need tensor core.
     """
 
+    calc_point: list[list[OperatorCore]]
+
     def __init__(
         self,
         nsite: int,
@@ -135,7 +137,7 @@ class MatrixProductOperators:
                 self.calc_point[ind].append(
                     OperatorCore(
                         parent_key=parent_key,
-                        original_key=original_key,  # type: ignore
+                        original_key=original_key,
                         psite=ind,
                         data=core,
                     )
@@ -145,7 +147,7 @@ class MatrixProductOperators:
                     self.calc_point[ind].append(
                         OperatorCore(
                             parent_key=parent_key,
-                            original_key=original_key,  # type: ignore
+                            original_key=original_key,
                             psite=ind,
                             data=1,
                         )
@@ -171,7 +173,7 @@ class OperatorCore:
     def __init__(
         self,
         parent_key: list[int],
-        original_key: tuple[int, ... | tuple[int, ...]],  # type: ignore
+        original_key: tuple[int | tuple[int, int], ...],
         psite: int,
         data: jax.Array | np.ndarray | int,
         backend: str = "jax",
