@@ -27,6 +27,15 @@ _op_keys = Annotated[
     "str | tuple[int | tuple[int, int], ...]",
 ]
 
+_block_type = Annotated[
+    np.ndarray | jax.Array | int, "np.ndarray | jax.Array | int"
+]
+
+_core_type = Annotated[
+    np.ndarray | jax.Array | int | OperatorCore,
+    "np.ndarray | jax.Array | int | OperatorCore",
+]
+
 
 class MPSCoefMPO(MPSCoef):
     r"""Matrix Product State Coefficient in Matrix Product Operator Formulation
@@ -258,7 +267,7 @@ class MPSCoefMPO(MPSCoef):
         self,
         superblock_states: list[list[SiteCoef]],
         operator: TensorHamiltonian | None = None,
-    ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
+    ) -> dict[tuple[int, int], dict[str, _block_type]]:
         """initialize op_block_psites
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
@@ -317,13 +326,13 @@ class MPSCoefMPO(MPSCoef):
         superblock_states: list[list[SiteCoef]],
         op_block_states: dict[
             tuple[int, int],
-            dict[_op_keys, int | np.ndarray | myndarray | jax.Array],
+            dict[_op_keys, _block_type],
         ],
         ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
         superblock_states_ket: list[list[SiteCoef]],
-    ) -> dict[tuple[int, int], dict[_op_keys, np.ndarray | jax.Array]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Contract with MPO and MPS and MPS renormalization
 
         Only grid-based DVR MPS-Standard Method is supported.
@@ -331,16 +340,147 @@ class MPSCoefMPO(MPSCoef):
         Args:
             psite (int): site index
             superblock_states (List[List[SiteCoef]]): tensor core
-            op_block_states (Dict[Tuple[int,int], Dict[str, int | np.ndarray | jax.Array]]): operator on psite
+            op_block_states (Dict[Tuple[int,int], Dict[_op_keys, _block_type]]): operator on psite
             ints_site (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): integral between p-site.\
                 operator is only 'ovlp' or 'auto'
             hamiltonian (TensorHamiltonian): hamiltonian in mpo formulation.
             A_is_sys (bool): Left block is MPS system block.
+            superblock_states_ket (List[List[SiteCoef]]): tensor core for ket state
 
         Returns:
-            Dict[Tuple[int,int],Dict[str, int | np.ndarray | jax.Array]]: [i,j]['foo'] = \
+            Dict[Tuple[int,int], Dict[_op_keys, _block_type]]: [i,j]['foo'] = \
                 contracted operator named 'foo' between i-state p-site and j-state p-site
         """
+
+        def _get_block_next_auto(
+            op_block_statepair: dict[_op_keys, Any],
+            ints_site_statepair: dict[str, Any],
+            psite: int,
+            matLorR_bra: SiteCoef,
+            matLorR_ket: SiteCoef,
+        ) -> np.ndarray | jax.Array:
+            op_block_auto = op_block_statepair["auto"]
+            op_psite_auto = ints_site_statepair["auto"][psite]
+            return contract_with_site(
+                matLorR_bra.conj(),
+                matLorR_ket,
+                op_block_auto,
+                op_psite_auto,
+            )
+
+        def _get_block_next_ovlp(
+            op_block_statepair: dict[_op_keys, Any],
+            ints_site_statepair: dict[str, Any],
+            psite: int,
+            matLorR_bra: SiteCoef,
+            matLorR_ket: SiteCoef,
+            isDiag: bool,
+        ) -> tuple[np.ndarray | jax.Array, int, int | np.ndarray | jax.Array]:
+            op_block_ovlp = op_block_statepair["ovlp"]
+            op_psite_ovlp = ints_site_statepair["ovlp"][psite]
+            is_identity_next = True
+            if op_block_ovlp.is_identity:
+                # np.testing.assert_allclose(op_block_ovlp, np.eye(*op_block_ovlp.shape)):
+                assert isinstance(op_block_ovlp, np.ndarray | jax.Array)
+                op_block_ovlp = op_block_ovlp.shape[0]
+            else:
+                is_identity_next = False
+            if op_psite_ovlp.is_identity:
+                # np.testinig.assert_allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
+                assert isinstance(op_psite_ovlp, np.ndarray | jax.Array)
+                op_psite_ovlp = op_psite_ovlp.shape[0]
+            else:
+                is_identity_next = False
+            is_identity_next &= isDiag
+            result: np.ndarray | jax.Array
+            if is_identity_next:
+                if matLorR_bra.gauge == "A":
+                    new_shape = (
+                        matLorR_bra.shape[-1],
+                        matLorR_ket.shape[-1],
+                    )
+                else:
+                    new_shape = (matLorR_bra.shape[0], matLorR_ket.shape[0])
+                if const.use_jax:
+                    result = jnp.eye(*new_shape, dtype=jnp.complex128)
+                else:
+                    result = np.eye(*new_shape, dtype=complex)
+            else:
+                result = contract_with_site(
+                    matLorR_bra, matLorR_ket, op_block_ovlp, op_psite_ovlp
+                )
+            if isinstance(result, np.ndarray):
+                result = myndarray(result, is_identity_next)
+            else:
+                result.is_identity = is_identity_next
+            return result, op_psite_ovlp, op_block_ovlp
+
+        def _set_block_next_key(
+            op_psite_mpo: OperatorCore,
+            op_block_statepair: dict[_op_keys, Any],
+            op_block_ovlp: _block_type,
+            matLorR_bra: SiteCoef,
+            matLorR_ket: SiteCoef,
+            A_is_sys: bool,
+            op_block_next_ops: dict[_op_keys, Any],
+        ) -> None:
+            if (key := op_psite_mpo.key) == "ovlp":
+                raise ValueError("key 'ovlp' is not expected")
+                # Already calculated above
+                return
+            if (op_psite_mpo.is_left_side and A_is_sys) or (
+                op_psite_mpo.is_right_side and not A_is_sys
+            ):
+                """skip canonical block"""
+                op_block_mpo = op_block_ovlp
+            else:
+                op_block_mpo = op_block_statepair[key]
+            contracted_system = contract_with_site_mpo(
+                mat_bra=matLorR_bra,
+                mat_ket=matLorR_ket,
+                op_LorR=op_block_mpo,
+                op_site=op_psite_mpo,
+            )
+            if (op_psite_mpo.is_right_side and A_is_sys) or (
+                op_psite_mpo.is_left_side and not A_is_sys
+            ):
+                """summed_up"""
+                if "summed" in op_block_next_ops:
+                    op_block_next_ops["summed"] += contracted_system
+                else:
+                    op_block_next_ops["summed"] = contracted_system
+            else:
+                op_block_next_ops[key] = contracted_system
+
+        def _set_block_next_summed(
+            op_block_statepair: dict[str | _op_keys, Any],
+            op_psite_ovlp: int,
+            matLorR_bra: SiteCoef,
+            matLorR_ket: SiteCoef,
+            op_block_next_ops: dict[str | _op_keys, Any],
+        ) -> None:
+            """Set block summed operator
+
+            Args:
+                op_block_statepair: Operator block for state pair
+                op_psite_ovlp: Operator point site overlap
+                matLorR_bra: Left or right matrix for bra
+                matLorR_ket: Left or right matrix for ket
+                op_block_next_ops: Next operator blocks
+            """
+            op_block_summed = op_block_statepair["summed"]
+            assert isinstance(op_psite_ovlp, int), f"{op_psite_ovlp=}"
+            contracted_system_summed = contract_with_site_mpo(
+                matLorR_bra,
+                matLorR_ket,
+                op_block_summed,
+                op_psite_ovlp,
+            )
+            if "summed" in op_block_next_ops:
+                op_block_next_ops["summed"] += contracted_system_summed
+            else:
+                op_block_next_ops["summed"] = contracted_system_summed
+
         if superblock_states_ket is None:
             superblock_states_ket = superblock_states
         else:
@@ -369,111 +509,54 @@ class MPSCoefMPO(MPSCoef):
             ints_site_statepair = ints_site[statepair]
             if "auto" in op_block_statepair:
                 if isDiag:
-                    op_block_auto = op_block_statepair["auto"]
-                    op_psite_auto = ints_site_statepair["auto"][psite]
-                    op_block_next_ops["auto"] = contract_with_site(
-                        matLorR_bra.conj(),
-                        matLorR_ket,
-                        op_block_auto,
-                        op_psite_auto,
+                    op_block_next_ops["auto"] = _get_block_next_auto(
+                        op_block_statepair=op_block_statepair,
+                        ints_site_statepair=ints_site_statepair,
+                        psite=psite,
+                        matLorR_bra=matLorR_bra,
+                        matLorR_ket=matLorR_ket,
                     )
 
             elif "ovlp" in op_block_statepair:
-                op_block_ovlp = op_block_statepair["ovlp"]
-                op_psite_ovlp = ints_site_statepair["ovlp"][psite]
-                is_identity_next = True
-                if op_block_ovlp.is_identity:  # type: ignore
-                    # np.testing.assert_allclose(op_block_ovlp, np.eye(*op_block_ovlp.shape)):
-                    assert isinstance(op_block_ovlp, np.ndarray | jax.Array)
-                    op_block_ovlp = op_block_ovlp.shape[0]
-                else:
-                    is_identity_next = False
-                if op_psite_ovlp.is_identity:  # type: ignore
-                    # np.testinig.assert_allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
-                    assert isinstance(op_psite_ovlp, np.ndarray | jax.Array)
-                    op_psite_ovlp = op_psite_ovlp.shape[0]
-                else:
-                    is_identity_next = False
-                is_identity_next &= isDiag
-                if is_identity_next:
-                    if matLorR_bra.gauge == "A":
-                        new_shape = (
-                            matLorR_bra.shape[-1],
-                            matLorR_ket.shape[-1],
-                        )
-                    else:
-                        new_shape = (matLorR_bra.shape[0], matLorR_ket.shape[0])
-                    if const.use_jax:
-                        op_block_next_ops["ovlp"] = jnp.eye(
-                            *new_shape, dtype=jnp.complex128
-                        )
-                    else:
-                        op_block_next_ops["ovlp"] = np.eye(
-                            *new_shape, dtype=complex
-                        )
-                else:
-                    op_block_next_ops["ovlp"] = contract_with_site(
-                        matLorR_bra, matLorR_ket, op_block_ovlp, op_psite_ovlp
+                op_block_next_ops["ovlp"], op_psite_ovlp, op_block_ovlp = (
+                    _get_block_next_ovlp(
+                        op_block_statepair=op_block_statepair,
+                        ints_site_statepair=ints_site_statepair,
+                        psite=psite,
+                        matLorR_bra=matLorR_bra,
+                        matLorR_ket=matLorR_ket,
+                        isDiag=isDiag,
                     )
-                if isinstance(op_block_next_ops["ovlp"], np.ndarray):
-                    op_block_next_ops["ovlp"] = myndarray(
-                        op_block_next_ops["ovlp"], is_identity_next
-                    )
-                else:
-                    op_block_next_ops["ovlp"].is_identity = is_identity_next
+                )
 
-                if hamiltonian and isinstance(
-                    mpos := hamiltonian.mpo[istate_bra][istate_ket],
-                    MatrixProductOperators,
+                if not (
+                    isinstance(hamiltonian, TensorHamiltonian)
+                    and isinstance(
+                        mpos := hamiltonian.mpo[istate_bra][istate_ket],
+                        MatrixProductOperators,
+                    )
                 ):
-                    for op_psite_mpo in mpos.calc_point[psite]:
-                        if (key := op_psite_mpo.key) == "ovlp":
-                            raise ValueError("key 'ovlp' is not expected")
-                            # Already calculated above
-                            continue
-                        if (op_psite_mpo.is_left_side and A_is_sys) or (
-                            op_psite_mpo.is_right_side and not A_is_sys
-                        ):
-                            """skip canonical block"""
-                            op_block_mpo = op_block_ovlp
-                        else:
-                            op_block_mpo = op_block_statepair[key]
-                        contracted_system = contract_with_site_mpo(
-                            mat_bra=matLorR_bra,
-                            mat_ket=matLorR_ket,
-                            op_LorR=op_block_mpo,
-                            op_site=op_psite_mpo,
-                        )
-                        if (op_psite_mpo.is_right_side and A_is_sys) or (
-                            op_psite_mpo.is_left_side and not A_is_sys
-                        ):
-                            """summed_up"""
-                            if "summed" in op_block_next_ops:
-                                op_block_next_ops["summed"] += contracted_system
-                            else:
-                                op_block_next_ops["summed"] = contracted_system
-                        else:
-                            op_block_next_ops[key] = contracted_system
+                    continue
 
-                    if "summed" in op_block_statepair:
-                        op_block_summed = op_block_statepair["summed"]
-                        assert isinstance(
-                            op_psite_ovlp, int
-                        ), f"{op_psite_ovlp=}"
-                        contracted_system_summed = contract_with_site_mpo(
-                            matLorR_bra,
-                            matLorR_ket,
-                            op_block_summed,
-                            op_psite_ovlp,
-                        )
-                        if "summed" in op_block_next_ops:
-                            op_block_next_ops["summed"] += (
-                                contracted_system_summed
-                            )
-                        else:
-                            op_block_next_ops["summed"] = (
-                                contracted_system_summed
-                            )
+                for op_psite_mpo in mpos.calc_point[psite]:
+                    _set_block_next_key(
+                        op_psite_mpo=op_psite_mpo,
+                        op_block_statepair=op_block_statepair,
+                        op_block_ovlp=op_block_ovlp,
+                        matLorR_bra=matLorR_bra,
+                        matLorR_ket=matLorR_ket,
+                        A_is_sys=A_is_sys,
+                        op_block_next_ops=op_block_next_ops,
+                    )
+
+                if "summed" in op_block_statepair:
+                    _set_block_next_summed(
+                        op_block_statepair=op_block_statepair,
+                        op_psite_ovlp=op_psite_ovlp,
+                        matLorR_bra=matLorR_bra,
+                        matLorR_ket=matLorR_ket,
+                        op_block_next_ops=op_block_next_ops,
+                    )
 
             else:
                 raise ValueError(
@@ -488,28 +571,13 @@ class MPSCoefMPO(MPSCoef):
     def operators_for_superH(
         self,
         psite: int,
-        op_sys: dict[
-            tuple[int, int],
-            dict[_op_keys, np.ndarray | jax.Array],
-        ],
-        op_env: dict[
-            tuple[int, int],
-            dict[_op_keys, np.ndarray | jax.Array],
-        ],
-        ints_site: dict[tuple[int, int], dict[str, np.ndarray]],
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
     ) -> list[
-        list[
-            dict[
-                _op_keys,
-                tuple[
-                    np.ndarray | jax.Array | int,
-                    np.ndarray | jax.Array | int | OperatorCore,
-                    np.ndarray | jax.Array | int,
-                ],
-            ]
-        ]
+        list[dict[_op_keys, tuple[_block_type, _core_type, _block_type]]]
     ]:
         """LCR operator
 
@@ -526,15 +594,85 @@ class MPSCoefMPO(MPSCoef):
         Returns:
             like op_lcr[i-bra-state][j-ket-state][(0,1,2)] =  (op_l, op_c, op_r)
         """
+
+        def _get_op_ovlp(
+            op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+            op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
+            ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+            statepair: tuple[int, int],
+            psite: int,
+            A_is_sys: bool,
+        ) -> tuple[_block_type, _block_type, _block_type]:
+            op_l_ovlp = (
+                op_sys[statepair]["ovlp"]
+                if A_is_sys
+                else op_env[statepair]["ovlp"]
+            )
+            op_r_ovlp = (
+                op_env[statepair]["ovlp"]
+                if A_is_sys
+                else op_sys[statepair]["ovlp"]
+            )
+            op_c_ovlp = ints_site[statepair]["ovlp"][psite]
+
+            # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
+            if op_l_ovlp.is_identity:  # type: ignore
+                # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
+                assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
+                op_l_ovlp = op_l_ovlp.shape[0]
+            if op_c_ovlp.is_identity:  # type: ignore
+                # np.testing.assert_allclose(op_c_ovlp, np.eye(*op_c_ovlp.shape)):
+                assert isinstance(op_c_ovlp, np.ndarray | jax.Array)
+                op_c_ovlp = op_c_ovlp.shape[0]
+            if op_r_ovlp.is_identity:  # type: ignore
+                # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
+                assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
+                op_r_ovlp = op_r_ovlp.shape[0]
+
+            return op_l_ovlp, op_c_ovlp, op_r_ovlp
+
+        def _set_op_lcr_states_key(
+            op_lcr_states: dict[
+                _op_keys, tuple[_block_type, _core_type, _block_type]
+            ],
+            op_l: dict[_op_keys, _block_type],
+            op_r: dict[_op_keys, _block_type],
+            op_c_core: list[OperatorCore],
+            op_l_ovlp: _block_type,
+            op_c_ovlp: _core_type,
+            op_r_ovlp: _block_type,
+        ) -> None:
+            if "summed" in op_l:
+                op_lcr_states["summ_l"] = (
+                    op_l["summed"],
+                    op_c_ovlp,
+                    op_r_ovlp,
+                )
+            if "summed" in op_r:
+                op_lcr_states["summ_r"] = (
+                    op_l_ovlp,
+                    op_c_ovlp,
+                    op_r["summed"],
+                )
+            for core in op_c_core:
+                key = core.key
+                op_r_key = op_r[key] if key in op_r else op_r_ovlp
+                op_l_key = op_l[key] if key in op_l else op_l_ovlp
+                op_lcr_states[key] = (
+                    op_l_key,
+                    core,
+                    op_r_key,
+                )
+
         nstate = len(hamiltonian.coupleJ)
         op_lcr: list[
             list[
                 dict[
                     _op_keys,
                     tuple[
-                        np.ndarray | jax.Array | int,
-                        np.ndarray | jax.Array | int | OperatorCore,
-                        np.ndarray | jax.Array | int,
+                        _block_type,
+                        _core_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -547,104 +685,43 @@ class MPSCoefMPO(MPSCoef):
             statepair = (istate_bra, istate_ket)
             isDiag = istate_bra == istate_ket
 
-            op_l_ovlp: np.ndarray | jax.Array | int
-            op_c_ovlp: np.ndarray | jax.Array | int
-            op_r_ovlp: np.ndarray | jax.Array | int
             mpos = hamiltonian.mpo[istate_bra][istate_ket]
-            if need_ovlp := (
+            if (
                 coupleJ != 0.0
                 or isDiag
                 or isinstance(mpos, MatrixProductOperators)
             ):
-                op_l_ovlp = (
-                    op_sys[statepair]["ovlp"]
-                    if A_is_sys
-                    else op_env[statepair]["ovlp"]
+                op_l_ovlp, op_c_ovlp, op_r_ovlp = _get_op_ovlp(
+                    op_sys, op_env, ints_site, statepair, psite, A_is_sys
                 )
-                op_r_ovlp = (
-                    op_env[statepair]["ovlp"]
-                    if A_is_sys
-                    else op_sys[statepair]["ovlp"]
-                )
-                op_c_ovlp = ints_site[statepair]["ovlp"][psite]
-
-                # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
-                if op_l_ovlp.is_identity:  # type: ignore
-                    # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
-                    assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
-                    op_l_ovlp = op_l_ovlp.shape[0]
-                if op_c_ovlp.is_identity:  # type: ignore
-                    # np.testing.assert_allclose(op_c_ovlp, np.eye(*op_c_ovlp.shape)):
-                    assert isinstance(op_c_ovlp, np.ndarray | jax.Array)
-                    op_c_ovlp = op_c_ovlp.shape[0]
-                if op_r_ovlp.is_identity:  # type: ignore
-                    # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
-                    assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
-                    op_r_ovlp = op_r_ovlp.shape[0]
-
-                if need_ovlp:
-                    op_lcr[istate_bra][istate_ket] = {
-                        "ovlp": (op_l_ovlp, op_c_ovlp, op_r_ovlp)
-                    }
-
+                op_lcr[istate_bra][istate_ket] = {
+                    "ovlp": (op_l_ovlp, op_c_ovlp, op_r_ovlp)
+                }
                 op_l = op_sys[statepair] if A_is_sys else op_env[statepair]
                 op_r = op_env[statepair] if A_is_sys else op_sys[statepair]
-
                 assert isinstance(mpos, MatrixProductOperators)
                 op_c_core: list[OperatorCore] = mpos.calc_point[psite]
 
-                if "summed" in op_l:
-                    op_lcr[istate_bra][istate_ket]["summ_l"] = (
-                        op_l["summed"],
-                        op_c_ovlp,
-                        op_r_ovlp,
-                    )
-                if "summed" in op_r:
-                    op_lcr[istate_bra][istate_ket]["summ_r"] = (
-                        op_l_ovlp,
-                        op_c_ovlp,
-                        op_r["summed"],
-                    )
-                for core in op_c_core:
-                    key = core.key
-                    op_r_key = op_r[key] if key in op_r else op_r_ovlp
-                    op_l_key = op_l[key] if key in op_l else op_l_ovlp
-                    if op_lcr[istate_bra][istate_ket] is None:
-                        op_lcr[istate_bra][istate_ket] = {
-                            key: (op_l_key, core, op_r_key)
-                        }
-                    else:
-                        op_lcr[istate_bra][istate_ket][key] = (
-                            op_l_key,
-                            core,
-                            op_r_key,
-                        )
+                _set_op_lcr_states_key(
+                    op_lcr_states=op_lcr[istate_bra][istate_ket],
+                    op_l=op_l,
+                    op_r=op_r,
+                    op_c_core=op_c_core,
+                    op_l_ovlp=op_l_ovlp,
+                    op_c_ovlp=op_c_ovlp,
+                    op_r_ovlp=op_r_ovlp,
+                )
 
         return op_lcr
 
     def operators_for_superK(
         self,
         psite: int,
-        op_sys: dict[
-            tuple[int, int],
-            dict[_op_keys, np.ndarray | jax.Array],
-        ],
-        op_env: dict[
-            tuple[int, int],
-            dict[_op_keys, np.ndarray | jax.Array],
-        ],
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
-    ) -> list[
-        list[
-            dict[
-                _op_keys,
-                tuple[
-                    np.ndarray | jax.Array | int, np.ndarray | jax.Array | int
-                ],
-            ]
-        ]
-    ]:
+    ) -> list[list[dict[_op_keys, tuple[_block_type, _block_type]]]]:
         """ LsR operator
 
         construct full-matrix Kamiltonian
@@ -660,22 +737,106 @@ class MPSCoefMPO(MPSCoef):
             List[List[Dict[_op_keys, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
                 [i-bra-state][j-ket-state][(0,1,2)] =  (op_l, op_r)
         """
+
+        def _get_op_ovlp(
+            op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+            op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
+            statepair: tuple[int, int],
+            A_is_sys: bool,
+        ) -> tuple[_block_type, _block_type]:
+            op_l_ovlp = (
+                op_sys[statepair]["ovlp"]
+                if A_is_sys
+                else op_env[statepair]["ovlp"]
+            )
+            op_r_ovlp = (
+                op_env[statepair]["ovlp"]
+                if A_is_sys
+                else op_sys[statepair]["ovlp"]
+            )
+
+            # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
+            if op_l_ovlp.is_identity:  # type: ignore
+                # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
+                assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
+                op_l_ovlp = op_l_ovlp.shape[0]
+            if op_r_ovlp.is_identity:  # type: ignore
+                # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
+                assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
+                op_r_ovlp = op_r_ovlp.shape[0]
+
+            return op_l_ovlp, op_r_ovlp
+
+        def _set_op_lr_states_key(
+            op_lr_state: dict[_op_keys, tuple[_block_type, _block_type]] | None,
+            op_l: dict[_op_keys, _block_type],
+            op_r: dict[_op_keys, _block_type],
+            op_l_ovlp: _block_type,
+            op_r_ovlp: _block_type,
+            keys,
+            psite: int,
+        ) -> None:
+            """Set operator blocks for left and right parts of the system
+
+            Args:
+                op_lr_state: Operator blocks for specific state pair
+                op_l: Left operator block
+                op_r: Right operator block
+                op_l_ovlp: Left overlap operator
+                op_r_ovlp: Right overlap operator
+                op_sys: System operator blocks for specific state pair
+                psite: Current site index
+            """
+            if "summed" in op_l:
+                if op_lr_state is None:
+                    op_lr_state = {}
+                op_lr_state["summ_l"] = (
+                    op_l["summed"],
+                    op_r_ovlp,
+                )
+            if "summed" in op_r:
+                if op_lr_state is None:
+                    op_lr_state = {}
+                op_lr_state["summ_r"] = (
+                    op_l_ovlp,
+                    op_r["summed"],
+                )
+            for key in keys:
+                if key in ["summed", "ovlp"]:
+                    # Already included in 'summed' or 'ovlp' above
+                    continue
+                op_r_key = op_r[key] if key in op_r else op_r_ovlp
+                op_l_key = op_l[key] if key in op_l else op_l_ovlp
+                assert (
+                    key in op_r
+                ), f"Right side key {key} should be included in summed at {psite}-site"
+                assert (
+                    key in op_l
+                ), f"Left side key {key} should be included in summed at {psite}-site"
+                if op_lr_state is None:
+                    op_lr_state = {key: (op_l_key, op_r_key)}
+                else:
+                    op_lr_state[key] = (
+                        op_l_key,
+                        op_r_key,
+                    )
+
         nstate = len(hamiltonian.coupleJ)
         op_lr: list[
             list[
                 dict[
                     _op_keys,
                     tuple[
-                        np.ndarray | jax.Array | int,
-                        np.ndarray | jax.Array | int,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ]
         op_lr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
 
-        op_l_ovlp: np.ndarray | jax.Array | int
-        op_r_ovlp: np.ndarray | jax.Array | int
+        op_l_ovlp: _block_type
+        op_r_ovlp: _block_type
 
         for istate_bra, istate_ket in itertools.product(
             list(range(nstate)), repeat=2
@@ -684,73 +845,34 @@ class MPSCoefMPO(MPSCoef):
             statepair = (istate_bra, istate_ket)
             isDiag = istate_bra == istate_ket
 
-            if need_ovlp := (
+            mpos = hamiltonian.mpo[istate_bra][istate_ket]
+            if (
                 coupleJ != 0.0
                 or isDiag
-                or hamiltonian.mpo[istate_bra][istate_ket] is not None
+                or isinstance(mpos, MatrixProductOperators)
             ):
-                op_l_ovlp = (
-                    op_sys[statepair]["ovlp"]
-                    if A_is_sys
-                    else op_env[statepair]["ovlp"]
-                )
-                op_r_ovlp = (
-                    op_env[statepair]["ovlp"]
-                    if A_is_sys
-                    else op_sys[statepair]["ovlp"]
+                op_l_ovlp, op_r_ovlp = _get_op_ovlp(
+                    op_sys=op_sys,
+                    op_env=op_env,
+                    statepair=statepair,
+                    A_is_sys=A_is_sys,
                 )
 
-                # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
-                if op_l_ovlp.is_identity:  # type: ignore
-                    # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
-                    assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
-                    op_l_ovlp = op_l_ovlp.shape[0]
-                if op_r_ovlp.is_identity:  # type: ignore
-                    # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
-                    assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
-                    op_r_ovlp = op_r_ovlp.shape[0]
-
-                if need_ovlp:
-                    op_lr[istate_bra][istate_ket] = {
-                        "ovlp": (op_l_ovlp, op_r_ovlp)
-                    }
+                op_lr[istate_bra][istate_ket] = {"ovlp": (op_l_ovlp, op_r_ovlp)}
 
                 op_l = op_sys[statepair] if A_is_sys else op_env[statepair]
                 op_r = op_env[statepair] if A_is_sys else op_sys[statepair]
 
-                if "summed" in op_l:
-                    op_lr[istate_bra][istate_ket]["summ_l"] = (
-                        op_l["summed"],
-                        op_r_ovlp,
-                    )
-                if "summed" in op_r:
-                    op_lr[istate_bra][istate_ket]["summ_r"] = (
-                        op_l_ovlp,
-                        op_r["summed"],
-                    )
-                for key in op_sys[statepair].keys():
-                    if key in ["summed", "ovlp"]:
-                        # Already included in 'summed' or 'ovlp' above
-                        continue
-                    op_r_key = op_r[key] if key in op_r else op_r_ovlp
-                    op_l_key = op_l[key] if key in op_l else op_l_ovlp
-                    assert (
-                        key in op_r
-                    ), f"Right side key {key} should be included \
-                        in summed at {psite}-site"
-                    assert (
-                        key in op_l
-                    ), f"Left side key {key} should be included \
-                        in summed at {psite}-site"
-                    if op_lr[istate_bra][istate_ket] is None:
-                        op_lr[istate_bra][istate_ket] = {
-                            key: (op_l_key, op_r_key)
-                        }
-                    else:
-                        op_lr[istate_bra][istate_ket][key] = (
-                            op_l_key,
-                            op_r_key,
-                        )
+                _set_op_lr_states_key(
+                    op_lr_state=op_lr[istate_bra][istate_ket],
+                    op_l=op_l,
+                    op_r=op_r,
+                    op_l_ovlp=op_l_ovlp,
+                    op_r_ovlp=op_r_ovlp,
+                    keys=op_sys[statepair].keys(),
+                    psite=psite,
+                )
+
         return op_lr
 
     def grid_pop(self, J: tuple[int, ...], istate=0) -> float:

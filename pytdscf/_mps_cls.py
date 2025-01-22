@@ -1126,6 +1126,24 @@ class MPSCoef(ABC):
 
         return op_block_isites if set_op_left else op_block_isites[::-1]
 
+    def construct_op_sites_range(
+        self,
+        *,
+        begin_site: int,
+        end_site: int,
+        op_block_begin: list[
+            dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]
+        ],
+        superblock_states: list[list[SiteCoef]],
+        ints_site: dict[
+            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
+        ],
+        set_op_left: bool,
+        matH_cas: HamiltonianMixin | None = None,
+        superblock_states_unperturb=None,
+    ) -> list[dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]]:
+        raise NotImplementedError
+
     def trans_next_psite_AsigmaB(
         self,
         psite: int,
