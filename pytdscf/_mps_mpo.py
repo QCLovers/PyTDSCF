@@ -685,6 +685,9 @@ class MPSCoefMPO(MPSCoef):
             statepair = (istate_bra, istate_ket)
             isDiag = istate_bra == istate_ket
 
+            op_l_ovlp: _block_type
+            op_c_ovlp: _core_type
+            op_r_ovlp: _block_type
             mpos = hamiltonian.mpo[istate_bra][istate_ket]
             if (
                 coupleJ != 0.0
