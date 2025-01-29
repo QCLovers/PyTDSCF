@@ -16,6 +16,7 @@ import numpy as np
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
 from pytdscf._contraction import (
+    _block_type,
     contract_with_site,
     contract_with_site_concat,
     mfop_site,
@@ -201,7 +202,6 @@ class MPSCoefSoP(MPSCoef):
         self, matH: PolynomialHamiltonian
     ) -> PolynomialHamiltonian:
         """
-
         Args:
             matH (PolynomialHamiltonian): Original Hamiltonian
 
@@ -973,7 +973,7 @@ class MPSCoefSoP(MPSCoef):
             )
         op_sys_sites = self.construct_op_sites(
             superblock_states, ints_site, A_is_sys, matH_cas
-        )
+        )[::-1]
 
         for psite in psites_sweep_backward[:-1]:
             superblock_trans_APsiB_psite(
@@ -991,10 +991,12 @@ class MPSCoefSoP(MPSCoef):
         for psite in psites_sweep_forward:
             if const.verbose == 4:
                 helper.ElpTime.mfop_1 -= time()
+            op_sys = op_sys_sites.pop()
+            op_env = op_env_sites.pop()
             mfop_spf_psite_states = self.construct_mfop_MPS(
                 psite,
-                op_sys_sites[psite],
-                op_env_sites[psite],
+                op_sys,
+                op_env,
                 matH_cas,
                 A_is_sys,
             )
@@ -1010,9 +1012,7 @@ class MPSCoefSoP(MPSCoef):
                         mfop_type
                     ].items():
                         if statepair not in mfop_spf["general"]:
-                            mfop_spf[mfop_type][statepair] = defaultdict(
-                                dict
-                            )  # OLD>{}
+                            mfop_spf[mfop_type][statepair] = defaultdict(dict)
                         for op_key, val_dofs in mfop_general.items():
                             mfop_spf[mfop_type][statepair][op_key][psite] = (
                                 val_dofs
@@ -1037,7 +1037,7 @@ class MPSCoefSoP(MPSCoef):
                 _svalues, op_block_cas = self.trans_next_psite_AsigmaB(
                     psite,
                     superblock_states,
-                    op_sys_sites[psite],
+                    op_sys,
                     ints_site,
                     matH_cas,
                     A_is_sys,
@@ -1097,10 +1097,11 @@ class MPSCoefSoP(MPSCoef):
             else list(range(self.nsite))[::-1]
         )
         for psite in psites_sweep:
+            op_env = op_env_sites.pop()
             mfop_spf_psite_states = self.construct_mfop_MPS(
                 psite,
                 op_sys,
-                op_env_sites[psite],
+                op_env,
                 matO_cas,
                 A_is_sys,
                 mps_coef_ket=mps_coef_ket,
@@ -1128,7 +1129,7 @@ class MPSCoefSoP(MPSCoef):
                 op_sys = self.trans_next_psite_APsiB(
                     psite,
                     superblock_states_bra,
-                    op_sys,
+                    op_sys,  # type: ignore
                     ints_site,
                     matO_cas,
                     A_is_sys,
@@ -1218,7 +1219,7 @@ class MPSCoefSoP(MPSCoef):
         op_psite_auto: np.ndarray | jax.Array,
         matLorR_bra: SiteCoef,
         matLorR_ket: SiteCoef,
-    ) -> int | np.ndarray | jax.Array:
+    ) -> np.ndarray | jax.Array:
         return contract_with_site(
             matLorR_bra.conj(),
             matLorR_ket,
@@ -1233,7 +1234,7 @@ class MPSCoefSoP(MPSCoef):
         superblock_states: list[list[SiteCoef]],
         op_block_states: dict[
             tuple[int, int],
-            dict[str, int | np.ndarray | jax.Array],
+            dict[str, _block_type],
         ],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
@@ -1241,7 +1242,7 @@ class MPSCoefSoP(MPSCoef):
         matH_cas: PolynomialHamiltonian,
         A_is_sys: bool,
         superblock_states_unperturb=None,
-    ) -> dict[tuple[int, int], dict[str, int | np.ndarray | jax.Array]]:
+    ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
         superblock_states_bra = superblock_states
         superblock_states_ket = (
             superblock_states
@@ -1278,10 +1279,8 @@ class MPSCoefSoP(MPSCoef):
                     )
 
             elif "ovlp" in op_block_statepair:
-                op_block_ovlp: np.ndarray | jax.Array | int
-                op_psite_ovlp: np.ndarray | jax.Array | int
-                op_block_ovlp = op_block_statepair["ovlp"]
-                op_psite_ovlp = ints_site_statepair["ovlp"][psite]
+                op_block_ovlp: _block_type = op_block_statepair["ovlp"]
+                op_psite_ovlp: _block_type = ints_site_statepair["ovlp"][psite]
                 op_block_next_ops["ovlp"] = contract_with_site(
                     matLorR_bra, matLorR_ket, op_block_ovlp, op_psite_ovlp
                 )
@@ -1469,9 +1468,9 @@ class MPSCoefSoP(MPSCoef):
             dict[
                 str,
                 tuple[
-                    np.ndarray | jax.Array | int,
-                    np.ndarray | jax.Array | int,
-                    np.ndarray | jax.Array | int,
+                    _block_type,
+                    _block_type,
+                    _block_type,
                 ],
             ]
         ]
@@ -1489,7 +1488,7 @@ class MPSCoefSoP(MPSCoef):
             A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
+            List[List[Dict[str, Tuple[_block_type, _block_type, _block_type]]]]: \
                 [i-bra-state][j-ket-state]['q'] =  (op_l, op_c, op_r)
         """
         nstate = len(matH_cas.coupleJ)
@@ -1498,17 +1497,17 @@ class MPSCoefSoP(MPSCoef):
                 dict[
                     str,
                     tuple[
-                        np.ndarray | jax.Array | int,
-                        np.ndarray | jax.Array | int,
-                        np.ndarray | jax.Array | int,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ]
         op_lcr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
-        op_l_ovlp: int | np.ndarray | jax.Array
-        op_r_ovlp: int | np.ndarray | jax.Array
-        op_c_ovlp: int | np.ndarray | jax.Array
+        op_l_ovlp: _block_type
+        op_r_ovlp: _block_type
+        op_c_ovlp: _block_type
         for istate_bra, istate_ket in itertools.product(
             list(range(nstate)), repeat=2
         ):
@@ -1673,7 +1672,8 @@ class MPSCoefSoP(MPSCoef):
             dict[
                 str,
                 tuple[
-                    np.ndarray | jax.Array | int, np.ndarray | jax.Array | int
+                    _block_type,
+                    _block_type,
                 ],
             ]
         ]
@@ -1690,7 +1690,7 @@ class MPSCoefSoP(MPSCoef):
             A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
+            List[List[Dict[str, Tuple[_block_type, _block_type]]]]: \
                 [i-bra-state][j-ket-state]['q'] =  (op_l, op_r)
         """
         nstate = len(matH_cas.coupleJ)
@@ -1699,14 +1699,14 @@ class MPSCoefSoP(MPSCoef):
                 dict[
                     str,
                     tuple[
-                        np.ndarray | jax.Array | int,
-                        np.ndarray | jax.Array | int,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ]
-        op_l_ovlp: np.ndarray | jax.Array | int
-        op_r_ovlp: np.ndarray | jax.Array | int
+        op_l_ovlp: _block_type
+        op_r_ovlp: _block_type
         op_lr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
         for istate_bra, istate_ket in itertools.product(
             list(range(nstate)), repeat=2

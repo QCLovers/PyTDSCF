@@ -22,6 +22,7 @@ import pytdscf._helper as helper
 from pytdscf import _integrator
 from pytdscf._const_cls import const
 from pytdscf._contraction import (
+    _block_type,
     multiplyH_MPS_direct,
     multiplyH_MPS_direct_MPO,
     multiplyK_MPS_direct,
@@ -37,6 +38,32 @@ from pytdscf.hamiltonian_cls import (
 from pytdscf.model_cls import Model
 
 logger = getLogger("main").getChild(__name__)
+
+
+def ci_exp_time(func):
+    def wrapper(*args, **kwargs):
+        if const.verbose == 4:
+            helper._ElpTime.ci_exp -= time()
+            result = func(*args, **kwargs)
+            helper._ElpTime.ci_exp += time()
+        else:
+            result = func(*args, **kwargs)
+        return result
+
+    return wrapper
+
+
+def ci_rnm_time(func):
+    def wrapper(*args, **kwargs):
+        if const.verbose == 4:
+            helper._ElpTime.ci_rnm -= time()
+            result = func(*args, **kwargs)
+            helper._ElpTime.ci_rnm += time()
+        else:
+            result = func(*args, **kwargs)
+        return result
+
+    return wrapper
 
 
 class MPSCoef(ABC):
@@ -208,8 +235,8 @@ class MPSCoef(ABC):
     def construct_mfop_MPS(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
-        op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[tuple[int, int], dict[str, _block_type]],
+        op_env: dict[tuple[int, int], dict[str, _block_type]],
         matH_cas,
         A_is_sys: bool,
         ints_spf: SPFInts | None = None,
@@ -251,7 +278,7 @@ class MPSCoef(ABC):
         self,
         superblock_states: list[list[SiteCoef]],
         matH_cas: HamiltonianMixin | None = None,
-    ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
+    ) -> dict[tuple[int, int], dict[str, _block_type]]:
         """initialize op_block_psites
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
@@ -267,24 +294,22 @@ class MPSCoef(ABC):
         self,
         psite: int,
         superblock_states: list[list[SiteCoef]],
-        op_block_states: dict[
-            tuple[int, int], dict[str, int | np.ndarray | jax.Array]
-        ],
+        op_block_states: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
         matH,
         A_is_sys: bool,
         superblock_states_unperturb=None,
-    ) -> dict[tuple[int, int], dict[str, int | np.ndarray | jax.Array]]:
+    ) -> dict[tuple[int, int], dict[str, _block_type]]:
         pass
 
     @abstractmethod
     def operators_for_superH(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
-        op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[tuple[int, int], dict[str, _block_type]],
+        op_env: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
@@ -295,9 +320,9 @@ class MPSCoef(ABC):
             dict[
                 str,
                 tuple[
-                    np.ndarray | jax.Array,
-                    np.ndarray | jax.Array,
-                    np.ndarray | jax.Array,
+                    _block_type,
+                    _block_type,
+                    _block_type,
                 ],
             ]
         ]
@@ -308,14 +333,14 @@ class MPSCoef(ABC):
 
         Args:
             psite (int): site index on "Psi"
-            op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
-            op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
+            op_sys (Dict[Tuple[int,int], Dict[str, _block_type]]): System operator
+            op_env (Dict[Tuple[int,int], Dict[str, _block_type]]): Environment operator
             ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral
             matH_cas (PolynomialHamiltonian) : Hamiltonian
             A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
+            List[List[Dict[str, Tuple[_block_type, _block_type, _block_type]]]]: \
                 [i-bra-state][j-ket-state]['q'] =  (op_l, op_c, op_r)
         """
         pass
@@ -324,17 +349,15 @@ class MPSCoef(ABC):
     def operators_for_superK(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
-        op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[tuple[int, int], dict[str, _block_type]],
+        op_env: dict[tuple[int, int], dict[str, _block_type]],
         matH_cas: HamiltonianMixin,
         A_is_sys: bool,
     ) -> list[
         list[
             dict[
                 str,
-                tuple[
-                    int | np.ndarray | jax.Array, int | np.ndarray | jax.Array
-                ],
+                tuple[_block_type, _block_type],
             ]
         ]
     ]:
@@ -476,6 +499,7 @@ class MPSCoef(ABC):
         Returns:
             complex or float : expectation value
         """
+        assert psite == 0, f"psite = {psite} is not supported"
         self.assert_psite_canonical(psite)
         superblock_states = self.superblock_states
         # - inefficient impl-#
@@ -486,8 +510,8 @@ class MPSCoef(ABC):
         matOp = self.get_matH_sweep(matOp)
         op_sys = self.construct_op_zerosite(superblock_states, matOp)
         op_env = self.construct_op_sites(
-            superblock_states, ints_site, False, matOp
-        )[psite]
+            superblock_states, ints_site, set_op_left=False, matH_cas=matOp
+        ).pop()
         op_lcr = self.operators_for_superH(
             psite, op_sys, op_env, ints_site, matOp, True
         )
@@ -505,7 +529,7 @@ class MPSCoef(ABC):
         if isinstance(matOp, PolynomialHamiltonian):
             multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states, matOp)
         else:
-            multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matPsi_states, matOp)  # type: ignore
+            multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matPsi_states, matOp)
 
         expectation_value = _integrator.expectation_Op(
             matPsi_states,  # type: ignore
@@ -527,6 +551,7 @@ class MPSCoef(ABC):
         Returns:
             complex: auto-correlation value
         """
+        assert psite == 0, f"psite = {psite} is not supported"
         nstate = len(self.superblock_states)
         self.assert_psite_canonical(psite)
         superblock_states = self.superblock_states
@@ -534,9 +559,9 @@ class MPSCoef(ABC):
         # - inefficient impl-#
         ints_site = self.get_ints_site(ints_spf)
         op_sys = self.construct_op_zerosite(superblock_states)
-        op_env = self.construct_op_sites(superblock_states, ints_site, False)[
-            psite
-        ]
+        op_env = self.construct_op_sites(
+            superblock_states, ints_site, set_op_left=False
+        ).pop()
         op_lcr = self.operators_for_autocorr(
             psite, op_sys, op_env, ints_site, nstate, True
         )
@@ -630,24 +655,23 @@ class MPSCoef(ABC):
                 superblock_states_unperturb,
             )
         else:
-            if A_is_sys:
-                # op_env_sites = copy.deepcopy(self.op_sys_sites_dipo)[::-1]
-                op_env_sites = self.op_sys_sites_dipo[::-1]
-            else:
-                # op_env_sites = copy.deepcopy(self.op_sys_sites_dipo)
-                op_env_sites = self.op_sys_sites_dipo[:]
+            op_env_sites = self.op_sys_sites_dipo[:]
 
         if const.standard_method:
             self.op_sys_sites_dipo = [op_sys]
 
-        psites_sweep = (
-            list(range(nsite)) if A_is_sys else list(range(nsite))[::-1]
-        )
+        if A_is_sys:
+            psites_sweep = range(0, nsite, +1)
+            end_site = nsite - 1
+        else:
+            psites_sweep = range(nsite - 1, -1, -1)
+            end_site = 0
         for psite in psites_sweep:
+            op_env = op_env_sites.pop()
             op_lcr = self.operators_for_superH(
                 psite,
                 op_sys,
-                op_env_sites[psite],
+                op_env,
                 ints_site,
                 matO_cas,
                 A_is_sys,
@@ -661,7 +685,7 @@ class MPSCoef(ABC):
                 superblock_states_unperturb,
             )
 
-            if psite != psites_sweep[-1]:
+            if psite != end_site:
                 superblock_trans_APsiB_psite(psite, superblock_states, A_is_sys)
                 superblock_trans_APsiB_psite(
                     psite, superblock_states_unperturb, A_is_sys
@@ -669,7 +693,7 @@ class MPSCoef(ABC):
                 op_sys = self.renormalize_op_psite(
                     psite,
                     superblock_states,
-                    op_sys,  # type: ignore
+                    op_sys,
                     ints_site,
                     matO_cas,
                     A_is_sys,
@@ -692,17 +716,16 @@ class MPSCoef(ABC):
         superblock_states = self.superblock_states
         nsite = len(superblock_states[0])
 
-        if const.verbose == 4:
-            helper._ElpTime.ci_rnm -= time()
         op_sys = self.construct_op_zerosite(superblock_states, matH_cas)
         if self.op_sys_sites is None:
             # If t==0 or Include SPF or time-dependent Hamiltonian
             op_env_sites = self.construct_op_sites(
                 superblock_states, ints_site, not A_is_sys, matH_cas
             )
-            if A_is_sys:
-                op_env_sites = op_env_sites[::-1]
         else:
+            # Using [:] creates a shallow copy, so pop() operations on op_env_sites
+            # won't affect the original self.op_sys_sites list but its elements has the
+            # same reference to the original self.op_sys_sites
             op_env_sites = self.op_sys_sites[:]
         # When A_is_sys,
         # [sys0, sys1, ..., sysN-1, envM-1, ..., env1, env0]
@@ -714,12 +737,12 @@ class MPSCoef(ABC):
         else:
             self.op_sys_sites = None
 
-        if const.verbose == 4:
-            helper._ElpTime.ci_rnm += time()
-
-        psites_sweep = (
-            list(range(nsite)) if A_is_sys else list(range(nsite))[::-1]
-        )
+        if A_is_sys:
+            psites_sweep = range(0, nsite, +1)
+            end_site = nsite - 1
+        else:
+            psites_sweep = range(nsite - 1, -1, -1)
+            end_site = 0
         for psite in psites_sweep:
             if const.verbose == 4:
                 helper._ElpTime.ci_etc -= time()
@@ -736,17 +759,11 @@ class MPSCoef(ABC):
             if const.verbose == 4:
                 helper._ElpTime.ci_etc += time()
 
-            if const.verbose == 4:
-                helper._ElpTime.ci_exp -= time()
             self.exp_superH_propagation_direct(
                 psite, superblock_states, op_lcr, matH_cas, stepsize
             )
-            if const.verbose == 4:
-                helper._ElpTime.ci_exp += time()
 
-            if psite != psites_sweep[-1]:
-                if const.verbose == 4:
-                    helper._ElpTime.ci_rnm -= time()
+            if psite != end_site:
                 svalues, op_sys = self.trans_next_psite_AsigmaB(
                     psite,
                     self.superblock_states,
@@ -755,8 +772,6 @@ class MPSCoef(ABC):
                     matH_cas,
                     A_is_sys,
                 )
-                if const.verbose == 4:
-                    helper._ElpTime.ci_rnm += time()
 
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc -= time()
@@ -766,8 +781,6 @@ class MPSCoef(ABC):
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc += time()
 
-                if const.verbose == 4:
-                    helper._ElpTime.ci_exp -= time()
                 self.exp_superK_propagation_direct(
                     psite,
                     superblock_states,
@@ -777,11 +790,10 @@ class MPSCoef(ABC):
                     stepsize,
                     A_is_sys,
                 )
-                if const.verbose == 4:
-                    helper._ElpTime.ci_exp += time()
                 if self.op_sys_sites is not None:
                     self.op_sys_sites.append(op_sys)
 
+    @ci_exp_time
     def exp_superH_propagation_direct(
         self,
         psite: int,
@@ -791,9 +803,9 @@ class MPSCoef(ABC):
                 dict[
                     str,
                     tuple[
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -818,7 +830,7 @@ class MPSCoef(ABC):
         else:
             assert isinstance(matH_cas, TensorHamiltonian)
             multiplyH = multiplyH_MPS_direct_MPO(
-                op_lcr,  # type: ignore
+                op_lcr,
                 matPsi_states,
                 matH_cas,
             )
@@ -848,6 +860,7 @@ class MPSCoef(ABC):
                 data=matPsi_states_new[istate], gauge="Psi", isite=psite
             )
 
+    @ci_exp_time
     def exp_superK_propagation_direct(
         self,
         psite: int,
@@ -857,8 +870,8 @@ class MPSCoef(ABC):
                 dict[
                     str,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -1080,6 +1093,7 @@ class MPSCoef(ABC):
         assert isinstance(retval, np.ndarray | jax.Array)
         return complex(retval[0])
 
+    @ci_rnm_time
     def construct_op_sites(
         self,
         superblock_states: list[list[SiteCoef]],
@@ -1089,7 +1103,7 @@ class MPSCoef(ABC):
         set_op_left: bool,
         matH_cas: HamiltonianMixin | None = None,
         superblock_states_unperturb=None,
-    ) -> list[dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]]:
+    ) -> list[dict[tuple[int, int], dict[str, _block_type]]]:
         """Construct Environment Operator
 
         Args:
@@ -1099,7 +1113,7 @@ class MPSCoef(ABC):
             matH_cas (HamiltonianMixin) : Hamiltonian
 
         Returns:
-            List[Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]] : Env. Operator
+            List[Dict[Tuple[int,int], Dict[str, _block_type]]] : Env. Operator
         """
 
         nsite = len(superblock_states[0])
@@ -1107,16 +1121,17 @@ class MPSCoef(ABC):
             self.construct_op_zerosite(superblock_states, matH_cas)
         ]
 
-        psites_sweep = (
-            list(range(nsite)) if set_op_left else list(range(nsite))[::-1]
-        )
-        for isite, psite in enumerate(psites_sweep[:-1]):
+        if set_op_left:
+            psites_sweep = range(0, nsite - 1, +1)
+        else:
+            psites_sweep = range(nsite - 1, 0, -1)
+        for psite in psites_sweep:
             """construct op_block for <A(0)A(1)...A(isite)|Op|A(0)A(1)...A(isite)>"""
             op_block_isites.append(
                 self.renormalize_op_psite(
                     psite,
                     superblock_states,
-                    op_block_isites[isite],  # type: ignore
+                    op_block_isites[-1],
                     ints_site,
                     matH_cas,
                     set_op_left,
@@ -1124,16 +1139,14 @@ class MPSCoef(ABC):
                 )
             )
 
-        return op_block_isites if set_op_left else op_block_isites[::-1]
+        return op_block_isites
 
     def construct_op_sites_range(
         self,
         *,
         begin_site: int,
         end_site: int,
-        op_block_begin: list[
-            dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]
-        ],
+        op_block_begin: list[dict[tuple[int, int], dict[str, _block_type]]],
         superblock_states: list[list[SiteCoef]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
@@ -1141,14 +1154,15 @@ class MPSCoef(ABC):
         set_op_left: bool,
         matH_cas: HamiltonianMixin | None = None,
         superblock_states_unperturb=None,
-    ) -> list[dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]]:
+    ) -> list[dict[tuple[int, int], dict[str, _block_type]]]:
         raise NotImplementedError
 
+    @ci_rnm_time
     def trans_next_psite_AsigmaB(
         self,
         psite: int,
         superblock_states: list[list[SiteCoef]],
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
@@ -1156,10 +1170,15 @@ class MPSCoef(ABC):
         A_is_sys,
         superblock_states_ket=None,
         regularize=False,
-    ):
+    ) -> tuple[
+        list[np.ndarray] | list[jax.Array],
+        dict[tuple[int, int], dict[str, _block_type]],
+    ]:
         """..Psi(p) B(p+1).. -> ..A(p) sval B(p+1)"""
 
-        def _trans_PsiB2AB_psite(superblock_states):
+        def _trans_PsiB2AB_psite(
+            superblock_states,
+        ) -> list[np.ndarray] | list[jax.Array]:
             svalues = []
             for superblock in superblock_states:
                 if A_is_sys:
@@ -1174,7 +1193,7 @@ class MPSCoef(ABC):
                             psite, superblock, regularize
                         )
                     )
-            return svalues
+            return svalues  # type: ignore
 
         svalues = _trans_PsiB2AB_psite(superblock_states)
         if superblock_states_ket:
@@ -1182,7 +1201,7 @@ class MPSCoef(ABC):
         op_sys_next = self.renormalize_op_psite(
             psite,
             superblock_states,
-            op_sys,  # type: ignore
+            op_sys,
             ints_site,
             matH_cas,
             A_is_sys,
@@ -1195,7 +1214,7 @@ class MPSCoef(ABC):
         self,
         psite: int,
         superblock_states: list[list[SiteCoef]],
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
@@ -1219,7 +1238,7 @@ class MPSCoef(ABC):
         op_sys_next = self.renormalize_op_psite(
             psite,
             superblock_states,
-            op_sys,  # type: ignore
+            op_sys,
             ints_site,
             matH_cas,
             A_is_sys,
@@ -1230,8 +1249,8 @@ class MPSCoef(ABC):
     def operators_for_autocorr(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
-        op_env: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        op_sys: dict[tuple[int, int], dict[str, _block_type]],
+        op_env: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
@@ -1242,9 +1261,9 @@ class MPSCoef(ABC):
             dict[
                 str,
                 tuple[
-                    np.ndarray | jax.Array,
-                    np.ndarray | jax.Array,
-                    np.ndarray | jax.Array,
+                    _block_type,
+                    _block_type,
+                    _block_type,
                 ],
             ]
         ]
@@ -1270,9 +1289,9 @@ class MPSCoef(ABC):
                 dict[
                     str,
                     tuple[
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -1993,11 +2012,6 @@ def contract_all_superblock(
         einsum = jnp.einsum
     else:
         einsum = np.einsum  # type: ignore
-    import logging
-
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
     for coef in superblock[-2::-1]:
-        logger.debug(f"core shape: {core.shape}")
         core = einsum("ijk,k...->ij...", coef.data, core)
     return core[0, ...]

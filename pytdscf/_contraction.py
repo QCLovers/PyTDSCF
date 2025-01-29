@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 from time import time
+from typing import Annotated
 
 import jax
 import jax.numpy as jnp
@@ -18,11 +19,25 @@ from pytdscf._const_cls import const
 from pytdscf._mpo_cls import OperatorCore
 from pytdscf._site_cls import SiteCoef
 
+_op_keys = Annotated[
+    str | tuple[int | tuple[int, int], ...],
+    "str | tuple[int | tuple[int, int], ...]",
+]
 
-def is_unitmat_op(op_block_single: int | np.ndarray | jax.Array) -> bool:
+_block_type = Annotated[
+    np.ndarray | jax.Array | int, "np.ndarray | jax.Array | int"
+]
+
+_core_type = Annotated[
+    np.ndarray | jax.Array | int | OperatorCore,
+    "np.ndarray | jax.Array | int | OperatorCore",
+]
+
+
+def is_unitmat_op(op_block_single: _block_type) -> bool:
     """Whether op_l or op_c or op_r is identity or not.
     Args:
-        op_block_single (int or numpy.ndarray) : op_l, op_c, op_r
+        op_block_single (_block_type) : op_l, op_c, op_r
     Returns:
         bool : Whether op_l or op_c or op_r is identity or not
     """
@@ -57,17 +72,17 @@ def contract_with_site_concat(mat_bra, mat_ket, op_LorR_concat, op_site_concat):
 def contract_with_site(
     mat_bra: SiteCoef,
     mat_ket: SiteCoef,
-    op_LorR: int | np.ndarray | jax.Array,
-    op_site: int | np.ndarray | jax.Array,
+    op_LorR: _block_type,
+    op_site: _block_type,
 ) -> np.ndarray | jax.Array:
     r"""Contraction between p-site bra, p-site ket, p-site operator and side-block
 
     Args:
         mat_bra (SiteCoef): :math:`\left(L^{\tau_{p-1}^\prime\tau_{p}^\prime}_{j_p^\prime}\right)^\ast` or similar R
         mat_ket (SiteCoef): :math:`L_{\tau_{p-1}\tau_{p}}^{j_p}` or similar R
-        op_LorR (int | np.ndarray | jax.Array) : pre-calculated block operator :math:`E_{\tau_{p-1}}^{\tau_{p-1}^\prime}` \
+        op_LorR (_block_type) : pre-calculated block operator :math:`E_{\tau_{p-1}}^{\tau_{p-1}^\prime}` \
             or similar p+1 index
-        op_site (int | np.ndarray | jax.Array) : p-site operator :math:`O_{j_p}^{j_p^\prime}`
+        op_site (_block_type) : p-site operator :math:`O_{j_p}^{j_p^\prime}`
 
     Returns:
         np.ndarray | jax.Array : contracted system block :math:`E_{\tau_{p}}^{\tau_{p}^\prime}`
@@ -117,18 +132,18 @@ def contract_with_site(
 def contract_with_site_mpo(
     mat_bra: SiteCoef,
     mat_ket: SiteCoef,
-    op_LorR: int | np.ndarray | jax.Array,
-    op_site: OperatorCore | int,
+    op_LorR: _block_type,
+    op_site: _core_type,
 ) -> np.ndarray | jax.Array:
     r"""Contraction between p-site bra, p-site ket, p-site operator and side-block
 
     Args:
         mat_bra (SiteCoef): :math:`\left(L^{\tau_{p-1}^\prime\tau_{p}^\prime}_{j_p^\prime}\right)^\ast` or similar R
         mat_ket (SiteCoef): :math:`L_{\tau_{p-1}\tau_{p}}^{j_p}` or similar R
-        op_LorR (int | np.ndarray | jax.Array) : pre-calculated block operator \
+        op_LorR (_block_type) : pre-calculated block operator \
             :math:`[O^{[:p-1]}_{\rm sys}]\substack{\tau_{p-1}^\prime \\ \beta_{p-1} \\ \tau_{p-1}}` \
             or similar p+1 index
-        op_site (int | np.ndarray | jax.Array) : p-site operator
+        op_site (_block_type) : p-site operator
             :math:`W\substack{j_p^\prime \\ \beta_{p-1}\beta_{p}\\ j_p}`
 
     Returns:
@@ -364,9 +379,9 @@ class multiplyH_MPS_direct(SplitStack):
                 dict[
                     str,
                     tuple[
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -583,8 +598,8 @@ class multiplyK_MPS_direct(SplitStack):
                 dict[
                     str,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -719,9 +734,9 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
                 dict[
                     str,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
@@ -729,7 +744,7 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         psi_states: list[np.ndarray] | list[jax.Array],
         hamiltonian=None,
     ):
-        super().__init__(op_lcr_states, psi_states, matH_cas=hamiltonian)  # type: ignore
+        super().__init__(op_lcr_states, psi_states, matH_cas=hamiltonian)
 
     # @profile
     def _op_lcr_dot(self, _op_l, _op_c, _op_r, _trial):
@@ -851,8 +866,8 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
                 dict[
                     str,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]

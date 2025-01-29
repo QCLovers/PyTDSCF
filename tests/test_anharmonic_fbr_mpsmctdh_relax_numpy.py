@@ -6,7 +6,7 @@ import pytest
 
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
-def test_anharmonic_fbr_mpsmctdh_irelax_numpy():
+def test_anharmonic_fbr_mpsmctdh_relax_numpy():
     from pytdscf import units
     from pytdscf.basis._primints_cls import PrimBas_HO
     from pytdscf.hamiltonian_cls import read_potential_nMR

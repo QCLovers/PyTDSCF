@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import itertools
 import math
-from typing import Annotated, Any
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -13,28 +13,24 @@ import numpy as np
 from discvar import HarmonicOscillator as HO
 
 from pytdscf._const_cls import const
-from pytdscf._contraction import contract_with_site, contract_with_site_mpo
+from pytdscf._contraction import (
+    _block_type,
+    _core_type,
+    _op_keys,
+    contract_with_site,
+    contract_with_site_mpo,
+)
 from pytdscf._mpo_cls import MatrixProductOperators, OperatorCore
-from pytdscf._mps_cls import LatticeInfo, MPSCoef, ints_spf2site_prod
+from pytdscf._mps_cls import (
+    LatticeInfo,
+    MPSCoef,
+    ints_spf2site_prod,
+)
 from pytdscf._site_cls import SiteCoef
 from pytdscf._spf_cls import SPFInts
 from pytdscf.basis.ho import HarmonicOscillator as _HO
 from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
-
-_op_keys = Annotated[
-    str | tuple[int | tuple[int, int], ...],
-    "str | tuple[int | tuple[int, int], ...]",
-]
-
-_block_type = Annotated[
-    np.ndarray | jax.Array | int, "np.ndarray | jax.Array | int"
-]
-
-_core_type = Annotated[
-    np.ndarray | jax.Array | int | OperatorCore,
-    "np.ndarray | jax.Array | int | OperatorCore",
-]
 
 
 class MPSCoefMPO(MPSCoef):
