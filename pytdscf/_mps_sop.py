@@ -972,21 +972,32 @@ class MPSCoefSoP(MPSCoef):
 
         for psite in psites_sweep_forward[:-1]:
             superblock_trans_APsiB_psite(
-                psite, superblock_states, A_is_sys, regularize=regularize_MPS
+                psite,
+                superblock_states,
+                toAPsi=A_is_sys,
+                regularize=regularize_MPS,
             )
         op_sys_sites = self.construct_op_sites(
-            superblock_states, ints_site, A_is_sys, matH_cas
+            superblock_states,
+            ints_site,
+            begin_site=begin_site,
+            end_site=end_site,
+            matH_cas=matH_cas,
         )[::-1]
 
         for psite in psites_sweep_backward[:-1]:
             superblock_trans_APsiB_psite(
                 psite,
                 superblock_states,
-                not A_is_sys,
+                toAPsi=not A_is_sys,
                 regularize=regularize_MPS,
             )
         op_env_sites = self.construct_op_sites(
-            superblock_states, ints_site, not A_is_sys, matH_cas
+            superblock_states,
+            ints_site,
+            begin_site=end_site,
+            end_site=begin_site,
+            matH_cas=matH_cas,
         )
 
         if const.verbose == 4:
@@ -1033,7 +1044,7 @@ class MPSCoefSoP(MPSCoef):
                 superblock_trans_APsiB_psite(
                     psite,
                     superblock_states,
-                    A_is_sys,
+                    toAPsi=A_is_sys,
                     regularize=regularize_MPS,
                 )
             else:
@@ -1043,7 +1054,7 @@ class MPSCoefSoP(MPSCoef):
                     op_sys,
                     ints_site,
                     matH_cas,
-                    A_is_sys,
+                    PsiB2AB=A_is_sys,
                     regularize=regularize_MPS,
                 )
                 # Not sure whethere have to be real> assert np.allclose(_svalues[0], np.eye(1,dtype=complex))
@@ -1073,12 +1084,18 @@ class MPSCoefSoP(MPSCoef):
         ],
         matO_cas,
         *,
-        A_is_sys: bool,
+        begin_site: int,
+        end_site: int,
         mps_coef_ket=None,
     ):
         if mps_coef_ket is None:
             mps_coef_ket = self
             raise NotImplementedError
+
+        A_is_sys = begin_site < end_site
+        assert isinstance(end_site, int)
+        assert begin_site != end_site
+        assert max(begin_site, end_site) < len(self.superblock_states[0])
 
         superblock_states_bra = self.superblock_states
         superblock_states_ket = mps_coef_ket.superblock_states
@@ -1089,16 +1106,14 @@ class MPSCoefSoP(MPSCoef):
         op_env_sites = self.construct_op_sites(
             superblock_states_bra,
             ints_site,
-            not A_is_sys,
-            matO_cas,
-            superblock_states_ket,
+            begin_site=end_site,
+            end_site=begin_site,
+            matH_cas=matO_cas,
+            superblock_states_ket=superblock_states_ket,
         )
 
-        psites_sweep = (
-            list(range(self.nsite))
-            if A_is_sys
-            else list(range(self.nsite))[::-1]
-        )
+        step = 1 if A_is_sys else -1
+        psites_sweep = list(range(begin_site, end_site + step, step))
         for psite in psites_sweep:
             op_env = op_env_sites.pop()
             mfop_spf_psite_states = self.construct_mfop_MPS(
@@ -1244,13 +1259,13 @@ class MPSCoefSoP(MPSCoef):
         ],
         matH_cas: PolynomialHamiltonian,
         A_is_sys: bool,
-        superblock_states_unperturb=None,
+        superblock_states_ket=None,
     ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
         superblock_states_bra = superblock_states
         superblock_states_ket = (
             superblock_states
-            if superblock_states_unperturb is None
-            else superblock_states_unperturb
+            if superblock_states_ket is None
+            else superblock_states_ket
         )
 
         op_block_next = {}
