@@ -31,7 +31,8 @@ def test_harmonic_fbr_mctdh_propagate_numpy():
 
     jobname = "harmonic_fbr_mctdh"
     simulator = Simulator(jobname, model, ci_type="MCTDH", backend="numpy")
-    simulator.propagate(maxstep=1, stepsize=0.1)
+    ener_calc, wf = simulator.propagate(maxstep=1, stepsize=0.1)
+    assert pytest.approx(ener_calc) == 0.013669005758739479
 
 
 if __name__ == "__main__":

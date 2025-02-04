@@ -52,7 +52,8 @@ def test_harmonic_dvr_func_full_mpssm_propagate_jax():
 
     jobname = "harmonic_dvr_jax"
     simulator = Simulator(jobname, model, backend="jax")
-    simulator.propagate(maxstep=3, stepsize=0.1, restart=True)
+    ener_calc, wf = simulator.propagate(maxstep=3, stepsize=0.1, restart=True)
+    assert pytest.approx(ener_calc) == 0.02024362306067599
 
 
 if __name__ == "__main__":

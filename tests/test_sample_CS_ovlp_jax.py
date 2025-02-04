@@ -48,7 +48,7 @@ def test_sample_CS_ovlp_jax(p: float, q: float):
     jobname = "coherent_sample_DVR"
     simulator = Simulator(jobname, model, backend="jax")
     norm, wf_applied_dipole = simulator.operate(maxstep=10, restart=False)
-
+    assert pytest.approx(norm) == 1.3111895155460684
     # MPS is TensorFlow.Tensor, hence we should convert np.ndarray to Tensor in advance
     trans_arrays = [
         jnp.array(HO.get_ovi_CS_HO(p, q, type="DVR"), dtype=jnp.complex128)
@@ -57,7 +57,7 @@ def test_sample_CS_ovlp_jax(p: float, q: float):
     contracted_value = wf_applied_dipole.ci_coef.get_CI_coef_state(
         trans_arrays=trans_arrays
     )
-    print(contracted_value)
+    assert pytest.approx(contracted_value.real) == 0.0048425339
 
 
 if __name__ == "__main__":

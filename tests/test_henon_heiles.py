@@ -18,13 +18,13 @@ jobname = "henon_heiles"
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 @pytest.mark.parametrize(
-    "ω, λ, f, N, m, Δt, backend",
+    "ω, λ, f, N, m, Δt, backend, ener",
     [
-        [4000, 1.0e-05, 1, 5, 4, 0.01, "jax"],
-        [2000, 1.0e-03, 2, 5, 4, 0.001, "numpy"],
+        [4000, 1.0e-05, 1, 5, 4, 0.01, "jax", 1.0273380115174793],
+        [2000, 1.0e-03, 2, 5, 4, 0.001, "numpy", 0.018225341011652626],
     ],
 )
-def test_henon_heiles(ω, λ, f, N, m, Δt, backend):
+def test_henon_heiles(ω, λ, f, N, m, Δt, backend, ener):
     """Test for Henon-Heiles potential MPS-SM propagation
 
     Henon-Heiles potential is given by:
@@ -97,7 +97,8 @@ def test_henon_heiles(ω, λ, f, N, m, Δt, backend):
         [vib_ES] + [vib_GS] * (f - 1)
     ]
     simulator = Simulator(jobname=jobname, model=model, backend=backend)
-    simulator.propagate(maxstep=3, stepsize=Δt)
+    ener_calc, wf = simulator.propagate(maxstep=3, stepsize=Δt)
+    assert pytest.approx(ener_calc) == ener
 
 
 if __name__ == "__main__":

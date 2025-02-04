@@ -35,4 +35,5 @@ def test_anharmonic_fbr_mpsmctdh_relax_numpy():
 
     jobname = "anharmonic_fbr_relax"
     simulator = Simulator(jobname, model, backend="numpy")
-    simulator.relax(improved=False, maxstep=1)
+    ener, wf = simulator.relax(improved=False, maxstep=1)
+    assert pytest.approx(ener) == 0.021360262338234466

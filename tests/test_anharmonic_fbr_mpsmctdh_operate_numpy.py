@@ -5,7 +5,7 @@ import math
 import pytest
 
 
-@pytest.mark.filterwarnings("ignore:DeprecationWarning")
+# @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 def test_anharmonic_fbr_mpsmctdh_operate_numpy():
     from pytdscf import BasInfo, Model, Simulator, units
     from pytdscf.basis import PrimBas_HO
@@ -33,7 +33,8 @@ def test_anharmonic_fbr_mpsmctdh_operate_numpy():
 
     jobname = "anharmonic_fbr_operate"
     simulator = Simulator(jobname, model, backend="numpy", verbose=4)
-    simulator.operate(maxstep=10)
+    norm_calc, wf = simulator.operate(maxstep=10)
+    assert pytest.approx(norm_calc) == 1.933089513647984
 
 
 if __name__ == "__main__":

@@ -171,7 +171,8 @@ def test_exiciton_propagate_jax(backend="jax"):
 
     jobname = "LVC_Exciton_test"
     simulator = Simulator(jobname, model, backend=backend)
-    simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1))
+    ener_calc, wf = simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1))
+    assert pytest.approx(ener_calc) == 0.010000180312707298
 
 
 if __name__ == "__main__":

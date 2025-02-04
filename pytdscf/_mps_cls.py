@@ -746,13 +746,32 @@ class MPSCoef(ABC):
         *,
         begin_site: int,
         end_site: int,
-    ):
-        assert max(begin_site, end_site) < len(self.superblock_states[0])
-        A_is_sys = begin_site < end_site
-        superblock_states = self.superblock_states
-        nsite = len(superblock_states[0])
+        op_sys_initial: dict[tuple[int, int], dict[str, _block_type]]
+        | None = None,
+    ) -> dict[tuple[int, int], dict[str, _block_type]]:
+        """Propagate MPS along a sweep
 
-        op_sys = self.construct_op_zerosite(superblock_states, matH_cas)
+        Args:
+            ints_site (dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]): interaction site
+            matH_cas (HamiltonianMixin): Hamiltonian
+            stepsize (float): time step
+
+        Returns:
+            dict[tuple[int, int], dict[str, _block_type]]: System block operators at the end of the sweep
+        """
+        assert max(begin_site, end_site) < len(self.superblock_states[0])
+        A_is_sys = begin_site <= end_site
+        step = +1 if A_is_sys else -1
+        nsite = (
+            end_site - begin_site + 1 if A_is_sys else begin_site - end_site + 1
+        )
+        superblock_states = self.superblock_states
+
+        if op_sys_initial is None:
+            op_sys = self.construct_op_zerosite(superblock_states, matH_cas)
+        else:
+            op_sys = op_sys_initial
+
         if self.op_sys_sites is None:
             # If t==0 or Include SPF or time-dependent Hamiltonian
             op_env_sites = self.construct_op_sites(
@@ -772,17 +791,16 @@ class MPSCoef(ABC):
         # Otherwise,
         # [env0, env1, ..., envM-1, sysN-1, ..., sys1, sys0]
 
-        if not const.standard_method or const.doTDHamil:
+        if const.standard_method and not const.doTDHamil:
+            # When SPF is not employed and Hamiltonian is time-independent,
+            # the block operators are the same as the one calculated in previous time step
+            # thus, we can record op_sys to reduce additional calculation
             self.op_sys_sites = [op_sys]
         else:
+            # Either SPF is employed or Hamiltonian is time-dependent,
             self.op_sys_sites = None
 
-        if A_is_sys:
-            psites_sweep = range(0, nsite, +1)
-            end_site = nsite - 1
-        else:
-            psites_sweep = range(nsite - 1, -1, -1)
-            end_site = 0
+        psites_sweep = range(begin_site, end_site + step, step)
         for psite in psites_sweep:
             if const.verbose == 4:
                 helper._ElpTime.ci_etc -= time()
@@ -832,6 +850,11 @@ class MPSCoef(ABC):
                 )
                 if self.op_sys_sites is not None:
                     self.op_sys_sites.append(op_sys)
+                    assert (
+                        len(self.op_sys_sites) + len(op_env_sites) == nsite + 1
+                    ), f"{len(self.op_sys_sites)=} + {len(op_env_sites)=} == {nsite+1=}"
+
+        return op_sys
 
     @ci_exp_time
     def exp_superH_propagation_direct(
@@ -1140,9 +1163,12 @@ class MPSCoef(ABC):
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
+        *,
         begin_site: int,
         end_site: int,
         matH_cas: HamiltonianMixin | None = None,
+        op_initial_block: dict[tuple[int, int], dict[str, _block_type]]
+        | None = None,
         superblock_states_ket=None,
     ) -> list[dict[tuple[int, int], dict[str, _block_type]]]:
         """Construct Environment Operator
@@ -1150,8 +1176,11 @@ class MPSCoef(ABC):
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
             ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral
-            set_op_left (bool) : Set environment operator from left side
+            begin_site (int) : begin site index
+            end_site (int) : end site index
             matH_cas (HamiltonianMixin) : Hamiltonian
+            op_initial_block (Dict[Tuple[int,int], Dict[str, _block_type]]) : initial block operators.
+            superblock_states_ket (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
 
         Returns:
             List[Dict[Tuple[int,int], Dict[str, _block_type]]] : Env. Operator
@@ -1160,9 +1189,11 @@ class MPSCoef(ABC):
         assert (
             begin_site != end_site or len(superblock_states[0]) == 1
         ), f"{begin_site=} == {end_site=}"
-        op_block_isites = [
-            self.construct_op_zerosite(superblock_states, matH_cas)
-        ]
+        if op_initial_block is None:
+            op_initial_block = self.construct_op_zerosite(
+                superblock_states, matH_cas
+            )
+        op_block_isites = [op_initial_block]
         set_op_left = begin_site < end_site
 
         step = 1 if set_op_left else -1
@@ -1183,22 +1214,6 @@ class MPSCoef(ABC):
             )
 
         return op_block_isites
-
-    def construct_op_sites_range(
-        self,
-        *,
-        begin_site: int,
-        end_site: int,
-        op_block_begin: list[dict[tuple[int, int], dict[str, _block_type]]],
-        superblock_states: list[list[SiteCoef]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
-        set_op_left: bool,
-        matH_cas: HamiltonianMixin | None = None,
-        superblock_states_ket=None,
-    ) -> list[dict[tuple[int, int], dict[str, _block_type]]]:
-        raise NotImplementedError
 
     @ci_rnm_time
     def trans_next_psite_AsigmaB(

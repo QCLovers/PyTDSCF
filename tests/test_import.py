@@ -1,2 +1,2 @@
 def test_import():
-    pass
+    import pytdscf

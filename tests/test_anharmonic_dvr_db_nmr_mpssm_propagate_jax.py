@@ -60,8 +60,8 @@ def test_anharmonic_dvr_func_nmr_mpssm_propagate_jax():
 
     jobname = "anharmonic_dvr_nMR"
     simulator = Simulator(jobname, model, backend="jax")
-    simulator.propagate(stepsize=0.1, maxstep=10, autocorr=True, autocorr_per_step=1)
-
+    ener_calc, wf = simulator.propagate(stepsize=0.1, maxstep=10, autocorr=True, autocorr_per_step=1)
+    assert pytest.approx(ener_calc) == 0.010549182771706139
 
 if __name__ == "__main__":
     test_anharmonic_dvr_func_nmr_mpssm_propagate_jax()

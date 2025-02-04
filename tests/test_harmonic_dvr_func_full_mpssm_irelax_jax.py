@@ -53,4 +53,5 @@ def test_harmonic_dvr_func_full_mpssm_irelax_jax():
 
     jobname = "harmonic_dvr_jax"
     simulator = Simulator(jobname, model, backend="jax")
-    simulator.relax(maxstep=3, stepsize=0.1)
+    ener_calc, wf = simulator.relax(maxstep=3, stepsize=0.1)
+    assert pytest.approx(ener_calc) == 0.013669005758739458

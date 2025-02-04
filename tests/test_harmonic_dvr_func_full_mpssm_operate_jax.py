@@ -44,4 +44,5 @@ def test_harmonic_dvr_func_full_mpssm_operate_jax():
 
     jobname = "harmonic_dvr_jax"
     simulator = Simulator(jobname, model, backend="jax")
-    simulator.operate(restart=True, maxstep=5)
+    norm_calc, wf = simulator.operate(restart=True, maxstep=5)
+    assert pytest.approx(norm_calc) == 0.9592543610930867

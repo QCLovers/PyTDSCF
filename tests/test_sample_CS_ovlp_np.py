@@ -36,6 +36,7 @@ def test_sample_CS_ovlp_np(p: float, q: float):
     jobname = "coherent_sample_FBR"
     simulator = Simulator(jobname, model, backend="numpy")
     norm, wf_applied_dipole = simulator.operate(maxstep=10, restart=False)
+    assert pytest.approx(norm) == 1.3111895155460684
 
     trans_arrays = [
         HO.todvr().get_ovi_CS_HO(p, q, type="FBR") for HO in prim_info[0]
@@ -43,8 +44,7 @@ def test_sample_CS_ovlp_np(p: float, q: float):
     contracted_value = wf_applied_dipole.ci_coef.get_CI_coef_state(
         trans_arrays=trans_arrays
     )
-    print(contracted_value)
-
+    assert pytest.approx(contracted_value.real) == 0.0048425339
 
 if __name__ == "__main__":
     test_sample_CS_ovlp_np(p=0.1, q=0.1)
