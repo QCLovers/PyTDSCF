@@ -412,14 +412,20 @@ class MPSCoef(ABC):
                 else self.get_matH_cas(matO, ints_spf)
             )
             self.matO_sweep = self.get_matH_sweep(matO_cas)
+        nsite = len(self.superblock_states[0])
         self.apply_dipole_along_sweep(
-            ci_coef_init, self.ints_site_dipo, self.matO_sweep, A_is_sys=True
+            ci_coef_init,
+            self.ints_site_dipo,
+            self.matO_sweep,
+            begin_site=0,
+            end_site=nsite - 1,
         )
         norm = self.apply_dipole_along_sweep(
             ci_coef_init,
             self.ints_site_dipo,
             self.matO_sweep,
-            A_is_sys=False,
+            begin_site=nsite - 1,
+            end_site=0,
         )
         return norm
 
@@ -447,11 +453,20 @@ class MPSCoef(ABC):
             self.matH_sweep = self.get_matH_sweep(matO_cas)
         if const.verbose == 4:
             helper._ElpTime.ci_etc += time()
+        nsite = len(self.superblock_states[0])
         self.propagate_along_sweep(
-            self.ints_site, self.matH_sweep, stepsize, A_is_sys=True
+            self.ints_site,
+            self.matH_sweep,
+            stepsize,
+            begin_site=0,
+            end_site=nsite - 1,
         )
         self.propagate_along_sweep(
-            self.ints_site, self.matH_sweep, stepsize, A_is_sys=False
+            self.ints_site,
+            self.matH_sweep,
+            stepsize,
+            begin_site=nsite - 1,
+            end_site=0,
         )
 
     def construct_mfop_TEMP4DIPOLE(self, ints_spf: SPFInts, matO, ci_coef_ket):
@@ -637,9 +652,11 @@ class MPSCoef(ABC):
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
-        matO_cas,
-        A_is_sys: bool,
+        matO_cas: HamiltonianMixin,
+        begin_site: int,
+        end_site: int,
     ) -> float:
+        A_is_sys = begin_site < end_site
         superblock_states = self.superblock_states
         superblock_states_unperturb = mps_coef_init.superblock_states
 
@@ -708,11 +725,13 @@ class MPSCoef(ABC):
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
-        matH_cas,
-        stepsize,
+        matH_cas: HamiltonianMixin,
+        stepsize: float,
         *,
-        A_is_sys: bool,
+        begin_site: int,
+        end_site: int,
     ):
+        A_is_sys = begin_site < end_site
         superblock_states = self.superblock_states
         nsite = len(superblock_states[0])
 

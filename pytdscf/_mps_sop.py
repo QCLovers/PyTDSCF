@@ -842,8 +842,14 @@ class MPSCoefSoP(MPSCoef):
         if (left_is_C := self.is_psite_canonical(0)) or self.is_psite_canonical(
             self.nsite - 1
         ):
+            if left_is_C:
+                begin_site = 0
+                end_site = self.nsite - 1
+            else:
+                begin_site = self.nsite - 1
+                end_site = 0
             mfop_cas, op_block_cas = mps_copy.construct_mfop_along_sweep(
-                ints_site, matH_sweep, A_is_sys=left_is_C
+                ints_site, matH_sweep, begin_site=begin_site, end_site=end_site
             )
         else:
             raise AssertionError("MPS is not canonicalized in terminal sites")
@@ -947,25 +953,22 @@ class MPSCoefSoP(MPSCoef):
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
-        matH_cas,
+        matH_cas: PolynomialHamiltonian,
         *,
-        A_is_sys: bool,
+        begin_site: int,
+        end_site: int,
     ):
         regularize_MPS = False  # True#
-
+        A_is_sys = begin_site < end_site
         if const.verbose == 4:
             helper.ElpTime.mfop_0 -= time()
         superblock_states = self.superblock_states
-        nsite = self.nsite
 
         mfop_spf = {"rho": {}, "onesite": {}, "general": {}}
 
-        psites_sweep_forward = (
-            list(range(nsite)) if A_is_sys else list(range(nsite))[::-1]
-        )
-        psites_sweep_backward = (
-            list(range(nsite)) if not A_is_sys else list(range(nsite))[::-1]
-        )
+        step = 1 if A_is_sys else -1
+        psites_sweep_forward = list(range(begin_site, end_site + step, step))
+        psites_sweep_backward = list(range(end_site, begin_site - step, -step))
 
         for psite in psites_sweep_forward[:-1]:
             superblock_trans_APsiB_psite(
