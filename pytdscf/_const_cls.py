@@ -112,6 +112,7 @@ class Const:
         thresh_sil: float = 1.0e-09,
         verbose: int = 2,
         use_mpo: bool = True,
+        parallel_split_indices: list[tuple[int, int]] | None = None,
     ):
         """
 
@@ -180,6 +181,11 @@ class Const:
             assert (
                 self.standard_method
             ), "MPO is only available for standard method."
+        if parallel_split_indices is not None:
+            assert len(parallel_split_indices) == self.mpi_size
+            self.bgn_site_rank = parallel_split_indices[self.mpi_rank][0]
+            self.end_site_rank = parallel_split_indices[self.mpi_rank][1]
+            self.split_indices = [item[0] for item in parallel_split_indices]
 
 
 const = Const()

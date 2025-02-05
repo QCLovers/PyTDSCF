@@ -168,6 +168,7 @@ class Simulator:
         energy_per_step: int = 1,
         norm_per_step: int = 1,
         populations_per_step: int = 1,
+        parallel_split_indices: list[tuple[int, int]] | None = None,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -225,6 +226,7 @@ class Simulator:
             verbose=self.verbose,
             thresh_sil=thresh_sil,
             use_mpo=self.model.use_mpo,
+            parallel_split_indices=parallel_split_indices,
         )
 
         return self._execute(

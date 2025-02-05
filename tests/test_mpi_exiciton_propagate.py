@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 from discvar import HarmonicOscillator as HO
+from mpi4py import MPI
 
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator
@@ -22,6 +23,7 @@ nspf = nprim = 8
 prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
     Exciton(nstate=2, names=["S0", "S1"])
 ]
+
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(MPI.COMM_WORLD.Get_size() == 1, reason="Not running under MPI")
@@ -176,7 +178,7 @@ def test_mpi_exiciton_propagate(backend="numpy"):
 
     jobname = "mpi_LVC_Exciton_test"
     simulator = Simulator(jobname, model, backend=backend)
-    ener_calc, wf = simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1))
+    ener_calc, wf = simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1, ), parallel_split_indices=[(0, 1), (2, 3)])
     assert pytest.approx(ener_calc) == 0.010000180312707298
 
 

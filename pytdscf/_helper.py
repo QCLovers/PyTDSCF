@@ -491,5 +491,7 @@ def rank0_only(func):
     def wrapper(*args, **kwargs):
         if const.mpi_rank == 0:
             return func(*args, **kwargs)
+        else:
+            return None
 
     return wrapper

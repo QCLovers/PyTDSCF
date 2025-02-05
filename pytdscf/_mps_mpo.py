@@ -103,7 +103,7 @@ class MPSCoefMPO(MPSCoef):
                     m_aux_max,
                     math.sqrt(weight),
                     weight_vib=weight_vib[istate],
-                    site_unitary=dvr_unitary,  # type: ignore
+                    site_unitary=dvr_unitary,
                 )
             superblock_states.append(superblock)
             lattice_info_states.append(lattice_info)

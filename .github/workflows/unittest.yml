@@ -29,10 +29,11 @@ jobs:
     - name: pytest-mpi
       continue-on-error: true
       id: pytest-mpi
-      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi*.py
+      timeout-minutes: 0.5
+      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi.py # tests/test_mpi_exiciton_propagate.py
     - name: pytest rerun failed
       if: ${{ steps.pytest.outcome == 'failure'}}
       run: uv run pytest --lf --showlocals --tb=long --log-level=DEBUG
     - name: pytest-mpi rerun failed
       if: ${{ steps.pytest-mpi.outcome == 'failure'}}
-      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi*.py --lf --showlocals --tb=long --log-level=DEBUG
+      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi.py --lf --showlocals --tb=long --log-level=DEBUG

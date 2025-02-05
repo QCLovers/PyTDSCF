@@ -1426,6 +1426,7 @@ class LatticeInfo:
         ]
         return LatticeInfo(nspf_list_sites)
 
+    @helper.rank0_only
     def alloc_superblock_random(
         self,
         m_aux_max: int,

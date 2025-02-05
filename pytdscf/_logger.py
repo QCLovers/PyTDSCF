@@ -105,6 +105,24 @@ def setup_loggers(jobname: str):
     for name in data_loggers:
         add_file_logger(name, jobname)
 
+    try:
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+    except Exception:
+        rank = 0
+        size = 1
+
+    if size > 1:
+        logger.add(
+            sys.stderr,
+            format=f"Rank{rank}:" + "{time:HH:mm:ss} | {level} | {message}",
+            level="DEBUG",
+            filter=make_filter("rank"),
+        )
+
 
 def add_file_logger(name: str, jobname: str):
     """Add a new file logger

@@ -168,13 +168,21 @@ class Properties:
 
     def _get_autocorr(self):
         if self.t2_trick:
-            if const.standard_method and isinstance(self.wf.ci_coef, MPSCoef):
+            if (
+                const.standard_method
+                and isinstance(self.wf.ci_coef, MPSCoef)
+                and const.mpi_size == 1
+            ):
                 self.autocorr = self.wf._ints_wf_ovlp_mpssm(
                     self.wf.ci_coef, conj=False
                 )
             else:
                 self.autocorr = self.wf.autocorr()
         else:
+            if const.mpi_size > 1:
+                raise NotImplementedError(
+                    "MPI is not implemented in the non-T/2 trick"
+                )
             if const.doDVR:
                 if const.standard_method:
                     self.autocorr = self.wf_zero._ints_wf_ovlp_mpo(

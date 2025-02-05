@@ -1946,6 +1946,7 @@ docs = [
 ]
 mpi = [
     { name = "mpi4py" },
+    { name = "pytest-mpi" },
 ]
 pympo = [
     { name = "pympo" },
@@ -1960,6 +1961,7 @@ dev = [
     { name = "pre-commit" },
     { name = "pybind11" },
     { name = "pytest" },
+    { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "ruff" },
     { name = "tqdm" },
@@ -1983,6 +1985,7 @@ requires-dist = [
     { name = "pandoc", marker = "extra == 'docs'", specifier = ">=2.4" },
     { name = "polars", specifier = ">=1.10.0" },
     { name = "pympo", marker = "extra == 'pympo'", git = "https://github.com/KenHino/PyMPO.git" },
+    { name = "pytest-mpi", marker = "extra == 'mpi'", specifier = ">=0.6" },
     { name = "scipy", specifier = ">=1.14.1" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.1.3" },
     { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=3.0.1" },
@@ -1997,6 +2000,7 @@ dev = [
     { name = "pre-commit", specifier = ">=4.0.1" },
     { name = "pybind11", specifier = ">=2.13.6" },
     { name = "pytest", specifier = ">=8.3.3" },
+    { name = "pytest-timeout", specifier = ">=2.3.1" },
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruff", specifier = ">=0.7.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
@@ -2017,6 +2021,30 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/05/35/30e0d83068951d90a01852cb1cef56e5d8a09d20c7f511634cc2f7e0372a/pytest-8.3.4.tar.gz", hash = "sha256:965370d062bce11e73868e0335abac31b4d3de0e82f4007408d242b4f8610761", size = 1445919 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/11/92/76a1c94d3afee238333bc0a42b82935dd8f9cf8ce9e336ff87ee14d9e1cf/pytest-8.3.4-py3-none-any.whl", hash = "sha256:50e16d954148559c9a74109af1eaf0c945ba2d8f30f0a3d3335edde19788b6f6", size = 343083 },
+]
+
+[[package]]
+name = "pytest-mpi"
+version = "0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6c/db/b9d4b23750eb91865787656dce02a2864397aa1ee130df00ec73d3954e7e/pytest-mpi-0.6.tar.gz", hash = "sha256:09b3cd3511f8f3cd4d205f54d4a7223724fed0ab68b872ed1123d312152325a9", size = 35329 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/2b/0ed49de84e96ebf771c86a16d88b48c08d291627cfcdce30973f8538c99e/pytest_mpi-0.6-py2.py3-none-any.whl", hash = "sha256:1b7e193fb3be31d08c8e4dd7435e8e13e14b17ead6a6fc6aa07a6d3c7145590b", size = 5907 },
+]
+
+[[package]]
+name = "pytest-timeout"
+version = "2.3.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/93/0d/04719abc7a4bdb3a7a1f968f24b0f5253d698c9cc94975330e9d3145befb/pytest-timeout-2.3.1.tar.gz", hash = "sha256:12397729125c6ecbdaca01035b9e5239d4db97352320af155b3f5de1ba5165d9", size = 17697 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/03/27/14af9ef8321f5edc7527e47def2a21d8118c6f329a9342cc61387a0c0599/pytest_timeout-2.3.1-py3-none-any.whl", hash = "sha256:68188cb703edfc6a18fad98dc25a3c61e9f24d644b0b70f33af545219fc7813e", size = 14148 },
 ]
 
 [[package]]
