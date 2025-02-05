@@ -4,6 +4,7 @@ Shared constant parameters are defined here.
 
 import datetime
 import os
+import sys
 from logging import (
     DEBUG,
     INFO,
@@ -197,8 +198,20 @@ const.epsrho = 1.0e-8  # default
 const.tol_CMF = 1.0e-14
 const.max_stepsize = 0.010 / units.au_in_fs  # [au]
 const.tol_RK45 = 1.0e-8  # default
-const.mpi_rank = 0
-const.mpi_size = 1
+
+try:
+    from mpi4py import MPI
+
+    const.mpi_rank = MPI.COMM_WORLD.Get_rank()
+    const.mpi_size = MPI.COMM_WORLD.Get_size()
+except Exception as e:
+    if any("mpiexec" in arg or "mpirun" in arg for arg in sys.argv):
+        logger = getLogger("main")
+        logger.warning(
+            f"MPI command detected but mpi4py import failed with {e}"
+        )
+    const.mpi_rank = 0
+    const.mpi_size = 1
 
 
 def set_main_logger(overwrite: bool = True):

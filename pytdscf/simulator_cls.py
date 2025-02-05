@@ -16,7 +16,9 @@ import dill
 import pytdscf._helper as helper
 from pytdscf import units
 from pytdscf._const_cls import const
+from pytdscf._mps_cls import MPSCoef
 from pytdscf._mps_mpo import MPSCoefMPO
+from pytdscf._mps_parallel import MPSCoefParallel
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef
 from pytdscf.basis._primints_cls import PrimInts
@@ -458,18 +460,19 @@ class Simulator:
                         )
                 else:
                     logger.debug("Initial SPF: uniform (all 1.0)")
+                    spf_coef = SPFCoef.alloc_eye(self.model)
                     if const.use_mpo:
-                        wf = WFunc(
-                            MPSCoefMPO.alloc_random(self.model),
-                            SPFCoef.alloc_eye(self.model),
-                            ints_prim,
-                        )
+                        if const.mpi_size > 1:
+                            _mps_coef_cls: type[MPSCoef] = MPSCoefParallel
+                        else:
+                            _mps_coef_cls = MPSCoefMPO
                     else:
-                        wf = WFunc(
-                            MPSCoefSoP.alloc_random(self.model),
-                            SPFCoef.alloc_eye(self.model),
-                            ints_prim,
-                        )
+                        _mps_coef_cls = MPSCoefSoP
+                    wf = WFunc(
+                        _mps_coef_cls.alloc_random(self.model),
+                        spf_coef,
+                        ints_prim,
+                    )
             elif self.ci_type.lower() in [
                 "mctdh",
                 "ci",

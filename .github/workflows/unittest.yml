@@ -23,6 +23,13 @@ jobs:
       continue-on-error: true
       id: pytest
       run: uv run pytest
+    - name: pytest-mpi
+      continue-on-error: true
+      id: pytest-mpi
+      run: mpiexec -n 2 uv run pytest tests/test_mpi*.py
     - name: pytest rerun failed
       if: ${{ steps.pytest.outcome == 'failure'}}
       run: uv run pytest --lf --showlocals --tb=long --log-level=DEBUG
+    - name: pytest-mpi rerun failed
+      if: ${{ steps.pytest-mpi.outcome == 'failure'}}
+      run: mpiexec -n 2 uv run pytest tests/test_mpi*.py --lf --showlocals --tb=long --log-level=DEBUG
