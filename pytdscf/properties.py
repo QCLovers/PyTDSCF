@@ -1,10 +1,10 @@
 """Property handling module"""
 
 import os
-from logging import getLogger
 
 import netCDF4 as nc
 import numpy as np
+from loguru import logger as _logger
 
 import pytdscf._helper as helper
 from pytdscf import units
@@ -12,10 +12,7 @@ from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef
 from pytdscf.wavefunction import WFunc
 
-logger = getLogger("main").getChild(__name__)
-auto_logger = getLogger("autocorr")
-pop_logger = getLogger("populations")
-exp_logger = getLogger("expectations")
+logger = _logger.bind(name="main")
 
 
 class Properties:
@@ -50,6 +47,9 @@ class Properties:
         self.autocorr: complex | None = None
         self.energy: float | None = None
         self.norm: float | None = None
+        self.auto_logger = _logger.bind(name="autocorr")
+        self.pop_logger = _logger.bind(name="populations")
+        self.exp_logger = _logger.bind(name="expectations")
         self.pops = None
         self.expectations = {}
         self.wf_zero = wf_init
@@ -106,6 +106,7 @@ class Properties:
             if self.nstep % self.rd_step == 0:
                 self._export_reduced_density()
 
+    @helper.rank0_only
     def _export_reduced_density(self):
         assert isinstance(self.nc_file, str)
         assert isinstance(self.remain_legs, list)
@@ -124,6 +125,7 @@ class Properties:
                     f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
         self.nc_row += 1
 
+    @helper.rank0_only
     def _create_nc_file(
         self, reduced_density: tuple[list[tuple[int, ...]], int]
     ) -> str:
@@ -217,25 +219,27 @@ class Properties:
             self._export_expectations()
         self._export_properties()
 
+    @helper.rank0_only
     def _export_autocorr(self):
         if self.autocorr is None:
             return
         if self.time == 0.0:
-            auto_logger.debug("# time [fs]\t auto-correlation")
+            self.auto_logger.debug("# time [fs]\t auto-correlation")
         if self.t2_trick:
             time_fs = self.time * units.au_in_fs * 2
         else:
             time_fs = self.time * units.au_in_fs
-        auto_logger.debug(
+        self.auto_logger.debug(
             f"{time_fs:6.9f}\t"
             + f"{self.autocorr.real: 6.9f}{self.autocorr.imag:+6.9f}j"
         )
 
+    @helper.rank0_only
     def _export_populations(self):
         if self.pops is None:
             return
         if self.time == 0.0:
-            pop_logger.debug(
+            self.pop_logger.debug(
                 "# time [fs]\t"
                 + "\t".join(
                     [
@@ -248,13 +252,14 @@ class Properties:
         for pop in self.pops:
             pop_msg += f"{pop:6.9f}\t"
         pop_msg.rstrip("\t")
-        pop_logger.debug(pop_msg)
+        self.pop_logger.debug(pop_msg)
 
+    @helper.rank0_only
     def _export_expectations(self):
         if self.expectations == {}:
             return
         if self.time == 0.0:
-            exp_logger.debug(
+            self.exp_logger.debug(
                 "# time [fs]\t"
                 + "\t".join(
                     [
@@ -267,8 +272,9 @@ class Properties:
         for exp in self.expectations.values():
             exp_msg += f"{exp:6.9f}\t"
         exp_msg.rstrip("\t")
-        exp_logger.debug(exp_msg)
+        self.exp_logger.debug(exp_msg)
 
+    @helper.rank0_only
     def _export_properties(self):
         time_fs = self.time * units.au_in_fs
         norm = self.norm

@@ -1,12 +1,12 @@
 """Wave function handling module"""
 
 from copy import deepcopy
-from logging import getLogger
 from time import time
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from loguru import logger
 
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
@@ -16,7 +16,7 @@ from pytdscf._spf_cls import SPFCoef, SPFInts
 from pytdscf.basis._primints_cls import PrimInts
 from pytdscf.hamiltonian_cls import HamiltonianMixin, PolynomialHamiltonian
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 class WFunc:

@@ -33,7 +33,7 @@ def test_anharmonic_fbr_mpssm_propagate_jax():
 
     jobname = "anharmonic_fbr_propagate_sm"
     simulator = Simulator(jobname, model, backend="jax")
-    ener_calc, wf = simulator.propagate(maxstep=1)
+    ener_calc, wf = simulator.propagate(maxstep=2)
     assert pytest.approx(ener_calc) == 0.021360262338234466
 
 

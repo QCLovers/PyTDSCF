@@ -101,6 +101,35 @@ class _ElpTime:
     zgemm = 0.0
 
 
+class Rank0Sink:
+    """A custom sink that only writes on rank 0"""
+
+    def __init__(self, sink):
+        """
+        Args:
+            sink: The actual sink to write to (e.g. file or sys.stderr)
+        """
+        from pytdscf._const_cls import const
+
+        self.sink = sink
+        self.rank = const.mpi_rank
+
+    def write(self, message):
+        """Write message only if on rank 0"""
+        if self.rank == 0:
+            self.sink.write(message)
+
+    def flush(self):
+        """Flush only if on rank 0"""
+        if self.rank == 0:
+            self.sink.flush()
+
+    @property
+    def name(self):
+        """Pass through the name attribute of the underlying sink"""
+        return getattr(self.sink, "name", None)
+
+
 def spf_orthogonal_check(ints_spf_ovi, spf_coef):
     """
     Check SPF orthogonality for debug. Not used now...
@@ -443,3 +472,24 @@ def from_dbkey(key) -> tuple[int, ...]:
 
     """
     return tuple(map(int, key[1:].split()))
+
+
+def rank0_only(func):
+    """Decorator to run a function only on MPI rank 0
+
+    Args:
+        func: Function to be decorated
+
+    Returns:
+        Wrapped function that only executes on rank 0
+    """
+    from functools import wraps
+
+    from pytdscf._const_cls import const
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if const.mpi_rank == 0:
+            return func(*args, **kwargs)
+
+    return wrapper

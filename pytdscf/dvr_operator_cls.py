@@ -8,13 +8,13 @@ import os
 import pickle
 from collections import Counter
 from itertools import combinations, product
-from logging import getLogger
 from typing import Callable
 
 import numpy as np
 import polars as pl
 import scipy.linalg
 from discvar.abc import DVRPrimitivesMixin
+from loguru import logger
 
 from pytdscf import units
 from pytdscf._helper import from_dbkey, to_dbkey
@@ -32,7 +32,8 @@ def deepcopy(item):
     return _pickle.loads(_pickle.dumps(item, -1))
 
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
+
 debye_in_ase = units.au_in_angstrom / units.au_in_debye
 
 

@@ -11,4 +11,4 @@ class MPSCoefParallel(MPSCoefMPO):
     def propagate(
         self, stepsize: float, ints_spf: SPFInts | None, matH: TensorHamiltonian
     ):
-        raise NotImplementedError
+        super().propagate(stepsize, ints_spf, matH)

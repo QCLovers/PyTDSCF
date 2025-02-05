@@ -6,12 +6,12 @@ import copy
 import itertools
 import math
 from collections import defaultdict, namedtuple
-from logging import getLogger
 from time import time
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from loguru import logger
 
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
@@ -38,7 +38,7 @@ from pytdscf.hamiltonian_cls import (
 )
 from pytdscf.model_cls import Model
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 def construct_matH_general_at_psite(matH, psite: int, A_is_sys):

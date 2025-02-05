@@ -12,7 +12,6 @@ import types
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
-from logging import getLogger
 from pathlib import Path
 from typing import Callable
 
@@ -21,12 +20,13 @@ from ase.atoms import Atoms
 from ase.calculators.calculator import Calculator
 from ase.calculators.genericfileio import GenericFileIOCalculator
 from ase.db import connect
+from loguru import logger
 
 from pytdscf import units
 from pytdscf._helper import from_dbkey, progressbar
 from pytdscf.basis.abc import DVRPrimitivesMixin
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 def _run(atoms: Atoms) -> tuple[Atoms]:

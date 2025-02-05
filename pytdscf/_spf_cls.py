@@ -8,17 +8,17 @@ from __future__ import annotations
 import copy
 import itertools
 import math
-from logging import getLogger
 
 import numpy as np
 import scipy.linalg
+from loguru import logger
 
 import pytdscf._ode_cls as ode_cls
 from pytdscf._const_cls import const
 from pytdscf.basis._primints_cls import PrimInts, ovi_HO_FBR_matrix
 from pytdscf.model_cls import Model
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 def check_orthogonal_spf(spf_coef):

@@ -5,13 +5,13 @@ Matrix Product Operator (MPO) class
 from __future__ import annotations
 
 import itertools
-from logging import getLogger
 from typing import Annotated
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg
+from loguru import logger
 from numpy.typing import NDArray
 from scipy.linalg import LinAlgError
 from scipy.sparse import csr_matrix, lil_matrix
@@ -21,7 +21,7 @@ import pytdscf
 from pytdscf._const_cls import const
 from pytdscf._helper import get_tensornetwork_diagram_MPO
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 CoreMxNxM = Annotated[NDArray[np.float64], "shape=(M_{p-1}, N_{p}, M_{p})"]
 CoreMxNxNxM = Annotated[

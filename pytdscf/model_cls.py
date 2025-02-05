@@ -5,10 +5,10 @@ The model class for the Time-Dependent Schrodinger Equation (TDSE) calculation.
 from __future__ import annotations
 
 import copy
-from logging import getLogger
 
 import discvar
 from discvar.abc import DVRPrimitivesMixin
+from loguru import logger
 
 import pytdscf
 from pytdscf._const_cls import const
@@ -17,8 +17,6 @@ from pytdscf.hamiltonian_cls import (
     PolynomialHamiltonian,
     TensorHamiltonian,
 )
-
-logger = getLogger("main").getChild(__name__)
 
 
 class Model:

@@ -9,13 +9,13 @@ import itertools
 import math
 from abc import ABC, abstractmethod
 from functools import partial
-from logging import getLogger
 from time import time
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as linalg
+from loguru import logger
 from opt_einsum import contract
 
 import pytdscf._helper as helper
@@ -37,7 +37,7 @@ from pytdscf.hamiltonian_cls import (
 )
 from pytdscf.model_cls import Model
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 def ci_exp_time(func):

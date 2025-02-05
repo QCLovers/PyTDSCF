@@ -3,19 +3,13 @@ Shared constant parameters are defined here.
 """
 
 import datetime
-import os
-import sys
-from logging import (
-    DEBUG,
-    INFO,
-    FileHandler,
-    Formatter,
-    StreamHandler,
-    getLogger,
-)
+
+from loguru import logger
 
 from pytdscf import units
+from pytdscf._logger import setup_loggers
 
+logger = logger.bind(name="main")
 CBOLD = "\33[1m"
 CVIOLET = "\33[35m"
 
@@ -98,7 +92,7 @@ class Const:
 
     def __setattr__(self, name, value):
         if name != "verbose" and name in self.__dict__:
-            self.logger.warning(f"rebind const {name}")
+            logger.warning(f"rebind const {name}")
         self.__dict__[name] = value
 
     def set_runtype(
@@ -156,14 +150,13 @@ class Const:
                 self.jobname = "propagate"
         else:
             self.jobname = jobname
-        set_main_logger(overwrite=True)
-        set_logger("autocorr")
-        set_logger("populations")
-        set_logger("expectations")
-        self.logger = getLogger("main").getChild(__name__)
-        self.logger.info(CBOLD + CVIOLET + pytdscf + CEND)
-        self.logger.debug(f"START TIME: {datetime.datetime.now()}")
-        self.logger.info(f"Log file is ./{self.jobname}/main.log")
+
+        # すべてのrankでロガーをセットアップ
+        setup_loggers(self.jobname)
+        # rank0のみが実際に出力する
+        logger.info(CBOLD + CVIOLET + pytdscf + CEND)
+        logger.debug(f"START TIME: {datetime.datetime.now()}")
+        logger.info(f"Log file is ./{self.jobname}/main.log")
 
         self.verbose = verbose
         self.doRestart = restart
@@ -205,48 +198,6 @@ try:
     const.mpi_rank = MPI.COMM_WORLD.Get_rank()
     const.mpi_size = MPI.COMM_WORLD.Get_size()
 except Exception as e:
-    if any("mpiexec" in arg or "mpirun" in arg for arg in sys.argv):
-        logger = getLogger("main")
-        logger.warning(
-            f"MPI command detected but mpi4py import failed with {e}"
-        )
+    logger.warning(f"MPI command detected but mpi4py import failed with {e}")
     const.mpi_rank = 0
     const.mpi_size = 1
-
-
-def set_main_logger(overwrite: bool = True):
-    """Set logger"""
-    logger = getLogger("main")
-    logger.setLevel(DEBUG)
-    if hasattr(const, "jobname"):
-        if not os.path.exists(f"./{const.jobname}"):
-            os.makedirs(f"./{const.jobname}")
-        filename = f"{const.jobname}/main.log"
-    else:
-        filename = "pytdscf.log"
-    if overwrite:
-        # First definition allows overwrite logfile
-        file_handler = FileHandler(filename, "w")
-    else:
-        file_handler = FileHandler(filename)
-    file_handler.setLevel(DEBUG)
-    formatter = Formatter("%(asctime)s - %(levelname)s:%(name)s - %(message)s")
-    stream_handler = StreamHandler()
-    stream_handler.setLevel(INFO)
-    # change INFO to DEBUG if you want all messages to console.
-    stream_handler.setFormatter(formatter)
-
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-
-
-def set_logger(name: str):
-    """Set logging file"""
-    logger = getLogger(name)
-    logger.setLevel(DEBUG)
-    if not os.path.exists(f"./{const.jobname}"):
-        os.makedirs(f"./{const.jobname}")
-    filename = f"{const.jobname}/{name}.dat"
-    file_handler = FileHandler(filename, "w")
-    file_handler.setLevel(DEBUG)
-    logger.addHandler(file_handler)

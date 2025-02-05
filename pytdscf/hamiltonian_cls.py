@@ -5,19 +5,19 @@ The operator modules consists Hamiltonian.
 import itertools
 import math
 import random
-from logging import getLogger
 from typing import Literal
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from loguru import logger
 
 from pytdscf import units
 from pytdscf._const_cls import const
 from pytdscf._mpo_cls import MatrixProductOperators
 from pytdscf.dvr_operator_cls import TensorOperator
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 class TermProductForm:

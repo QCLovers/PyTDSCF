@@ -7,11 +7,11 @@ This module consists of Simulator class.
 import os
 import pickle
 from copy import deepcopy
-from logging import getLogger
 from time import time
 from typing import Any, Literal
 
 import dill
+from loguru import logger
 
 import pytdscf._helper as helper
 from pytdscf import units
@@ -26,7 +26,7 @@ from pytdscf.model_cls import Model
 from pytdscf.properties import Properties
 from pytdscf.wavefunction import WFunc
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 class Simulator:
@@ -467,7 +467,10 @@ class Simulator:
                         else:
                             _mps_coef_cls = MPSCoefMPO
                     else:
-                        _mps_coef_cls = MPSCoefSoP
+                        if const.mpi_size > 1:
+                            raise NotImplementedError
+                        else:
+                            _mps_coef_cls = MPSCoefSoP
                     wf = WFunc(
                         _mps_coef_cls.alloc_random(self.model),
                         spf_coef,
