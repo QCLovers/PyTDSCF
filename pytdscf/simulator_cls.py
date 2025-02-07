@@ -11,7 +11,7 @@ from time import time
 from typing import Any, Literal
 
 import dill
-from loguru import logger
+from loguru import logger as _logger
 
 import pytdscf._helper as helper
 from pytdscf import units
@@ -22,11 +22,12 @@ from pytdscf._mps_parallel import MPSCoefParallel
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef
 from pytdscf.basis._primints_cls import PrimInts
+from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
 from pytdscf.properties import Properties
 from pytdscf.wavefunction import WFunc
 
-logger = logger.bind(name="main")
+logger = _logger.bind(name="main")
 
 
 class Simulator:
@@ -322,6 +323,13 @@ class Simulator:
             return (norm, wf)
 
         self.save_wavefunction(wf, log=True)
+        if const.mpi_size > 1:
+            # Distribute MPO cores to all ranks
+            assert isinstance(self.model.hamiltonian, TensorHamiltonian)
+            self.model.hamiltonian.distribute_mpo_cores()
+            for op in self.model.observables.values():
+                assert isinstance(op, TensorHamiltonian)
+                op.distribute_mpo_cores()
         if self.t2_trick:
             properties = Properties(
                 wf,
@@ -516,8 +524,15 @@ class Simulator:
         return wf
 
     def save_wavefunction(self, wf: WFunc, log: bool = False):
-        path = f"wf_{self.jobname}{const.savefile_ext}.pkl"
-        with open(path, "wb") as save_f:
-            dill.dump(wf, save_f)
-        if log:
-            logger.info(f"Wave function is saved in {path}")
+        if const.mpi_size > 1:
+            assert isinstance(wf.ci_coef, MPSCoefParallel)
+            ci_coef = wf.ci_coef.to_MPSCoefMPO()
+            if const.mpi_rank == 0:
+                assert isinstance(ci_coef, MPSCoefMPO)
+                wf = WFunc(ci_coef, wf.spf_coef, wf.ints_prim)
+        if const.mpi_rank == 0:
+            path = f"wf_{self.jobname}{const.savefile_ext}.pkl"
+            with open(path, "wb") as save_f:
+                dill.dump(wf, save_f)
+            if log:
+                logger.info(f"Wave function is saved in {path}")

@@ -10,6 +10,7 @@ import pytdscf._helper as helper
 from pytdscf import units
 from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef
+from pytdscf.model_cls import Model
 from pytdscf.wavefunction import WFunc
 
 logger = _logger.bind(name="main")
@@ -20,6 +21,7 @@ class Properties:
 
     Attributes:
         wf (WFunc): wave function
+        model (Model): model
         time (float): time in atomic units
         t2_trick (bool): whether to use so-called T/2 trick
         autocorr (complex): auto-correlation function
@@ -31,7 +33,7 @@ class Properties:
     def __init__(
         self,
         wf: WFunc,
-        model,
+        model: Model,
         time=0.0,
         t2_trick=True,
         wf_init=None,
@@ -208,9 +210,6 @@ class Properties:
 
     def _get_observables(self):
         for obs_key, matOp in self.model.observables.items():
-            # if type(matOp) is not PolynomialHamiltonian:
-            #     raise NotImplementedError(
-            #         f'matOp {type(matOp)} is not implemented in Properties._get_observables')
             self.expectations[obs_key] = self.wf.expectation(matOp)
 
     def export_properties(
@@ -342,8 +341,7 @@ class Properties:
         self.time += delta_t
         self.nstep += 1
         if const.doTDHamil:
-            if const.doDVR:
-                raise NotImplementedError
+            raise NotImplementedError
             self.model.hamiltonian = self.model.build_td_hamiltonian(
                 time_fs=self.time * units.au_in_fs
             )

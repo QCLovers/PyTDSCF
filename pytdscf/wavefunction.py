@@ -74,7 +74,7 @@ class WFunc:
             )
         return self.ci_coef.get_reduced_densities(remain_nleg)
 
-    def expectation(self, matOp):
+    def expectation(self, matOp: HamiltonianMixin):
         """
 
         get expectation value of operator
@@ -194,12 +194,6 @@ class WFunc:
             ket: np.ndarray | jax.Array
             bra: np.ndarray | jax.Array
             if const.use_jax:
-                # block = jnp.ones((1, 1), dtype=jnp.complex128)
-                # for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):
-                #     bra = jnp.conj(site_bra.data) if conj else site_bra.data
-                #     ket = site_ket.data
-                #     block = jnp.einsum("abc,ibk,ai->ck", bra, ket, block)
-                # ovlp += complex(block[0, 0])
                 bra_data = [
                     jnp.conj(site_bra.data) if conj else site_bra.data
                     for site_bra in ci_bra

@@ -3,12 +3,10 @@ import pytest
 import pytdscf
 import pytdscf._const_cls
 import pytdscf._mps_cls
-from logging import getLogger, DEBUG
-
 import pytdscf._site_cls
 
-logger = getLogger(__name__)
-logger.setLevel(DEBUG)
+import loguru
+logger = loguru.logger
 
 
 def test_gauge():
@@ -65,7 +63,6 @@ def test_gauge():
     for isite in range(center+1, 5):
         pytdscf._site_cls.validate_Btensor(superblock[isite])
     np.testing.assert_allclose(pytdscf._mps_cls.contract_all_superblock(superblock), contracted)
-    # raise NotImplementedError
 
 
 

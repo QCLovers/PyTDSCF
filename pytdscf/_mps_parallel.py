@@ -6,6 +6,7 @@ import numpy as np
 from loguru import logger
 
 from pytdscf._const_cls import const
+from pytdscf._mps_cls import SiteCoef, canonicalize
 from pytdscf._mps_mpo import MPSCoefMPO
 from pytdscf._spf_cls import SPFInts
 from pytdscf.hamiltonian_cls import TensorHamiltonian
@@ -37,16 +38,28 @@ def _mpi_finalize_on_error(func):
 
 
 class MPSCoefParallel(MPSCoefMPO):
-    """Parallel MPS Coefficient Class"""
+    """Parallel MPS Coefficient Class
+
+    !!! THIS CLASS DOES NOT SUPPOORT DIRECT PRODUCT MPS |mps0> otimes |mps1> otimes ... otimes |mpsN>
+    !!! IF YOU WANT TO USE DIRECT PRODUCT MPS, USE SECOND QUANTIZATION OPERATORS INSTEAD
+    """
+
+    superblock_states: list[list[SiteCoef]]  # each latest rank data
+    superblock_states_all_A: list[
+        SiteCoef
+    ]  # each rank data with gauge AAA except for the right terminal which has gauge AAPsi
+    superblock_states_all_B: list[
+        SiteCoef
+    ]  # each rank data with gauge BBB except for the left terminal which has gauge PsiBB
+    superblock_states_all_B_world: list[SiteCoef]  # whole data stored in rank0
+    superblock_states_all_A_world: list[SiteCoef]  # whole data stored in rank0
 
     @classmethod
-    @_mpi_finalize_on_error
     def alloc_random(cls, model: Model) -> MPSCoefParallel:
         if MPI is None:
             raise ImportError("mpi4py is not installed")
-        comm = MPI.COMM_WORLD
         mps_coef = cls()
-        # 親クラスのインスタンス変数を一括コピー
+        supercls = super().alloc_random(model)
         for attr in [
             "dofs_cas",
             "lattice_info_states",
@@ -55,39 +68,15 @@ class MPSCoefParallel(MPSCoefMPO):
             "nsite",
             "ndof_per_sites",
         ]:
-            setattr(mps_coef, attr, getattr(super().alloc_random(model), attr))
+            setattr(mps_coef, attr, getattr(supercls, attr))
         if len(mps_coef.superblock_states) != 1:
             raise NotImplementedError
-
-        # rank0でデータを分割
         if const.mpi_rank == 0:
-            # split_indicesに基づいてsuperblock_statesを分割
-            mps_coef.superblock_states_world_left_terminal = (
-                mps_coef.superblock_states
-            )
-            states = mps_coef.superblock_states[0]
-            logger.debug(f"{states=}")
-            split_indices = const.split_indices
-            send_data = []
-            # 各ランク用のデータを準備
-            for i in range(comm.size):
-                if i < len(split_indices) - 1:
-                    rank_states = states[
-                        split_indices[i] : split_indices[i + 1]
-                    ]
-                else:
-                    rank_states = states[split_indices[i] :]
-                send_data.append(rank_states)
-        else:
-            send_data = None
+            mps_coef.superblock_states_all_B_world = mps_coef.superblock_states[
+                0
+            ]
 
-        # 分割したデータを各ランクに配布
-        recv_data = comm.scatter(send_data, root=0)
-        mps_coef.superblock_states = [recv_data]
-        logger.debug(f"{mps_coef.superblock_states[0]=}")
-        if const.mpi_rank == 0:
-            logger.debug(f"{mps_coef.superblock_states_world_left_terminal=}")
-
+        mps_coef = distribute_superblock_states(mps_coef)
         return mps_coef
 
     def propagate(
@@ -106,7 +95,7 @@ class MPSCoefParallel(MPSCoefMPO):
             is_forward_group = rank < mid_rank
             ket_cores: list[np.ndarray] = [
                 ket.data  # type: ignore
-                for ket in self.superblock_states[0]
+                for ket in self.superblock_states_all_B
             ]
             bra_cores = ket_cores
             block = None
@@ -158,14 +147,43 @@ class MPSCoefParallel(MPSCoefMPO):
             else:
                 return None
 
+    def to_MPSCoefMPO(self) -> MPSCoefMPO | None:
+        self.sync_world()
+        if const.mpi_rank == 0:
+            mps = MPSCoefMPO()
+            for attr in [
+                "dofs_cas",
+                "lattice_info_states",
+                "nstate",
+                "nsite",
+                "ndof_per_sites",
+            ]:
+                setattr(mps, attr, getattr(self, attr))
+            mps_superblock_states = [self.superblock_states_all_B_world]
+            mps.superblock_states = mps_superblock_states
+            return mps
+        else:
+            return None
+
     def expectation(
         self, ints_spf: SPFInts, matOp: TensorHamiltonian, psite: int = 0
     ) -> complex | None:
         raise NotImplementedError
 
-    def sync_to_world_left(self):
-        # 転送してから、canonicalizeする。
-        raise NotImplementedError
+    def sync_world(self):
+        # collect all_A and all_B from all ranks and store in rank0
+        recv_all_A: list[list[SiteCoef]] = comm.gather(
+            self.superblock_states_all_A, root=0
+        )  # type: ignore
+        recv_all_B: list[list[SiteCoef]] = comm.gather(
+            self.superblock_states_all_B, root=0
+        )  # type: ignore
+        if const.mpi_rank == 0:
+            self.superblock_states_all_B_world: list[SiteCoef] = []
+            self.superblock_states_all_A_world: list[SiteCoef] = []
+            for all_A, all_B in zip(recv_all_A, recv_all_B, strict=True):
+                self.superblock_states_all_A_world.extend(all_A)
+                self.superblock_states_all_B_world.extend(all_B)
 
 
 def _ovlp_single_state_np_from_left(
@@ -203,3 +221,55 @@ def _ovlp_single_state_np_from_right(
         b = ket_cores[i]
         block = np.einsum("dea,fec,ac->df", a, b, block)
     return block
+
+
+def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
+    # rank0でデータを分割
+    if const.mpi_rank == 0:
+        # split_indicesに基づいてsuperblock_statesを分割
+        states = mps_coef.superblock_states_all_B_world
+        canonicalize(states, orthogonal_center=0)
+        mps_coef.superblock_states_all_B_world = states
+        states_copy = [core.copy() for core in states]
+        canonicalize(states_copy, orthogonal_center=len(states) - 1)
+        mps_coef.superblock_states_all_A_world = states_copy
+        logger.debug(f"{mps_coef.superblock_states_all_B_world=}")
+        logger.debug(f"{mps_coef.superblock_states_all_A_world=}")
+        split_indices = const.split_indices
+        send_data_all_B = []
+        send_data_all_A = []
+        # 各ランク用のデータを準備
+        for i in range(comm.size):
+            if i < len(split_indices) - 1:
+                rank_states_all_B = mps_coef.superblock_states_all_B_world[
+                    split_indices[i] : split_indices[i + 1]
+                ]
+                rank_states_all_A = mps_coef.superblock_states_all_A_world[
+                    split_indices[i] : split_indices[i + 1]
+                ]
+            else:
+                rank_states_all_B = mps_coef.superblock_states_all_B_world[
+                    split_indices[i] :
+                ]
+                rank_states_all_A = mps_coef.superblock_states_all_A_world[
+                    split_indices[i] :
+                ]
+            send_data_all_B.append(rank_states_all_B)
+            send_data_all_A.append(rank_states_all_A)
+    else:
+        send_data_all_B = None
+        send_data_all_A = None
+
+    # 分割したデータを各ランクに配布
+    recv_data_all_B = comm.scatter(send_data_all_B, root=0)
+    recv_data_all_A = comm.scatter(send_data_all_A, root=0)
+    mps_coef.superblock_states_all_B = recv_data_all_B
+    mps_coef.superblock_states_all_A = recv_data_all_A
+    if const.mpi_rank % 2 == 0:
+        mps_coef.superblock_states = recv_data_all_B
+    else:
+        mps_coef.superblock_states = recv_data_all_A
+    logger.debug(f"{mps_coef.superblock_states[0]=}")
+    logger.debug(f"{mps_coef.superblock_states_all_B=}")
+    logger.debug(f"{mps_coef.superblock_states_all_A=}")
+    return mps_coef

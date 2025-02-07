@@ -52,6 +52,9 @@ class SiteCoef:
         self.shape = data.shape
         self.isite = isite
 
+    def copy(self):
+        return SiteCoef(self.data.copy(), self.gauge, self.isite)
+
     def __array__(self, copy: bool | None = None):
         """
         Whatever `copy` is given, always return shallow copy of data

@@ -10,14 +10,14 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 import numpy as np
-from loguru import logger
+from loguru import logger as _logger
 
 from pytdscf import units
 from pytdscf._const_cls import const
-from pytdscf._mpo_cls import MatrixProductOperators
+from pytdscf._mpo_cls import MatrixProductOperators, OperatorCore
 from pytdscf.dvr_operator_cls import TensorOperator
 
-logger = logger.bind(name="main")
+logger = _logger.bind(name="main")
 
 
 class TermProductForm:
@@ -644,6 +644,11 @@ class TensorHamiltonian(HamiltonianMixin):
             rate (Optional[float], optional): SVD-MPO contribution rate. Defaults to None.
             bond_dimension (Optional[List[int] or int], optional): SVD-MPO bond dimension. Defaults to None.
         """
+        if const.mpi_rank != 0:
+            nstate = 1
+            super().__init__(name, nstate, ndof)
+            self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
+            return
         nstate = len(potential)
         super().__init__(name, nstate, ndof)
         self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
@@ -732,6 +737,50 @@ class TensorHamiltonian(HamiltonianMixin):
             self.mpo[i][j] = MatrixProductOperators(
                 nsite=ndof, operators=operators, backend=backend
             )
+
+    def distribute_mpo_cores(self):
+        import copy
+
+        import mpi4py
+
+        comm = mpi4py.MPI.COMM_WORLD
+
+        if const.mpi_rank == 0:
+            self.mpo_all = copy.deepcopy(self.mpo)
+            send_data_all = []
+            split_indices = const.split_indices
+            for k in range(comm.size):
+                send_data_k: dict[
+                    tuple[int, int], list[list[OperatorCore]] | None
+                ] = {}
+                for i, j in itertools.product(
+                    range(self.nstate), range(self.nstate)
+                ):
+                    mpo_ij = self.mpo[i][j]
+                    if isinstance(mpo_ij, MatrixProductOperators):
+                        if k < len(split_indices) - 1:
+                            data = mpo_ij.calc_point[
+                                split_indices[k] : split_indices[k + 1]
+                            ]
+                        else:
+                            data = mpo_ij.calc_point[split_indices[k] :]
+                        send_data_k[(i, j)] = data
+                    else:
+                        send_data_k[(i, j)] = None
+                send_data_all.append(send_data_k)
+        else:
+            send_data_all = None
+
+        recv_data = comm.scatter(send_data_all, root=0)
+        for i, j in itertools.product(range(self.nstate), range(self.nstate)):
+            if recv_data[(i, j)] is not None:
+                mpo_ij = MatrixProductOperators(
+                    nsite=const.end_site_rank - const.bgn_site_rank + 1,
+                    operators={},
+                    backend="jax" if const.use_jax else "numpy",
+                )
+                mpo_ij.calc_point = recv_data[(i, j)]
+                self.mpo[i][j] = mpo_ij
 
 
 def read_potential_nMR(

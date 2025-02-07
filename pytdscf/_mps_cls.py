@@ -15,7 +15,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as linalg
-from loguru import logger
+from loguru import logger as _logger
 from opt_einsum import contract
 
 import pytdscf._helper as helper
@@ -37,7 +37,7 @@ from pytdscf.hamiltonian_cls import (
 )
 from pytdscf.model_cls import Model
 
-logger = logger.bind(name="main")
+logger = _logger.bind(name="main")
 
 
 def ci_exp_time(func):
