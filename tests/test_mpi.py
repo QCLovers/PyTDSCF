@@ -41,6 +41,8 @@ def test_mpi_autocorr():
         pytdscf._const_cls.const.set_runtype(use_jax=False, parallel_split_indices=[(0, 2), (3, 5)])
     elif pytdscf._const_cls.const.mpi_size == 3:
         pytdscf._const_cls.const.set_runtype(use_jax=False, parallel_split_indices=[(0, 1), (2, 3), (4, 5)])
+    else:
+        raise ValueError(f"MPI size must be 2 or 3, but {pytdscf._const_cls.const.mpi_size} is given.")
     if pytdscf._const_cls.const.mpi_rank == 0:
         lattice_info = pytdscf._mps_cls.LatticeInfo([[4], [4], [4], [4], [4], [4]])
         logger.debug(f"lattice_info: {lattice_info}")
@@ -57,7 +59,7 @@ def test_mpi_autocorr():
     else:
         superblock = None
     mps_parallel = pytdscf._mps_parallel.MPSCoefParallel()
-    mps_parallel.superblock_states_all_B_world = [superblock]
+    mps_parallel.superblock_states_all_B_world = superblock
     mps_parallel = pytdscf._mps_parallel.distribute_superblock_states(mps_parallel)
 
     autocorr = mps_parallel.autocorr(ints_spf=None)
@@ -69,7 +71,7 @@ def test_mpi_autocorr():
     mps_parallel.sync_world()
     if rank == 0:
         block = np.ones((1, 1), dtype=complex)
-        ci_bra = mps_parallel.superblock_states_all_B_world[0]
+        ci_bra = mps_parallel.superblock_states_all_B_world
         ci_ket = ci_bra
         for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):
             bra = site_bra.data
@@ -80,6 +82,12 @@ def test_mpi_autocorr():
         assert pytest.approx(1.0) == block[0, 0], f"{block=}"
 
 def test_mpi_expectation():
+    pass
+
+def test_mpi_norm():
+    pass
+
+def test_mpi_reduced_density():
     pass
 
 if __name__ == "__main__":

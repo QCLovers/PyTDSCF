@@ -953,7 +953,7 @@ class MPSCoef(ABC):
         else:
             assert isinstance(matH_cas, TensorHamiltonian)
             multiplyK = multiplyK_MPS_direct_MPO(
-                op_lr,
+                op_lr,  # type: ignore
                 matH_cas,
                 svalues_states,
             )
@@ -1943,12 +1943,12 @@ def canonicalize(
             return
         elif current_center < orthogonal_center:
             canonicalizeA(
-                superblock[current_center:orthogonal_center],
+                superblock[current_center : orthogonal_center + 1],
             )
             return
         else:
             canonicalizeB(
-                superblock[orthogonal_center:current_center],
+                superblock[orthogonal_center : current_center + 1],
             )
             return
     else:
@@ -1982,15 +1982,14 @@ def canonicalizeA(
         superblock (List[SiteCoef]): MPS converted into A(1)A(2),...,A(end-1)Psi(end). The given MPS will be updated.
     """
     use_jax = isinstance(superblock[0].data, jax.Array)
-    sval: jax.Array | np.ndarray
+    sval: jax.Array | np.ndarray | None = None
     if use_jax:
-        sval = jnp.ones((1, 1), dtype=jnp.complex128)
         einsum = jnp.einsum
     else:
-        sval = np.ones((1, 1), dtype=complex)
         einsum = np.einsum  # type: ignore
     for i, coef in enumerate(superblock):
-        coef.data = einsum("ij,jkl->ikl", sval, coef.data)
+        if sval is not None:
+            coef.data = einsum("ij,jkl->ikl", sval, coef.data)
         coef.gauge = "Psi"
         if i != len(superblock) - 1:
             matA, sval = coef.gauge_trf("Psi2Asigma")
@@ -2009,15 +2008,14 @@ def canonicalizeB(
         superblock (List[SiteCoef]): MPS converted into Psi(1)B(2),...,B(end-1)B(end). The given MPS will be updated.
     """
     use_jax = isinstance(superblock[0].data, jax.Array)
-    sval: jax.Array | np.ndarray
+    sval: jax.Array | np.ndarray | None = None
     if use_jax:
-        sval = jnp.ones((1, 1), dtype=jnp.complex128)
         einsum = jnp.einsum
     else:
-        sval = np.ones((1, 1), dtype=complex)
         einsum = np.einsum  # type: ignore
     for i, coef in enumerate(superblock[::-1]):
-        coef.data = einsum("ijk,kl->ijl", coef.data, sval)
+        if sval is not None:
+            coef.data = einsum("ijk,kl->ijl", coef.data, sval)
         coef.gauge = "Psi"
         if i != len(superblock) - 1:
             matB, sval = coef.gauge_trf("Psi2sigmaB")

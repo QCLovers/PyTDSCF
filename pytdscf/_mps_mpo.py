@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import itertools
 import math
 from typing import Any
@@ -123,7 +122,7 @@ class MPSCoefMPO(MPSCoef):
         return mps_coef
 
     def get_matH_sweep(self, matH: TensorHamiltonian) -> TensorHamiltonian:
-        return copy.deepcopy(matH)
+        return matH
 
     def get_matH_tdh(self, matH, op_block_cas):
         raise NotImplementedError
@@ -327,7 +326,7 @@ class MPSCoefMPO(MPSCoef):
         ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
-        superblock_states_ket: list[list[SiteCoef]],
+        superblock_states_ket: list[list[SiteCoef]] | None,
     ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Contract with MPO and MPS and MPS renormalization
 
@@ -356,7 +355,10 @@ class MPSCoefMPO(MPSCoef):
             matLorR_ket: SiteCoef,
         ) -> np.ndarray | jax.Array:
             op_block_auto = op_block_statepair["auto"]
-            op_psite_auto = ints_site_statepair["auto"][psite]
+            if ints_site_statepair is not None:
+                op_psite_auto = ints_site_statepair["auto"][psite]
+            else:
+                op_psite_auto = matLorR_bra.shape[1]
             return contract_with_site(
                 matLorR_bra.conj(),
                 matLorR_ket,
@@ -371,9 +373,13 @@ class MPSCoefMPO(MPSCoef):
             matLorR_bra: SiteCoef,
             matLorR_ket: SiteCoef,
             isDiag: bool,
+            bra_is_ket: bool,
         ) -> tuple[np.ndarray | jax.Array, int, int | np.ndarray | jax.Array]:
             op_block_ovlp = op_block_statepair["ovlp"]
-            op_psite_ovlp = ints_site_statepair["ovlp"][psite]
+            if ints_site_statepair is not None:
+                op_psite_ovlp = ints_site_statepair["ovlp"][psite]
+            else:
+                op_psite_ovlp = matLorR_bra.shape[1]
             is_identity_next = True
             if op_block_ovlp.is_identity:
                 # np.testing.assert_allclose(op_block_ovlp, np.eye(*op_block_ovlp.shape)):
@@ -381,9 +387,13 @@ class MPSCoefMPO(MPSCoef):
                 op_block_ovlp = op_block_ovlp.shape[0]
             else:
                 is_identity_next = False
-            if op_psite_ovlp.is_identity:
+            if ints_site_statepair is None:
+                pass
+            elif op_psite_ovlp.is_identity and bra_is_ket:
                 # np.testinig.assert_allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
-                assert isinstance(op_psite_ovlp, np.ndarray | jax.Array)
+                assert isinstance(
+                    op_psite_ovlp, np.ndarray | jax.Array
+                ), f"{op_psite_ovlp=}"
                 op_psite_ovlp = op_psite_ovlp.shape[0]
             else:
                 is_identity_next = False
@@ -424,6 +434,7 @@ class MPSCoefMPO(MPSCoef):
                 raise ValueError("key 'ovlp' is not expected")
                 # Already calculated above
                 return
+
             if (op_psite_mpo.is_left_side and A_is_sys) or (
                 op_psite_mpo.is_right_side and not A_is_sys
             ):
@@ -479,7 +490,9 @@ class MPSCoefMPO(MPSCoef):
 
         if superblock_states_ket is None:
             superblock_states_ket = superblock_states
+            bra_is_ket = True
         else:
+            bra_is_ket = False
             if not const.standard_method:
                 raise NotImplementedError
         superblock_states_bra = superblock_states
@@ -502,7 +515,10 @@ class MPSCoefMPO(MPSCoef):
                 continue
 
             op_block_statepair = op_block_states[statepair]
-            ints_site_statepair = ints_site[statepair]
+            if ints_site is not None:
+                ints_site_statepair = ints_site[statepair]
+            else:
+                ints_site_statepair = None
             if "auto" in op_block_statepair:
                 if isDiag:
                     op_block_next_ops["auto"] = _get_block_next_auto(
@@ -522,6 +538,7 @@ class MPSCoefMPO(MPSCoef):
                         matLorR_bra=matLorR_bra,
                         matLorR_ket=matLorR_ket,
                         isDiag=isDiag,
+                        bra_is_ket=bra_is_ket,
                     )
                 )
 
@@ -609,14 +626,17 @@ class MPSCoefMPO(MPSCoef):
                 if A_is_sys
                 else op_sys[statepair]["ovlp"]
             )
-            op_c_ovlp = ints_site[statepair]["ovlp"][psite]
+            if ints_site is not None:
+                op_c_ovlp = ints_site[statepair]["ovlp"][psite]
+            else:
+                op_c_ovlp = 0
 
             # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
             if op_l_ovlp.is_identity:  # type: ignore
                 # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
                 assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
                 op_l_ovlp = op_l_ovlp.shape[0]
-            if op_c_ovlp.is_identity:  # type: ignore
+            if ints_site is not None and op_c_ovlp.is_identity:  # type: ignore
                 # np.testing.assert_allclose(op_c_ovlp, np.eye(*op_c_ovlp.shape)):
                 assert isinstance(op_c_ovlp, np.ndarray | jax.Array)
                 op_c_ovlp = op_c_ovlp.shape[0]
@@ -911,6 +931,9 @@ class myndarray(np.ndarray):
         if obj is None:
             return
         self.is_identity = getattr(obj, "is_identity", None)
+
+    def __repr__(self):
+        return f"{self.shape=}, {self.is_identity=}"
 
 
 @jax.jit

@@ -759,12 +759,12 @@ class TensorHamiltonian(HamiltonianMixin):
                     mpo_ij = self.mpo[i][j]
                     if isinstance(mpo_ij, MatrixProductOperators):
                         if k < len(split_indices) - 1:
-                            data = mpo_ij.calc_point[
+                            calc_point = mpo_ij.calc_point[
                                 split_indices[k] : split_indices[k + 1]
                             ]
                         else:
-                            data = mpo_ij.calc_point[split_indices[k] :]
-                        send_data_k[(i, j)] = data
+                            calc_point = mpo_ij.calc_point[split_indices[k] :]
+                        send_data_k[(i, j)] = calc_point
                     else:
                         send_data_k[(i, j)] = None
                 send_data_all.append(send_data_k)

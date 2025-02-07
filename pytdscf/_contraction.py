@@ -220,7 +220,6 @@ def contract_with_site_mpo(
         else:
             assert len(data.shape) == 4, f"op_site.data.shape = {data.shape}"
         operator.append(data)  # type: ignore
-    # if is_unitmat_op(op_LorR):
     if isinstance(op_LorR, int):
         if mat_bra.gauge == "A":
             contraction = contraction.replace(",mpn", "").replace("m", "n")
@@ -864,7 +863,7 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         op_lr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -876,7 +875,7 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         psi_states: list[np.ndarray] | list[jax.Array],
     ):
         super().__init__(
-            op_lr_states=op_lr_states,
+            op_lr_states=op_lr_states,  # type: ignore
             psi_states=psi_states,
             matH_cas=hamiltonian,
         )
@@ -925,6 +924,8 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         if const.use_jax:
             return jnp.einsum(contraction, *operator)
         else:
+            print(f"{contraction=}")
+            print(f"{[op.shape for op in operator]=}")
             return contract(contraction, *operator)
 
     def dot(self, trial_states):

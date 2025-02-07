@@ -185,7 +185,16 @@ class Const:
             assert len(parallel_split_indices) == self.mpi_size
             self.bgn_site_rank = parallel_split_indices[self.mpi_rank][0]
             self.end_site_rank = parallel_split_indices[self.mpi_rank][1]
-            self.split_indices = [item[0] for item in parallel_split_indices]
+            self.split_indices = []
+            for i in range(len(parallel_split_indices)):
+                if i == 0:
+                    assert parallel_split_indices[i][0] == 0
+                if i < len(parallel_split_indices) - 1:
+                    assert (
+                        parallel_split_indices[i][1] + 1
+                        == parallel_split_indices[i + 1][0]
+                    )
+                self.split_indices.append(parallel_split_indices[i][0])
 
 
 const = Const()
