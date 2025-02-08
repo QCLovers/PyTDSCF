@@ -2052,8 +2052,6 @@ def CC2ALambdaB(
     left_core.gauge = "A"
     right_core.data = vh[:c, :].reshape(c, d, e)
     right_core.gauge = "B"
-    print(lam)
-    print(lam[:c])
     return lam[:c]
 
 

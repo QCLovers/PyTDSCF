@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -73,7 +75,6 @@ class MPSCoefParallel(MPSCoefMPO):
         ]:
             setattr(mps_coef, attr, getattr(supercls, attr))
         superblock_states = supercls.superblock_states
-        mps_coef.nsite = const.end_site_rank - const.bgn_site_rank + 1
         if len(superblock_states) != 1:
             raise NotImplementedError
         if const.mpi_rank == 0:
@@ -85,9 +86,10 @@ class MPSCoefParallel(MPSCoefMPO):
     def propagate(
         self, stepsize: float, ints_spf: SPFInts | None, matH: TensorHamiltonian
     ):
+        raise NotImplementedError
         super().propagate(stepsize, ints_spf, matH)
 
-    def autocorr(self, ints_spf: SPFInts, psite: int = 0) -> complex | None:
+    def ovlp(self, conj=True) -> complex | float | None:
         if const.use_jax:
             raise NotImplementedError
         else:
@@ -100,7 +102,14 @@ class MPSCoefParallel(MPSCoefMPO):
                 ket.data  # type: ignore
                 for ket in self.superblock_states_all_B
             ]
-            bra_cores = ket_cores
+            if conj:
+                bra_cores: list[np.ndarray] = [
+                    bra.data.conj()  # type: ignore
+                    for bra in self.superblock_states_all_B
+                ]
+            else:
+                bra_cores = ket_cores
+
             block = None
 
             if is_forward_group:
@@ -145,25 +154,189 @@ class MPSCoefParallel(MPSCoefMPO):
                     block_left = comm.recv(source=mid_rank - 1, tag=0)
                 block_right = comm.recv(source=mid_rank, tag=1)
                 final_result = np.einsum("ab,ab->", block_left, block_right)
-                return complex(final_result)
+                if conj:
+                    return final_result.real
+                else:
+                    return complex(final_result)
             else:
                 return None
 
-    def to_MPSCoefMPO(self) -> MPSCoefMPO | None:
-        self.sync_world()
+    def autocorr(self, ints_spf: SPFInts, psite: int = 0) -> complex | None:
+        return self.ovlp(conj=False)
+
+    def norm(self) -> float | None:
+        return self.ovlp(conj=True)  # type: ignore
+
+    def pop_states(self) -> list[float | None]:
+        # Use reduced density and second quantization operator instead.
+        # Only support single MPS for now.
+        return [self.norm()]
+
+    def get_reduced_densities(
+        self, base_tag: int, rd_key: tuple[int, ...]
+    ) -> list[np.ndarray] | None:
+        """
+        When rd_key is  (3, 3, 4)
+        and MPS is A1A2A3A4...A6
+        Contruct (A1A1†)(A2A2†)=1 and (B5B5†)(B6B6†)=1 in advance (no calculation needed)
+        then, calculate (A3A3†)_ij(A4A4†)_kk
+        """
+        if const.use_jax:
+            raise NotImplementedError
+        base_tag = base_tag * 5
+        left_site = min(rd_key)
+        right_site = max(rd_key)
+        counter = Counter(rd_key)
+        needed_rank = []
+        split_indices = const.split_indices
+        opend_legs = []
+        for i_rank in range(comm.size):
+            if split_indices[i_rank] > right_site:
+                break
+            elif (
+                i_rank + 1 < comm.size
+                and split_indices[i_rank + 1] - 1 < left_site
+            ):
+                continue
+            else:
+                needed_rank.append(i_rank)
+                if i_rank == const.mpi_rank:
+                    for isite in range(
+                        const.bgn_site_rank, const.end_site_rank + 1
+                    ):
+                        opend_legs.append(counter[isite])
+        if const.mpi_rank != 0 and const.mpi_rank not in needed_rank:
+            return None
+        mid_rank = (len(needed_rank) - 1) // 2 + needed_rank[0]
+        is_forward_group = (
+            const.mpi_rank <= mid_rank and const.mpi_rank in needed_rank
+        )
+        is_backward_group = (
+            const.mpi_rank > mid_rank and const.mpi_rank in needed_rank
+        )
+        if is_forward_group:
+            superblock = self.superblock_states_all_A
+        elif is_backward_group:
+            superblock = self.superblock_states_all_B
+        elif const.mpi_rank == 0:
+            pass
+        else:
+            raise ValueError(f"{const.mpi_rank=} {needed_rank=}")
+
+        block = None
+        if is_forward_group:
+            if const.mpi_rank == needed_rank[0]:
+                block = None
+            else:
+                block = comm.recv(source=const.mpi_rank - 1, tag=base_tag + 0)
+
+            for isite in range(self.nsite):
+                if block is None:
+                    if opend_legs[isite] == 0:
+                        continue
+                    else:
+                        block = np.eye(
+                            superblock[isite].data.shape[0], dtype=complex
+                        )
+                if opend_legs[isite] == 0:
+                    subscript = "...ad,abc,dbf->...cf"
+                elif opend_legs[isite] == 1:
+                    subscript = "...ad,abc,dbf->...bcf"
+                    """
+                    |‾˙˙˙‾|‾a a‾|‾c
+                    |     |     b
+                    |     |     b
+                    |_..._|_d d_|_f
+                    """
+                elif opend_legs[isite] == 2:
+                    subscript = "...ad,abc,def->...becf"
+                    """
+                    |‾˙˙˙‾|‾a a‾|‾c
+                    |     |     b
+                    |     |     e
+                    |_..._|_d d_|_f
+                    """
+                else:
+                    raise ValueError(f"{isite=} {opend_legs[isite]=}")
+                core = superblock[isite].data
+                block = np.einsum(subscript, block, core.conj(), core)
+            if const.mpi_rank != mid_rank:
+                comm.send(block, dest=const.mpi_rank + 1, tag=base_tag + 0)
+        elif is_backward_group:
+            if const.mpi_rank == needed_rank[-1]:
+                block = None
+            else:
+                block = comm.recv(source=const.mpi_rank + 1, tag=base_tag + 1)
+            for isite in range(self.nsite - 1, -1, -1):
+                if block is None:
+                    if opend_legs[isite] == 0:
+                        continue
+                    else:
+                        block = np.eye(
+                            superblock[isite].data.shape[2], dtype=complex
+                        )
+                if opend_legs[isite] == 0:
+                    subscript = "lmi,bma,ia...->lb..."
+                elif opend_legs[isite] == 1:
+                    """
+                    l‾|‾i i‾|‾˙˙˙‾|
+                      m     ...   |
+                    b_|_a a_|_..._|
+                    """
+                    subscript = "lmi,bma,ia...->lbm..."
+                elif opend_legs[isite] == 2:
+                    """
+                    l‾|‾i i‾|‾˙˙˙‾|
+                      m     ...   |
+                      n     ...   |
+                    b_|_a a_|_..._|
+                    """
+                    subscript = "lmi,bma,ia...->lbmn..."
+                else:
+                    raise ValueError(f"{isite=} {opend_legs[isite]=}")
+                core = superblock[isite].data
+                block = np.einsum(subscript, core.conj(), core, block)
+            comm.send(block, dest=const.mpi_rank - 1, tag=base_tag + 1)
+        if const.mpi_rank == mid_rank:
+            left_block = block
+            assert isinstance(left_block, np.ndarray)
+            if const.mpi_rank == const.mpi_size - 1:
+                # No sigvecs
+                sigvec = np.eye(superblock[-1].data.shape[2], dtype=complex)
+            else:
+                sigvec = self.joint_sigvec  # type: ignore
+            assert isinstance(sigvec, np.ndarray)
+            if len(needed_rank) == 1:
+                right_block = np.eye(sigvec.shape[0], dtype=complex)
+            else:
+                right_block = comm.recv(
+                    source=const.mpi_rank + 1, tag=base_tag + 1
+                )
+                assert isinstance(right_block, np.ndarray)
+            """
+            |‾˙˙˙‾|‾a a‾l l‾|˙˙˙‾|
+            |     |         |    |
+            |     |         |    |
+            |_..._|_d d_b b_|..._|
+            """
+            left_block = np.einsum(
+                "...ad,al,db->...lb", left_block, sigvec.conj(), sigvec
+            )
+            rd = np.tensordot(
+                left_block, right_block, axes=([-2, -1], [0, 1])
+            )  # ...lb,lb...->...
+            assert (
+                rd.shape == left_block.shape[:-2] + right_block.shape[2:]
+            ), f"{rd.shape=} {left_block.shape=} {right_block.shape=}"
+            if mid_rank == 0:
+                return [rd]
+            else:
+                comm.send(rd, dest=0, tag=base_tag + 2)
+                return None
         if const.mpi_rank == 0:
-            mps = MPSCoefMPO()
-            for attr in [
-                "dofs_cas",
-                "lattice_info_states",
-                "nstate",
-                "ndof_per_sites",
-            ]:
-                setattr(mps, attr, getattr(self, attr))
-            mps_superblock_states = [self.superblock_states_all_B_world]
-            mps.superblock_states = mps_superblock_states
-            mps.nsite = len(mps_superblock_states[0])
-            return mps
+            rd = comm.recv(source=mid_rank, tag=base_tag + 2)
+            assert isinstance(rd, np.ndarray)
+            return [rd]
         else:
             return None
 
@@ -233,7 +406,6 @@ class MPSCoefParallel(MPSCoefMPO):
                         op_B_block[(0, 0)]["ovlp"], is_identity=is_identity
                     )
 
-            logger.debug(f"{superblock_states=}")
             op_B_block = self.construct_op_sites(
                 superblock_states=superblock_states,
                 ints_site=None,
@@ -244,7 +416,6 @@ class MPSCoefParallel(MPSCoefMPO):
             ).pop()
 
             if rank >= mid_rank:
-                logger.debug(f"{op_B_block=}")
                 # 配列データと属性を別々に送信
                 comm.send(op_B_block, dest=rank - 1, tag=1)
                 if (0, 0) in op_B_block and "ovlp" in op_B_block[(0, 0)]:
@@ -269,8 +440,6 @@ class MPSCoefParallel(MPSCoefMPO):
                 right_block[(0, 0)]["ovlp"] = myndarray(
                     right_block[(0, 0)]["ovlp"], is_identity=is_identity
                 )
-            logger.debug(f"{left_block=}")
-            logger.debug(f"{right_block=}")
             sigvec: list[np.ndarray] | list[jax.Array] = [self.joint_sigvec]  # type: ignore
             op_lr = self.operators_for_superK(
                 psite=self.nsite - 1,
@@ -311,6 +480,24 @@ class MPSCoefParallel(MPSCoefMPO):
             for all_A, all_B in zip(recv_all_A, recv_all_B, strict=True):
                 self.superblock_states_all_A_world.extend(all_A)
                 self.superblock_states_all_B_world.extend(all_B)
+
+    def to_MPSCoefMPO(self) -> MPSCoefMPO | None:
+        self.sync_world()
+        if const.mpi_rank == 0:
+            mps = MPSCoefMPO()
+            for attr in [
+                "dofs_cas",
+                "lattice_info_states",
+                "nstate",
+                "ndof_per_sites",
+            ]:
+                setattr(mps, attr, getattr(self, attr))
+            mps_superblock_states = [self.superblock_states_all_B_world]
+            mps.superblock_states = mps_superblock_states
+            mps.nsite = len(mps_superblock_states[0])
+            return mps
+        else:
+            return None
 
 
 def _ovlp_single_state_np_from_left(
@@ -379,14 +566,12 @@ def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
                 joint_sigvecs.append(np.diag(Lambda))  # type: ignore
             else:
                 joint_sigvecs.append(jnp.diag(Lambda))  # type: ignore
-            logger.debug(f"{B=}")
         canonicalize(
             states_copy,
             orthogonal_center=len(states_copy) - 1,
             incremental=True,
         )
         mps_coef.superblock_states_all_A_world = states_copy
-        logger.debug(f"{mps_coef.superblock_states_all_A_world=}")
 
         # scatterのためにjoint_sigvecsを準備 (size個の要素が必要)
         send_joint_sigvecs = [None] * comm.size
@@ -432,9 +617,5 @@ def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
         mps_coef.superblock_states = recv_data_all_B
     else:
         mps_coef.superblock_states = recv_data_all_A
-    if hasattr(mps_coef, "joint_sigvec"):
-        logger.debug(f"{mps_coef.joint_sigvec=}")
-    logger.debug(f"{mps_coef.superblock_states=}")
-    logger.debug(f"{mps_coef.superblock_states_all_B=}")
-    logger.debug(f"{mps_coef.superblock_states_all_A=}")
+    mps_coef.nsite = const.end_site_rank - const.bgn_site_rank + 1
     return mps_coef

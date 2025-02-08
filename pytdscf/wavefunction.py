@@ -88,11 +88,14 @@ class WFunc:
         """
         ints_spf = SPFInts(self.ints_prim, self.spf_coef)
         expectation = self.ci_coef.expectation(ints_spf, matOp)
-        if abs(expectation.imag) > 1e-12:
-            logger.warning(
-                f"expectation value {expectation} is not real, maybe operator is not Hermite"
-            )
-        return expectation.real
+        if const.mpi_rank == 0:
+            if abs(expectation.imag) > 1e-12:
+                logger.warning(
+                    f"expectation value {expectation} is not real, maybe operator is not Hermite"
+                )
+            return expectation.real
+        else:
+            return None
 
     def norm(self):
         """

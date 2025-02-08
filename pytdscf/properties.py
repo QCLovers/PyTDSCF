@@ -10,6 +10,7 @@ import pytdscf._helper as helper
 from pytdscf import units
 from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef
+from pytdscf._mps_parallel import MPSCoefParallel
 from pytdscf.model_cls import Model
 from pytdscf.wavefunction import WFunc
 
@@ -108,24 +109,38 @@ class Properties:
             if self.nstep % self.rd_step == 0:
                 self._export_reduced_density()
 
-    @helper.rank0_only
     def _export_reduced_density(self):
-        assert isinstance(self.nc_file, str)
+        # Get reduced densities using all ranks
+        all_densities = []
         assert isinstance(self.remain_legs, list)
-        complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
-        with nc.Dataset(self.nc_file, "a") as f:
-            # Maybe we should keep files open while the simulation is running.
-            f.variables["time"][self.nc_row] = self.time * units.au_in_fs
-            for remain_leg, key in zip(
-                self.remain_legs, self.rd_keys, strict=True
-            ):
+        if const.mpi_size == 1:
+            for remain_leg in self.remain_legs:
                 densities = self.wf.get_reduced_densities(remain_leg)
-                for istate in range(self.model.nstate):
-                    data = np.empty(densities[istate].shape, complex128)
-                    data["real"] = densities[istate].real
-                    data["imag"] = densities[istate].imag
-                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
-        self.nc_row += 1
+                all_densities.append(densities)
+        else:
+            for base_tag, rd_key in enumerate(self.rd_keys):
+                assert isinstance(self.wf.ci_coef, MPSCoefParallel)
+                densities = self.wf.ci_coef.get_reduced_densities(
+                    base_tag, rd_key
+                )  # type: ignore
+                all_densities.append(densities)
+
+        # Only rank 0 writes to file
+        if const.mpi_rank == 0:
+            assert isinstance(self.nc_file, str)
+            complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
+            with nc.Dataset(self.nc_file, "a") as f:
+                # Maybe we should keep files open while the simulation is running.
+                f.variables["time"][self.nc_row] = self.time * units.au_in_fs
+                for densities, key in zip(
+                    all_densities, self.rd_keys, strict=True
+                ):
+                    for istate in range(self.model.nstate):
+                        data = np.empty(densities[istate].shape, complex128)
+                        data["real"] = densities[istate].real
+                        data["imag"] = densities[istate].imag
+                        f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
+            self.nc_row += 1
 
     @helper.rank0_only
     def _create_nc_file(

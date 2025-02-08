@@ -924,8 +924,6 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         if const.use_jax:
             return jnp.einsum(contraction, *operator)
         else:
-            print(f"{contraction=}")
-            print(f"{[op.shape for op in operator]=}")
             return contract(contraction, *operator)
 
     def dot(self, trial_states):
