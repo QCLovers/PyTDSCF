@@ -46,5 +46,6 @@ def test_sample_CS_ovlp_np(p: float, q: float):
     )
     assert pytest.approx(contracted_value.real) == 0.0048425339
 
+
 if __name__ == "__main__":
     test_sample_CS_ovlp_np(p=0.1, q=0.1)

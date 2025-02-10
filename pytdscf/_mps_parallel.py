@@ -29,20 +29,6 @@ except Exception:
 logger = logger.bind(name="rank")
 
 
-def _mpi_finalize_on_error(func):
-    """MPIプロセスを確実に終了させるデコレータ"""
-
-    def wrapper(*args, **kwargs):
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            if MPI is not None:
-                comm.Abort(1)  # 全プロセスを強制終了
-            raise e
-
-    return wrapper
-
-
 class MPSCoefParallel(MPSCoefMPO):
     """Parallel MPS Coefficient Class
 
@@ -51,14 +37,14 @@ class MPSCoefParallel(MPSCoefMPO):
     """
 
     superblock_states: list[list[SiteCoef]]  # each latest rank data
-    superblock_states_all_A: list[
+    superblock_all_A: list[
         SiteCoef
     ]  # each rank data with gauge AAA except for the right terminal which has gauge AAPsi
-    superblock_states_all_B: list[
+    superblock_all_B: list[
         SiteCoef
     ]  # each rank data with gauge BBB except for the left terminal which has gauge PsiBB
-    superblock_states_all_B_world: list[SiteCoef]  # whole data stored in rank0
-    superblock_states_all_A_world: list[SiteCoef]  # whole data stored in rank0
+    superblock_all_B_world: list[SiteCoef]  # whole data stored in rank0
+    superblock_all_A_world: list[SiteCoef]  # whole data stored in rank0
     joint_sigvec: np.ndarray | jax.Array  # Site with sigma gauge
 
     @classmethod
@@ -78,16 +64,119 @@ class MPSCoefParallel(MPSCoefMPO):
         if len(superblock_states) != 1:
             raise NotImplementedError
         if const.mpi_rank == 0:
-            mps_coef.superblock_states_all_B_world = superblock_states[0]
+            mps_coef.superblock_all_B_world = superblock_states[0]
 
         mps_coef = distribute_superblock_states(mps_coef)
         return mps_coef
 
     def propagate(
-        self, stepsize: float, ints_spf: SPFInts | None, matH: TensorHamiltonian
+        self,
+        stepsize: float,
+        ints_spf: SPFInts | None,
+        matH: TensorHamiltonian,
+        reset_op_block: bool = False,
     ):
+        ints_site = None
+        #    | proc1    | proc2    | proc3    | proc4   | diff
+        # (0)| ψ B B x+ | A A A x  | B B B x+ | A A ψ   |
+        # (1)| ψ B B x+ | A A A x' | B B B x+ | A A ψ   | x -> x' (even_rank=True & rank!=size-1)
+        # (2)| ψ B B x+ | A A ψ x+ | ψ B B x+ | A A ψ   | Ax'B -> Aψx+ψB
+        # ...
+        # (3)| A'A'ψ'x+ | ψ'B'B'x' | A'A'ψ'x+ | ψ'B'B'  | sweep
+        # (4)| A'A'A'x  | B'B'B'x' | A'A'A'x  | B'B'B'  | ψ'x+ψ' -> A'xB'
+        # (5)| A'A'A'x' | B'B'B'x' | A'A'A'x' | B'B'B'  | x -> x' (even_rank=False)
+        # (6)| A'A'ψ'x+'| ψ'B'B'x' | A'A'ψ'x+'| ψ'B'B'  | A'x'B' -> A'ψ'x+'ψ'B'
+
+        if reset_op_block:
+            self.reset_right_op_block()
+            self.reset_left_op_block()
+
+        # (0) -> (1)
+        self.propagate_joint_sigvec(stepsize, even_rank=True)
+        # (1) -> (2)
+        self.send_right_joint_sigvec()
+        self.send_right_op_env()
+        self.recv_right_joint_sigvec()
+        self.recv_right_op_env()
+        # (2) -> (3)
+        if const.mpi_rank % 2 == 0:
+            self.propagate_along_sweep(
+                ints_site, matH, stepsize, begin_site=0, end_site=self.nsite
+            )
+        else:
+            self.propagate_along_sweep(
+                ints_site,
+                matH,
+                stepsize,
+                begin_site=self.nsite - 1,
+                end_site=-1,
+            )
+        # (3) -> (4)
+        self.send_left_joint_sigvec()
+        self.send_left_op_env()
+        self.recv_left_joint_sigvec()
+        self.recv_left_op_env()
+        # (4) -> (5)
+        self.propagate_joint_sigvec(2 * stepsize, even_rank=False)
+        # (5) -> (6)=(3)
+        self.send_right_joint_sigvec()
+        self.send_right_op_env()
+        self.recv_right_joint_sigvec()
+        self.recv_right_op_env()
+        # (3) -> (2)
+        if const.mpi_rank % 2 == 0:
+            self.propagate_along_sweep(
+                ints_site,
+                matH,
+                stepsize,
+                begin_site=self.nsite - 1,
+                end_site=-1,
+            )
+        else:
+            self.propagate_along_sweep(
+                ints_site, matH, stepsize, begin_site=0, end_site=self.nsite
+            )
+        # (2) -> (1)
+        self.send_left_joint_sigvec()
+        self.send_left_op_env()
+        self.recv_left_joint_sigvec()
+        self.recv_left_op_env()
+        # (1) -> (0)
+        self.propagate_joint_sigvec(stepsize, even_rank=True)
         raise NotImplementedError
-        super().propagate(stepsize, ints_spf, matH)
+
+    def reset_right_op_block(self):
+        raise NotImplementedError
+
+    def reset_left_op_block(self):
+        raise NotImplementedError
+
+    def propagate_joint_sigvec(self, stepsize: float, even_rank: bool):
+        raise NotImplementedError
+
+    def send_right_joint_sigvec(self):
+        raise NotImplementedError
+
+    def recv_right_joint_sigvec(self):
+        raise NotImplementedError
+
+    def send_right_op_env(self):
+        raise NotImplementedError
+
+    def recv_right_op_env(self):
+        raise NotImplementedError
+
+    def send_left_joint_sigvec(self):
+        raise NotImplementedError
+
+    def recv_left_joint_sigvec(self):
+        raise NotImplementedError
+
+    def send_left_op_env(self):
+        raise NotImplementedError
+
+    def recv_left_op_env(self):
+        raise NotImplementedError
 
     def ovlp(self, conj=True) -> complex | float | None:
         if const.use_jax:
@@ -100,12 +189,12 @@ class MPSCoefParallel(MPSCoefMPO):
             is_forward_group = rank < mid_rank
             ket_cores: list[np.ndarray] = [
                 ket.data  # type: ignore
-                for ket in self.superblock_states_all_B
+                for ket in self.superblock_all_B
             ]
             if conj:
                 bra_cores: list[np.ndarray] = [
                     bra.data.conj()  # type: ignore
-                    for bra in self.superblock_states_all_B
+                    for bra in self.superblock_all_B
                 ]
             else:
                 bra_cores = ket_cores
@@ -215,9 +304,9 @@ class MPSCoefParallel(MPSCoefMPO):
             const.mpi_rank > mid_rank and const.mpi_rank in needed_rank
         )
         if is_forward_group:
-            superblock = self.superblock_states_all_A
+            superblock = self.superblock_all_A
         elif is_backward_group:
-            superblock = self.superblock_states_all_B
+            superblock = self.superblock_all_B
         elif const.mpi_rank == 0:
             pass
         else:
@@ -348,9 +437,9 @@ class MPSCoefParallel(MPSCoefMPO):
         mid_rank = size // 2
         is_forward_group = rank < mid_rank
         if is_forward_group:
-            superblock_states = [self.superblock_states_all_A]
+            superblock_states = [self.superblock_all_A]
         else:
-            superblock_states = [self.superblock_states_all_B]
+            superblock_states = [self.superblock_all_B]
 
         if is_forward_group:
             if rank == 0:
@@ -469,17 +558,17 @@ class MPSCoefParallel(MPSCoefMPO):
     def sync_world(self):
         # collect all_A and all_B from all ranks and store in rank0
         recv_all_A: list[list[SiteCoef]] = comm.gather(
-            self.superblock_states_all_A, root=0
+            self.superblock_all_A, root=0
         )  # type: ignore
         recv_all_B: list[list[SiteCoef]] = comm.gather(
-            self.superblock_states_all_B, root=0
+            self.superblock_all_B, root=0
         )  # type: ignore
         if const.mpi_rank == 0:
-            self.superblock_states_all_B_world: list[SiteCoef] = []
-            self.superblock_states_all_A_world: list[SiteCoef] = []
+            self.superblock_all_B_world: list[SiteCoef] = []
+            self.superblock_all_A_world: list[SiteCoef] = []
             for all_A, all_B in zip(recv_all_A, recv_all_B, strict=True):
-                self.superblock_states_all_A_world.extend(all_A)
-                self.superblock_states_all_B_world.extend(all_B)
+                self.superblock_all_A_world.extend(all_A)
+                self.superblock_all_B_world.extend(all_B)
 
     def to_MPSCoefMPO(self) -> MPSCoefMPO | None:
         self.sync_world()
@@ -492,7 +581,7 @@ class MPSCoefParallel(MPSCoefMPO):
                 "ndof_per_sites",
             ]:
                 setattr(mps, attr, getattr(self, attr))
-            mps_superblock_states = [self.superblock_states_all_B_world]
+            mps_superblock_states = [self.superblock_all_B_world]
             mps.superblock_states = mps_superblock_states
             mps.nsite = len(mps_superblock_states[0])
             return mps
@@ -540,22 +629,22 @@ def _ovlp_single_state_np_from_right(
 def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
     # rank0でデータを分割
     if const.mpi_rank == 0:
-        states = mps_coef.superblock_states_all_B_world
-        canonicalize(states, orthogonal_center=0)
-        mps_coef.superblock_states_all_B_world = states
+        superblock = mps_coef.superblock_all_B_world
+        canonicalize(superblock, orthogonal_center=0)
+        mps_coef.superblock_all_B_world = superblock
 
         # joint_sigvecsの準備
         joint_sigvecs: list[np.ndarray] | list[jax.Array] = []
         split_indices = const.split_indices
-        states_copy = [core.copy() for core in states]
+        superblock_copy = [core.copy() for core in superblock]
         for i in range(comm.size - 1):
             canonicalize(
-                states_copy,
+                superblock_copy,
                 orthogonal_center=split_indices[i + 1] - 1,
                 incremental=True,
             )
-            Psi = states_copy[split_indices[i + 1] - 1]
-            B = states_copy[split_indices[i + 1]]
+            Psi = superblock_copy[split_indices[i + 1] - 1]
+            B = superblock_copy[split_indices[i + 1]]
             Lambda = CC2ALambdaB(Psi, B)
             B.gauge = "Psi"
             if isinstance(B.data, np.ndarray):
@@ -563,15 +652,22 @@ def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
             else:
                 B.data = jnp.einsum("a,abc->abc", Lambda, B.data)
             if isinstance(Lambda, np.ndarray):
-                joint_sigvecs.append(np.diag(Lambda))  # type: ignore
+                if i % 2 == 0:
+                    joint_sigvec = np.linalg.pinv(np.diag(Lambda))
+                else:
+                    joint_sigvec = np.diag(Lambda)
             else:
-                joint_sigvecs.append(jnp.diag(Lambda))  # type: ignore
+                if i % 2 == 0:
+                    joint_sigvec = jnp.linalg.pinv(jnp.diag(Lambda))  # type: ignore
+                else:
+                    joint_sigvec = jnp.diag(Lambda)  # type: ignore
+            joint_sigvecs.append(joint_sigvec)  # type: ignore
         canonicalize(
-            states_copy,
-            orthogonal_center=len(states_copy) - 1,
+            superblock_copy,
+            orthogonal_center=len(superblock_copy) - 1,
             incremental=True,
         )
-        mps_coef.superblock_states_all_A_world = states_copy
+        mps_coef.superblock_all_A_world = superblock_copy
 
         # scatterのためにjoint_sigvecsを準備 (size個の要素が必要)
         send_joint_sigvecs = [None] * comm.size
@@ -579,29 +675,29 @@ def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
             send_joint_sigvecs[i] = joint_sigvecs[i]
 
         # all_A, all_Bの分配データを準備
-        send_data_all_B = []
-        send_data_all_A = []
+        send_superblock_all_B = []
+        send_superblock_all_A = []
         for i in range(comm.size):
             if i < len(split_indices) - 1:
-                rank_states_all_B = mps_coef.superblock_states_all_B_world[
+                rank_superblock_all_B = mps_coef.superblock_all_B_world[
                     split_indices[i] : split_indices[i + 1]
                 ]
-                rank_states_all_A = mps_coef.superblock_states_all_A_world[
+                rank_superblock_all_A = mps_coef.superblock_all_A_world[
                     split_indices[i] : split_indices[i + 1]
                 ]
             else:
-                rank_states_all_B = mps_coef.superblock_states_all_B_world[
+                rank_superblock_all_B = mps_coef.superblock_all_B_world[
                     split_indices[i] :
                 ]
-                rank_states_all_A = mps_coef.superblock_states_all_A_world[
+                rank_superblock_all_A = mps_coef.superblock_all_A_world[
                     split_indices[i] :
                 ]
-            send_data_all_B.append(rank_states_all_B)
-            send_data_all_A.append(rank_states_all_A)
+            send_superblock_all_B.append(rank_superblock_all_B)
+            send_superblock_all_A.append(rank_superblock_all_A)
     else:
         send_joint_sigvecs = None
-        send_data_all_B = None
-        send_data_all_A = None
+        send_superblock_all_B = None
+        send_superblock_all_A = None
 
     # joint_sigvecsを送信（最後のrankにはNoneが送られる）
     recv_joint_sigvec = comm.scatter(send_joint_sigvecs, root=0)
@@ -609,13 +705,15 @@ def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
         mps_coef.joint_sigvec = recv_joint_sigvec
 
     # すべてのrankにall_A, all_Bを送信
-    recv_data_all_B = comm.scatter(send_data_all_B, root=0)
-    recv_data_all_A = comm.scatter(send_data_all_A, root=0)
-    mps_coef.superblock_states_all_B = recv_data_all_B
-    mps_coef.superblock_states_all_A = recv_data_all_A
+    recv_superblock_all_B = comm.scatter(send_superblock_all_B, root=0)
+    recv_superblock_all_A = comm.scatter(send_superblock_all_A, root=0)
+    mps_coef.superblock_all_B = recv_superblock_all_B
+    mps_coef.superblock_all_A = recv_superblock_all_A
     if const.mpi_rank % 2 == 0:
-        mps_coef.superblock_states = recv_data_all_B
+        logger.info(f"{const.mpi_rank=} {recv_superblock_all_B=}")
+        mps_coef.superblock_states = [recv_superblock_all_B]
     else:
-        mps_coef.superblock_states = recv_data_all_A
+        logger.info(f"{const.mpi_rank=} {recv_superblock_all_A=}")
+        mps_coef.superblock_states = [recv_superblock_all_A]
     mps_coef.nsite = const.end_site_rank - const.bgn_site_rank + 1
     return mps_coef

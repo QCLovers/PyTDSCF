@@ -14,6 +14,7 @@ from pytdscf.units import au_in_cm1
 
 try:
     from mpi4py import MPI
+
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     size = comm.Get_size()
@@ -32,7 +33,9 @@ prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
 
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
-@pytest.mark.skipif(MPI.COMM_WORLD.Get_size() == 1, reason="Not running under MPI")
+@pytest.mark.skipif(
+    MPI.COMM_WORLD.Get_size() == 1, reason="Not running under MPI"
+)
 def test_mpi_exiciton_propagate(backend="numpy"):
     """
     |Psi> = |HO1, HO2, HO3, E0>
@@ -188,7 +191,15 @@ def test_mpi_exiciton_propagate(backend="numpy"):
 
     jobname = "mpi_LVC_Exciton_test"
     simulator = Simulator(jobname, model, backend=backend)
-    ener_calc, wf = simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1, ), parallel_split_indices=[(0, 1), (2, 3)])
+    ener_calc, wf = simulator.propagate(
+        stepsize=0.1,
+        maxstep=20,
+        reduced_density=(
+            [(3, 3)],
+            1,
+        ),
+        parallel_split_indices=[(0, 1), (2, 3)],
+    )
     assert pytest.approx(ener_calc) == 0.010000180312707298
 
 

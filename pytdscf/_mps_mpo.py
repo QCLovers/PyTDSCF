@@ -586,7 +586,8 @@ class MPSCoefMPO(MPSCoef):
         psite: int,
         op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
         op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
-        ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]
+        | None,
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
     ) -> list[
@@ -611,7 +612,8 @@ class MPSCoefMPO(MPSCoef):
         def _get_op_ovlp(
             op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
             op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
-            ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+            ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]
+            | None,
             statepair: tuple[int, int],
             psite: int,
             A_is_sys: bool,
@@ -626,10 +628,10 @@ class MPSCoefMPO(MPSCoef):
                 if A_is_sys
                 else op_sys[statepair]["ovlp"]
             )
-            if ints_site is not None:
-                op_c_ovlp = ints_site[statepair]["ovlp"][psite]
-            else:
+            if ints_site is None:
                 op_c_ovlp = 0
+            else:
+                op_c_ovlp = ints_site[statepair]["ovlp"][psite]  # type: ignore
 
             # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
             if op_l_ovlp.is_identity:  # type: ignore

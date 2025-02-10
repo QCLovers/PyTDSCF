@@ -20,15 +20,13 @@ s1 = [
     PrimBas_HO(disp, freq, nprim)
     for freq, disp in zip(freqs_cm1, disps, strict=False)
 ]
-ener = [
-    0.03929851595695371,
-    0.010570469969995883
-]
+ener = [0.03929851595695371, 0.010570469969995883]
 
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 @pytest.mark.parametrize(
-    "coupleJ, bonddim, proj_gs, ener", [[-0.04, 5, True, ener[0]], [0.0, 4, False, ener[1]]]
+    "coupleJ, bonddim, proj_gs, ener",
+    [[-0.04, 5, True, ener[0]], [0.0, 4, False, ener[1]]],
 )
 def test_Ambrosec_relax_np_projgs(coupleJ, bonddim, proj_gs, ener):
     coupleJ /= units.au_in_eV

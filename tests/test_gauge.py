@@ -1,11 +1,12 @@
+import loguru
 import numpy as np
 import pytest
+
 import pytdscf
 import pytdscf._const_cls
 import pytdscf._mps_cls
 import pytdscf._site_cls
 
-import loguru
 logger = loguru.logger
 
 
@@ -34,7 +35,9 @@ def test_gauge():
         pytdscf._site_cls.validate_Atensor(superblock[isite])
     for isite in range(3, 5):
         pytdscf._site_cls.validate_Btensor(superblock[isite])
-    np.testing.assert_allclose(pytdscf._mps_cls.contract_all_superblock(superblock), contracted)
+    np.testing.assert_allclose(
+        pytdscf._mps_cls.contract_all_superblock(superblock), contracted
+    )
 
     pytdscf._mps_cls.canonicalize(superblock, 3)
     logger.debug(f"superblock: {superblock}")
@@ -42,7 +45,9 @@ def test_gauge():
         pytdscf._site_cls.validate_Atensor(superblock[isite])
     for isite in range(4, 5):
         pytdscf._site_cls.validate_Btensor(superblock[isite])
-    np.testing.assert_allclose(pytdscf._mps_cls.contract_all_superblock(superblock), contracted)
+    np.testing.assert_allclose(
+        pytdscf._mps_cls.contract_all_superblock(superblock), contracted
+    )
 
     shapes = [
         (1, 4, 3),
@@ -52,7 +57,10 @@ def test_gauge():
         (3, 4, 1),
     ]
     random_cores = [np.random.rand(*shape) for shape in shapes]
-    superblock = [pytdscf._site_cls.SiteCoef(core, 'C', isite) for isite, core in enumerate(random_cores)]
+    superblock = [
+        pytdscf._site_cls.SiteCoef(core, "C", isite)
+        for isite, core in enumerate(random_cores)
+    ]
     logger.debug(f"superblock: {superblock}")
     contracted = pytdscf._mps_cls.contract_all_superblock(superblock)
     center = 4
@@ -60,10 +68,11 @@ def test_gauge():
     logger.debug(f"superblock: {superblock}")
     for isite in range(center):
         pytdscf._site_cls.validate_Atensor(superblock[isite])
-    for isite in range(center+1, 5):
+    for isite in range(center + 1, 5):
         pytdscf._site_cls.validate_Btensor(superblock[isite])
-    np.testing.assert_allclose(pytdscf._mps_cls.contract_all_superblock(superblock), contracted)
-
+    np.testing.assert_allclose(
+        pytdscf._mps_cls.contract_all_superblock(superblock), contracted
+    )
 
 
 if __name__ == "__main__":

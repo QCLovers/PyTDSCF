@@ -314,7 +314,8 @@ class MPSCoef(ABC):
         op_env: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        ]
+        | None,
         matH_cas: HamiltonianMixin,
         A_is_sys: bool,
     ) -> list[
@@ -740,7 +741,8 @@ class MPSCoef(ABC):
         self,
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        ]
+        | None,
         matH_cas: HamiltonianMixin,
         stepsize: float,
         *,

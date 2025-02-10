@@ -25,7 +25,11 @@ s1 = [
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 @pytest.mark.parametrize(
-    "coupleJ, bonddim, proj_gs, ener", [[-0.04, 5, True, 0.03950380914328852], [0.0, 4, False, 0.010570469969995852]]
+    "coupleJ, bonddim, proj_gs, ener",
+    [
+        [-0.04, 5, True, 0.03950380914328852],
+        [0.0, 4, False, 0.010570469969995852],
+    ],
 )
 def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs, ener):
     # eneable debug logging

@@ -20,7 +20,11 @@ prim_info = [s0, s1]
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 @pytest.mark.parametrize(
-    "coupleJ, bonddim, proj_gs, ener", [[-0.04, 5, True, 0.013669005758718421], [0.0, 4, False, 0.013669005758738601]]
+    "coupleJ, bonddim, proj_gs, ener",
+    [
+        [-0.04, 5, True, 0.013669005758718421],
+        [0.0, 4, False, 0.013669005758738601],
+    ],
 )
 def test_LVC_propagate_np(coupleJ, bonddim, proj_gs, ener):
     deltaE = 0.007
