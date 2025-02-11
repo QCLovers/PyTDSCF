@@ -38,7 +38,7 @@ class WFunc:
 
     """
 
-    ints_spf: SPFInts | None = None
+    ints_spf: SPFInts | None
 
     def __init__(
         self, ci_coef: MPSCoef, spf_coef: SPFCoef, ints_prim: PrimInts
@@ -46,6 +46,7 @@ class WFunc:
         self.ci_coef = ci_coef
         self.spf_coef = spf_coef
         self.ints_prim = ints_prim
+        self.ints_spf = None
         if hasattr(self.ci_coef, "ints_site"):
             self.ci_coef.ints_site = None
         if hasattr(self.ci_coef, "op_sys_sites"):
@@ -132,13 +133,13 @@ class WFunc:
         """
         return self.ci_coef.pop_states()
 
-    def propagate(self, matH, stepsize: float):
+    def propagate(self, matH: HamiltonianMixin, stepsize: float):
         """
 
         propagate WF with VMF
 
         Args:
-            matH (hamiltonian_cls.PolynomialHamiltonian) : TD-PolynomialHamiltonian
+            matH (hamiltonian_cls.HamiltonianMixin) : Hamiltonian
             stepsize (float) : the width of time step [a.u.]
 
         Returns:
@@ -313,7 +314,6 @@ class WFunc:
         self,
         matH: HamiltonianMixin,
         stepsize: float,
-        calc_spf_occ: bool = False,
     ):
         """
 
@@ -332,8 +332,6 @@ class WFunc:
         """
         assert const.standard_method
 
-        nstate = matH.nstate
-
         if const.doTDHamil or (not const.doTDHamil and self.ints_spf is None):
             if const.verbose == 4:
                 helper._ElpTime.itrf -= time()
@@ -346,30 +344,16 @@ class WFunc:
         self.ci_coef.propagate(stepsize, self.ints_spf, matH)
         if const.verbose == 4:
             helper._ElpTime.ci += time()
-
-        if calc_spf_occ:
-            if const.verbose == 4:
-                helper._ElpTime.mfop -= time()
-            """Must Improve mfop"""
-            self.mfop_spf = self.ci_coef.construct_mfop(self.ints_spf, matH)
-            if const.verbose == 4:
-                helper._ElpTime.mfop += time()
-            spf_occ = [
-                self.mfop_spf["rho"][(istate, istate)]
-                for istate in range(nstate)
-            ]
-        else:
-            spf_occ = None
-
+        spf_occ = None
         return spf_occ
 
-    def propagate_CMF(self, matH, stepsize_guess):
+    def propagate_CMF(self, matH: HamiltonianMixin, stepsize_guess: float):
         """
 
-        propagate WF with CMF
+        propagate WF with CMF (Constant Mean Field)
 
         Args:
-            matH (hamiltonian_cls.PolynomialHamiltonian) : TD-PolynomialHamiltonian
+            matH (hamiltonian_cls.HamiltonianMixin) : Hamiltonian
             stepsize_guess (float) : the width of time step [a.u.]
 
         Returns:

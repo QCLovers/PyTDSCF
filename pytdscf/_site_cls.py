@@ -5,6 +5,7 @@ Core tensor (site coefficient) class for MPS & MPO
 from __future__ import annotations
 
 import math
+from functools import partial
 from typing import Literal
 
 import jax
@@ -195,16 +196,29 @@ class SiteCoef:
         """still experimental and this makes linalg.eigh(proj_dens) slow...)"""
         if regularize:
             """regularize the site coefficients"""
-            """Not Yet Tensorflow support"""
+            ldim, ndim, rdim = matC.shape
+            sqrt_epsrho = math.sqrt(const.epsrho)
+            sig_reg: jax.Array | np.ndarray
             if const.use_jax:
-                raise NotImplementedError
+                U, sig, Vh = jsp.linalg.svd(
+                    matC.transpose(0, 2, 1).reshape(-1, ndim),
+                    full_matrices=False,
+                )
+                sig_reg = jnp.where(
+                    sig > 64.0e0 * sqrt_epsrho,
+                    sig,
+                    sig + sqrt_epsrho * jnp.exp(-sig / sqrt_epsrho),
+                )
+                matC = (
+                    jnp.dot(U, jnp.dot(jnp.diag(sig_reg), Vh))
+                    .reshape(ldim, rdim, ndim)
+                    .transpose(0, 2, 1)
+                )
             else:
-                ldim, ndim, rdim = matC.shape
                 U, sig, Vh = linalg.svd(
                     matC.transpose(0, 2, 1).reshape(-1, ndim),
                     full_matrices=False,
                 )
-                sqrt_epsrho = math.sqrt(const.epsrho)
                 sig_reg = np.where(
                     sig > 64.0e0 * sqrt_epsrho,
                     sig,
@@ -221,14 +235,7 @@ class SiteCoef:
         ndim = nspf * m_aux_sys
         if env_indx == 0:
             if const.use_jax:
-                sval, matR = jax.jit(
-                    gauge_trf_LQ,
-                    static_argnums=(
-                        1,
-                        2,
-                        3,
-                    ),
-                )(matC, m_aux_sys, nspf, m_aux_env)
+                sval, matR = gauge_trf_LQ(matC, m_aux_sys, nspf, m_aux_env)
             else:
                 Q, R = linalg.qr(
                     matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="economic"
@@ -238,14 +245,7 @@ class SiteCoef:
             coef = SiteCoef(data=matR, gauge="B", isite=self.isite)
         else:
             if const.use_jax:
-                sval, matL = jax.jit(
-                    gauge_trf_QR,
-                    static_argnums=(
-                        1,
-                        2,
-                        3,
-                    ),
-                )(matC, m_aux_sys, nspf, m_aux_env)
+                sval, matL = gauge_trf_QR(matC, m_aux_sys, nspf, m_aux_env)
             else:
                 Q, R = linalg.qr(matC.reshape(ndim, -1), mode="economic")
                 sval = R
@@ -299,6 +299,7 @@ class SiteCoef:
         return obj / obj.norm()
 
 
+@partial(jax.jit, static_argnums=(1, 2, 3))
 def gauge_trf_LQ(
     matC: jax.Array, m_aux_sys: int, nspf: int, m_aux_env: int
 ) -> tuple[jax.Array, jax.Array]:
@@ -311,6 +312,7 @@ def gauge_trf_LQ(
     )
 
 
+@partial(jax.jit, static_argnums=(1, 2, 3))
 def gauge_trf_QR(
     matC: jax.Array, m_aux_sys: int, nspf: int, m_aux_env: int
 ) -> tuple[jax.Array, jax.Array]:

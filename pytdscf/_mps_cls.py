@@ -316,7 +316,7 @@ class MPSCoef(ABC):
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ]
         | None,
-        matH_cas: HamiltonianMixin,
+        hamiltonian: HamiltonianMixin,
         A_is_sys: bool,
     ) -> list[
         list[
@@ -354,7 +354,7 @@ class MPSCoef(ABC):
         psite: int,
         op_sys: dict[tuple[int, int], dict[str, _block_type]],
         op_env: dict[tuple[int, int], dict[str, _block_type]],
-        matH_cas: HamiltonianMixin,
+        hamiltonian: HamiltonianMixin,
         A_is_sys: bool,
     ) -> list[
         list[
@@ -809,47 +809,59 @@ class MPSCoef(ABC):
             helper._Debug.site_now = psite
             op_env = op_env_sites.pop()
             op_lcr = self.operators_for_superH(
-                psite,
-                op_sys,
-                op_env,
-                ints_site,
-                matH_cas,
-                A_is_sys,
+                psite=psite,
+                op_sys=op_sys,
+                op_env=op_env,
+                ints_site=ints_site,
+                hamiltonian=matH_cas,
+                A_is_sys=A_is_sys,
             )
             if const.verbose == 4:
                 helper._ElpTime.ci_etc += time()
 
             self.exp_superH_propagation_direct(
-                psite, superblock_states, op_lcr, matH_cas, stepsize
+                psite=psite,
+                superblock_states=superblock_states,
+                op_lcr=op_lcr,
+                matH_cas=matH_cas,
+                stepsize=stepsize,
             )
 
             if psite != end_site:
                 svalues, op_sys = self.trans_next_psite_AsigmaB(
-                    psite,
-                    self.superblock_states,
-                    op_sys,
-                    ints_site,
-                    matH_cas,
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    op_sys=op_sys,
+                    ints_site=ints_site,
+                    matH_cas=matH_cas,
                     PsiB2AB=A_is_sys,
                 )
 
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc -= time()
                 op_lr = self.operators_for_superK(
-                    psite, op_sys, op_env, matH_cas, A_is_sys
+                    psite=psite,
+                    op_sys=op_sys,
+                    op_env=op_env,
+                    hamiltonian=matH_cas,
+                    A_is_sys=A_is_sys,
                 )
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc += time()
 
-                self.exp_superK_propagation_direct(
-                    psite,
-                    superblock_states,
-                    op_lr,
-                    matH_cas,
-                    svalues,
-                    stepsize,
-                    A_is_sys,
+                svalues = self.exp_superK_propagation_direct(
+                    op_lr=op_lr,
+                    hamiltonian=matH_cas,
+                    svalues=svalues,
+                    stepsize=stepsize,
                 )
+                self.trans_next_psite_APsiB(
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    svalues=svalues,
+                    A_is_sys=A_is_sys,
+                )
+
                 if self.op_sys_sites is not None:
                     self.op_sys_sites.append(op_sys)
                     assert (
@@ -928,8 +940,6 @@ class MPSCoef(ABC):
     @ci_exp_time
     def exp_superK_propagation_direct(
         self,
-        psite: int,
-        superblock_states: list[list[SiteCoef]],
         op_lr: list[
             list[
                 dict[
@@ -941,22 +951,21 @@ class MPSCoef(ABC):
                 ]
             ]
         ],
-        matH_cas: HamiltonianMixin,
+        hamiltonian: HamiltonianMixin,
         svalues: list[np.ndarray] | list[jax.Array],
         stepsize: float,
-        A_is_sys: bool = True,
     ):
         """concatenate PolynomialHamiltonian & coefficients"""
         svalues_states = svalues
 
         """exponentiation PolynomialHamiltonian"""
-        if isinstance(matH_cas, PolynomialHamiltonian):
-            multiplyK = multiplyK_MPS_direct(op_lr, matH_cas, svalues_states)
+        if isinstance(hamiltonian, PolynomialHamiltonian):
+            multiplyK = multiplyK_MPS_direct(op_lr, hamiltonian, svalues_states)
         else:
-            assert isinstance(matH_cas, TensorHamiltonian)
+            assert isinstance(hamiltonian, TensorHamiltonian)
             multiplyK = multiplyK_MPS_direct_MPO(
                 op_lr,  # type: ignore
-                matH_cas,
+                hamiltonian,
                 svalues_states,
             )
 
@@ -976,16 +985,24 @@ class MPSCoef(ABC):
             )
             norm = get_C_sval_states_norm(svalues_states_new)
             svalues_states_new = [x / norm for x in svalues_states_new]  # type: ignore
+        return svalues_states_new
 
+    def trans_next_psite_APsiB(
+        self,
+        psite: int,
+        superblock_states: list[list[SiteCoef]],
+        svalues: list[np.ndarray] | list[jax.Array],
+        A_is_sys: bool,
+    ):
         """over-write sval"""
         for istate, superblock in enumerate(superblock_states):
             if A_is_sys:
                 """sval x B(p+1) -> Psi(p+1)"""
                 matA = superblock[psite]
                 matB = superblock[psite + 1]
-                assert matA.gauge == "A"
-                assert matB.gauge == "B"
-                sval = svalues_states_new[istate]
+                assert matA.gauge == "A", f"{matA.gauge=}"
+                assert matB.gauge == "B", f"{matB.gauge=}"
+                sval = svalues[istate]
                 if const.use_jax:
                     matB.data = jnp.einsum("ij,jbc->ibc", sval, matB.data)
                 else:
@@ -1001,7 +1018,7 @@ class MPSCoef(ABC):
                 assert (
                     matA.gauge == "A"
                 ), f"matA.gauge should be A, but {matA.gauge}"
-                sval = svalues_states_new[istate]
+                sval = svalues[istate]
                 if const.use_jax:
                     matA.data = jnp.einsum("ijk,kb->ijb", matA.data, sval)
                 else:
@@ -1270,42 +1287,6 @@ class MPSCoef(ABC):
         )
 
         return svalues, op_sys_next
-
-    def trans_next_psite_APsiB(
-        self,
-        psite: int,
-        superblock_states: list[list[SiteCoef]],
-        op_sys: dict[tuple[int, int], dict[str, _block_type]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
-        matH_cas,
-        A_is_sys: bool,
-        superblock_states_ket=None,
-    ):
-        """..Psi(p) B(p+1).. -> ..A(p) Psi(p+1)"""
-
-        def _trans_PsiB2APsi_psite(superblock_states):
-            for superblock in superblock_states:
-                if A_is_sys:
-                    superblock_trans_PsiB2APsi_psite(psite, superblock)
-                else:
-                    superblock_trans_APsi2PsiB_psite(psite, superblock)
-
-        _trans_PsiB2APsi_psite(superblock_states)
-        if superblock_states_ket:
-            _trans_PsiB2APsi_psite(superblock_states_ket)
-
-        op_sys_next = self.renormalize_op_psite(
-            psite,
-            superblock_states,
-            op_sys,
-            ints_site,
-            matH_cas,
-            A_is_sys,
-            superblock_states_ket,
-        )
-        return op_sys_next
 
     def operators_for_autocorr(
         self,

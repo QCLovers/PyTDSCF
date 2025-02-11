@@ -183,6 +183,7 @@ class Const:
             ), "MPO is only available for standard method."
         if parallel_split_indices is not None:
             assert len(parallel_split_indices) == self.mpi_size
+            # self.regularize_site = True
             self.bgn_site_rank = parallel_split_indices[self.mpi_rank][0]
             self.end_site_rank = parallel_split_indices[self.mpi_rank][-1]
             self.split_indices = []
@@ -203,6 +204,7 @@ const.verbose = 4
 const.mass = 1.0  # [m_e]
 
 const.epsrho = 1.0e-8  # default
+# const.regularize_site = False
 const.tol_CMF = 1.0e-14
 const.max_stepsize = 0.010 / units.au_in_fs  # [au]
 const.tol_RK45 = 1.0e-8  # default

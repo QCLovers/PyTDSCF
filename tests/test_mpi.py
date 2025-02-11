@@ -25,21 +25,26 @@ def get_mps_parallel():
     import pytdscf._mps_cls
     import pytdscf._mps_parallel
 
-    if pytdscf._const_cls.const.mpi_size == 2:
-        pytdscf._const_cls.const.set_runtype(
-            use_jax=False, parallel_split_indices=[(0, 2), (3, 5)]
-        )
-    elif pytdscf._const_cls.const.mpi_size == 3:
-        pytdscf._const_cls.const.set_runtype(
-            use_jax=False, parallel_split_indices=[(0, 1), (2, 3), (4, 5)]
-        )
-    else:
-        raise ValueError(
-            f"MPI size must be 2 or 3, but {pytdscf._const_cls.const.mpi_size} is given."
-        )
+    match pytdscf._const_cls.const.mpi_size:
+        case 2:
+            pytdscf._const_cls.const.set_runtype(
+                use_jax=False, parallel_split_indices=[(0, 5), (6, 11)]
+            )
+        case 3:
+            pytdscf._const_cls.const.set_runtype(
+                use_jax=False, parallel_split_indices=[(0, 3), (4, 7), (8, 11)]
+            )
+        case 4:
+            pytdscf._const_cls.const.set_runtype(
+                use_jax=False, parallel_split_indices=[(0, 2), (3, 5), (6, 8), (9, 11)]
+            )
+        case _:
+            raise ValueError(
+                f"MPI size must be 2 or 3 or 4, but {pytdscf._const_cls.const.mpi_size} is given."
+            )
     if pytdscf._const_cls.const.mpi_rank == 0:
         lattice_info = pytdscf._mps_cls.LatticeInfo(
-            [[4], [4], [4], [4], [4], [4]]
+            [[4], [4], [4], [4], [4], [4], [4], [4], [4], [4], [4], [4]]
         )
         weight_vib = [
             [1.0, 0.0, 0.0, 0.0],
@@ -48,8 +53,14 @@ def get_mps_parallel():
             [1.0, 1.0, 1.0, 1.0],
             [1.0, 1.0, 1.0, 1.0],
             [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
         ]
-        superblock = lattice_info.alloc_superblock_random(6, 1.0, weight_vib)
+        superblock = lattice_info.alloc_superblock_random(m_aux_max=4, scale=1.0, weight_vib=weight_vib)
     else:
         superblock = None
     mps_parallel = pytdscf._mps_parallel.MPSCoefParallel()
@@ -64,7 +75,7 @@ def get_hamiltonian():
     if rank == 0:
         # Define a Hamiltonian
         mpo = []
-        for i in range(6):
+        for i in range(12):
             core = np.zeros((1, 4, 4, 1), dtype=np.complex128)
             if i == 0:
                 core[0, :, :, 0] = np.eye(4) * 2.0
@@ -81,8 +92,14 @@ def get_hamiltonian():
                         (3, 3),
                         (4, 4),
                         (5, 5),
+                        (6, 6),
+                        (7, 7),
+                        (8, 8),
+                        (9, 9),
+                        (10, 10),
+                        (11, 11),
                     ): TensorOperator(
-                        mpo=mpo, legs=(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5)
+                        mpo=mpo, legs=(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11)
                     )
                 }
             ]
@@ -90,7 +107,7 @@ def get_hamiltonian():
     else:
         potential = None
     hamiltonian = TensorHamiltonian(
-        ndof=6,
+        ndof=12,
         potential=potential,
         backend="numpy",
     )
@@ -116,7 +133,7 @@ def test_mpi():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3], reason="Run under 2 or 3 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2 or 3 or 4 MPI ranks"
 )
 def test_mpi_autocorr_norm():
     mps_parallel = get_mps_parallel()
@@ -125,13 +142,14 @@ def test_mpi_autocorr_norm():
         assert pytest.approx(1.0) == autocorr, f"{autocorr=}"
     else:
         assert autocorr is None
+    comm.Barrier()
     norm = mps_parallel.norm()
     if rank == 0:
         assert pytest.approx(1.0) == norm, f"{norm=}"
     else:
         assert norm is None
 
-    mps_parallel.sync_world()
+    mps_parallel.sync_world_AB()
     if rank == 0:
         block = np.ones((1, 1), dtype=complex)
         ci_bra = mps_parallel.superblock_all_B_world
@@ -148,7 +166,7 @@ def test_mpi_autocorr_norm():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3], reason="Run under 2 or 3 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2 or 3 or 4 MPI ranks"
 )
 def test_mpi_expectation():
     mps_parallel = get_mps_parallel()
@@ -164,7 +182,7 @@ def test_mpi_expectation():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3], reason="Run under 2 or 3 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2  or 3 or 4 MPI ranks"
 )
 def test_mpi_reduced_density():
     mps_parallel = get_mps_parallel()
@@ -196,18 +214,21 @@ def test_mpi_reduced_density():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3], reason="Run under 2 or 3 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2 or 3 or 4 MPI ranks"
 )
 def test_mpi_propagate():
     mps_parallel = get_mps_parallel()
     hamiltonian = get_hamiltonian()
-    with pytest.raises(NotImplementedError):
-        mps_parallel.propagate(stepsize=0.1, ints_spf=None, matH=hamiltonian)
+    hamiltonian.distribute_mpo_cores()
+    #with pytest.raises(NotImplementedError):
+    mps_parallel.propagate(stepsize=0.1, ints_spf=None, matH=hamiltonian)
+    mps_parallel.propagate(stepsize=0.1, ints_spf=None, matH=hamiltonian)
+
 
 if __name__ == "__main__":
     # test_mpi()
     # test_mpi_autocorr_norm()
-    # test_mpi_expectation()
+    test_mpi_expectation()
     # test_mpi_reduced_density()
-    test_mpi_propagate()
+    # test_mpi_propagate()
     MPI.COMM_WORLD.Barrier()

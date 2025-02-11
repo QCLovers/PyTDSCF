@@ -33,7 +33,7 @@ jobs:
       continue-on-error: true
       id: pytest-mpi
       timeout-minutes: 0.5
-      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi.py # tests/test_mpi_exiciton_propagate.py
+      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi* # tests/test_mpi_exiciton_propagate.py
     - name: pytest-mpi rerun failed
       if: ${{ steps.pytest-mpi.outcome == 'failure'}}
-      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi.py --lf --showlocals --tb=long --log-level=DEBUG
+      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi* --lf --showlocals --tb=long --log-level=DEBUG

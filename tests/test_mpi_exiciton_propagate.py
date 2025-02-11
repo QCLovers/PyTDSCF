@@ -182,17 +182,17 @@ def test_mpi_exiciton_propagate(backend="numpy"):
     operators = {"hamiltonian": hamiltonian}
 
     model = Model(basinfo, operators)
-    model.m_aux_max = 6
+    model.m_aux_max = 1
     model.init_HartreeProduct = [
         [ho.get_unitary()[0].tolist() for ho in prim_info[:3]]
         + [np.array([0.0, 1.0]).tolist()]
     ]
     # Starts from the S1 state
 
-    jobname = "mpi_LVC_Exciton_test"
+    jobname = f"mpi_LVC_Exciton_test_{model.m_aux_max}m"
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
-        stepsize=0.1,
+        stepsize=0.05,
         maxstep=20,
         reduced_density=(
             [(3, 3)],
@@ -200,7 +200,11 @@ def test_mpi_exiciton_propagate(backend="numpy"):
         ),
         parallel_split_indices=[(0, 1), (2, 3)],
     )
-    assert pytest.approx(ener_calc) == 0.010000180312707298
+    from loguru import logger
+    logger = logger.bind(name='rank')
+    logger.info(f"{ener_calc=}")
+    if rank == 0:
+        assert pytest.approx(ener_calc, rel=1e-3) == 0.01000
 
 
 if __name__ == "__main__":

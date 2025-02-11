@@ -262,7 +262,7 @@ class MPSCoefMPO(MPSCoef):
         self,
         superblock_states: list[list[SiteCoef]],
         operator: TensorHamiltonian | None = None,
-    ) -> dict[tuple[int, int], dict[str, _block_type]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """initialize op_block_psites
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
@@ -313,7 +313,7 @@ class MPSCoefMPO(MPSCoef):
             if len(op_block_ops) != 0:
                 op_block_states[statepair] = op_block_ops
 
-        return op_block_states
+        return op_block_states  # type: ignore
 
     def renormalize_op_psite(
         self,
@@ -323,10 +323,11 @@ class MPSCoefMPO(MPSCoef):
             tuple[int, int],
             dict[_op_keys, _block_type],
         ],
-        ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]],
+        ints_site: dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]
+        | None,
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
-        superblock_states_ket: list[list[SiteCoef]] | None,
+        superblock_states_ket: list[list[SiteCoef]] | None = None,
     ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Contract with MPO and MPS and MPS renormalization
 
@@ -349,16 +350,16 @@ class MPSCoefMPO(MPSCoef):
 
         def _get_block_next_auto(
             op_block_statepair: dict[_op_keys, Any],
-            ints_site_statepair: dict[str, Any],
+            ints_site_statepair: dict[str, Any] | None,
             psite: int,
             matLorR_bra: SiteCoef,
             matLorR_ket: SiteCoef,
         ) -> np.ndarray | jax.Array:
             op_block_auto = op_block_statepair["auto"]
-            if ints_site_statepair is not None:
-                op_psite_auto = ints_site_statepair["auto"][psite]
-            else:
+            if ints_site_statepair is None:
                 op_psite_auto = matLorR_bra.shape[1]
+            else:
+                op_psite_auto = ints_site_statepair["auto"][psite]
             return contract_with_site(
                 matLorR_bra.conj(),
                 matLorR_ket,
@@ -368,7 +369,7 @@ class MPSCoefMPO(MPSCoef):
 
         def _get_block_next_ovlp(
             op_block_statepair: dict[_op_keys, Any],
-            ints_site_statepair: dict[str, Any],
+            ints_site_statepair: dict[str, Any] | None,
             psite: int,
             matLorR_bra: SiteCoef,
             matLorR_ket: SiteCoef,
@@ -376,10 +377,10 @@ class MPSCoefMPO(MPSCoef):
             bra_is_ket: bool,
         ) -> tuple[np.ndarray | jax.Array, int, int | np.ndarray | jax.Array]:
             op_block_ovlp = op_block_statepair["ovlp"]
-            if ints_site_statepair is not None:
-                op_psite_ovlp = ints_site_statepair["ovlp"][psite]
-            else:
+            if ints_site_statepair is None:
                 op_psite_ovlp = matLorR_bra.shape[1]
+            else:
+                op_psite_ovlp = ints_site_statepair["ovlp"][psite]
             is_identity_next = True
             if op_block_ovlp.is_identity:
                 # np.testing.assert_allclose(op_block_ovlp, np.eye(*op_block_ovlp.shape)):
@@ -387,7 +388,7 @@ class MPSCoefMPO(MPSCoef):
                 op_block_ovlp = op_block_ovlp.shape[0]
             else:
                 is_identity_next = False
-            if ints_site_statepair is None:
+            if isinstance(op_psite_ovlp, int):
                 pass
             elif op_psite_ovlp.is_identity and bra_is_ket:
                 # np.testinig.assert_allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
@@ -515,10 +516,10 @@ class MPSCoefMPO(MPSCoef):
                 continue
 
             op_block_statepair = op_block_states[statepair]
-            if ints_site is not None:
-                ints_site_statepair = ints_site[statepair]
-            else:
+            if ints_site is None:
                 ints_site_statepair = None
+            else:
+                ints_site_statepair = ints_site[statepair]
             if "auto" in op_block_statepair:
                 if isDiag:
                     op_block_next_ops["auto"] = _get_block_next_auto(
