@@ -11,6 +11,7 @@ from loguru import logger
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef, _ovlp_single_state_jax
+from pytdscf._mps_mpo import MPSCoefMPO
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef, SPFInts
 from pytdscf.basis._primints_cls import PrimInts
@@ -332,7 +333,9 @@ class WFunc:
         """
         assert const.standard_method
 
-        if const.doTDHamil or (not const.doTDHamil and self.ints_spf is None):
+        if isinstance(self.ci_coef, MPSCoefMPO):
+            pass
+        elif const.doTDHamil or (not const.doTDHamil and self.ints_spf is None):
             if const.verbose == 4:
                 helper._ElpTime.itrf -= time()
             self.ints_spf = SPFInts(self.ints_prim, self.spf_coef)

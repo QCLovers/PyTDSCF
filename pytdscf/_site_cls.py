@@ -10,9 +10,8 @@ from typing import Literal
 
 import jax
 import jax.numpy as jnp
-import jax.scipy as jsp
 import numpy as np
-import scipy.linalg as linalg
+from scipy.linalg import orth
 
 from pytdscf._const_cls import const
 
@@ -116,7 +115,7 @@ class SiteCoef:
         if const.use_jax:
             return jnp.linalg.norm(self.data)
         else:
-            return linalg.norm(np.array(self.data))
+            return np.linalg.norm(np.array(self.data))
 
     def conj(self) -> SiteCoef:
         if isinstance(self.data, np.ndarray):
@@ -200,7 +199,7 @@ class SiteCoef:
             sqrt_epsrho = math.sqrt(const.epsrho)
             sig_reg: jax.Array | np.ndarray
             if const.use_jax:
-                U, sig, Vh = jsp.linalg.svd(
+                U, sig, Vh = jnp.linalg.svd(
                     matC.transpose(0, 2, 1).reshape(-1, ndim),
                     full_matrices=False,
                 )
@@ -215,7 +214,7 @@ class SiteCoef:
                     .transpose(0, 2, 1)
                 )
             else:
-                U, sig, Vh = linalg.svd(
+                U, sig, Vh = np.linalg.svd(
                     matC.transpose(0, 2, 1).reshape(-1, ndim),
                     full_matrices=False,
                 )
@@ -237,8 +236,8 @@ class SiteCoef:
             if const.use_jax:
                 sval, matR = gauge_trf_LQ(matC, m_aux_sys, nspf, m_aux_env)
             else:
-                Q, R = linalg.qr(
-                    matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="economic"
+                Q, R = np.linalg.qr(
+                    matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="reduced"
                 )
                 sval = R.transpose()
                 matR = Q.reshape(-1, nspf, m_aux_env).transpose((2, 1, 0))
@@ -247,11 +246,63 @@ class SiteCoef:
             if const.use_jax:
                 sval, matL = gauge_trf_QR(matC, m_aux_sys, nspf, m_aux_env)
             else:
-                Q, R = linalg.qr(matC.reshape(ndim, -1), mode="economic")
+                Q, R = np.linalg.qr(matC.reshape(ndim, -1), mode="reduced")
                 sval = R
                 matL = Q.reshape(-1, nspf, m_aux_env)
             coef = SiteCoef(data=matL, gauge="A", isite=self.isite)
         return (coef, sval)
+
+    def thin_to_full(self, additional_rank: int = 1) -> SiteCoef:
+        """
+        QR decomposition is defined by
+        [[Q1, Q2]] [[R1],
+                    [ 0]]
+        where Q1 and Q2 are orthogonal matrices, and R1 is an upper triangular matrix.
+        The A or B tensor is usually Q1 or its transpose.
+        For adaptive 1-site TDVP,
+        the full_rank A = [Q1, Q2] or B = [Q1, Q2]^t is required.
+        This function returns the full-rank A or B tensor.
+        """
+        l, c, r = self.data.shape  # noqa: E741
+        if isinstance(self.data, jax.Array):
+            raise NotImplementedError
+        match self.gauge:
+            case "A":
+                assert l * c >= r
+                dr = min(additional_rank, l * c - r)
+                mat = self.data.reshape((l * c, r))
+                assert self.data.shape == (l, c, r)
+                assert mat.shape == (l * c, r)
+                Q = np.zeros((l * c, r + dr), dtype=mat.dtype)
+                Q[:, :r] = mat
+                remaining_space = np.eye(l * c) - mat @ mat.T
+                remaining_basis = orth(remaining_space)
+                Q[:, r:] = remaining_basis[:, :dr]
+                np.testing.assert_allclose(
+                    (Q.T @ Q)[: r + dr, : r + dr], np.eye(r + dr), atol=1.0e-15
+                )
+                Q = Q.reshape(l, c, r + dr)
+                return SiteCoef(data=Q, gauge="A", isite=self.isite)
+            case "B":
+                assert c * r >= l
+                dl = min(additional_rank, c * r - l)
+                mat = self.data.reshape((l, c * r)).transpose(1, 0)
+                assert mat.shape == (c * r, l)
+                assert self.data.shape == (l, c, r)
+                Q = np.zeros((c * r, l + dl), dtype=mat.dtype)
+                Q[:, :l] = mat
+                remaining_space = np.eye(c * r) - (mat @ mat.T)
+                remaining_basis = orth(remaining_space)
+                Q[:, l:] = remaining_basis[:, :dl]
+                # confirm Q is orthogonal
+                np.testing.assert_allclose(
+                    (Q.T @ Q)[: l + dl, : l + dl], np.eye(l + dl), atol=1.0e-15
+                )
+                Q = Q.transpose(1, 0)
+                Q = Q.reshape(l + dl, c, r)
+                return SiteCoef(data=Q, gauge="B", isite=self.isite)
+            case _:
+                raise ValueError(f"Invalid gauge: {self.gauge}")
 
     @classmethod
     def init_random(
@@ -303,9 +354,9 @@ class SiteCoef:
 def gauge_trf_LQ(
     matC: jax.Array, m_aux_sys: int, nspf: int, m_aux_env: int
 ) -> tuple[jax.Array, jax.Array]:
-    Q, R = jsp.linalg.qr(
+    Q, R = jnp.linalg.qr(
         matC.transpose((2, 1, 0)).reshape(m_aux_sys * nspf, m_aux_env),
-        mode="economic",
+        mode="reduced",
     )
     return R.transpose(), Q.reshape(m_aux_sys, nspf, m_aux_env).transpose(
         (2, 1, 0)
@@ -316,8 +367,8 @@ def gauge_trf_LQ(
 def gauge_trf_QR(
     matC: jax.Array, m_aux_sys: int, nspf: int, m_aux_env: int
 ) -> tuple[jax.Array, jax.Array]:
-    Q, R = jsp.linalg.qr(
-        matC.reshape(m_aux_sys * nspf, m_aux_env), mode="economic"
+    Q, R = jnp.linalg.qr(
+        matC.reshape(m_aux_sys * nspf, m_aux_env), mode="reduced"
     )
     return R, Q.reshape(m_aux_sys, nspf, m_aux_env)
 

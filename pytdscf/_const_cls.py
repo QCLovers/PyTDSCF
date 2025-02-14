@@ -112,6 +112,7 @@ class Const:
         thresh_sil: float = 1.0e-09,
         verbose: int = 2,
         use_mpo: bool = True,
+        adaptive: bool = False,
         parallel_split_indices: list[tuple[int, int]] | None = None,
     ):
         """
@@ -140,6 +141,14 @@ class Const:
             verbose (int) : Defaults to 4. 4=noisy for debug and development, \
                 3=normal, 2=least calculation output, 1=only logging and warnig
             use_mpo (bool) : Defaults to ``True``.
+            adaptive (bool) : Defaults to ``False``.
+            parallel_split_indices (list[tuple[int, int]]) : Defaults to ``None``.
+                If not ``None``, the calculation will be parallelized \
+                by splitting the sites into multiple parts.
+                The list is a list of tuples, each containing the start and end \
+                indices of a site range for parallel processing.
+                The indices are 0-based.
+
 
         """
         if jobname is None:
@@ -177,6 +186,9 @@ class Const:
         const.thresh_exp = thresh_sil
         self.standard_method = standard_method
         self.use_mpo = use_mpo
+        self.adaptive = adaptive
+        if adaptive:
+            logger.warning("Adaptive calculation is experimental.")
         if self.use_mpo:
             assert (
                 self.standard_method

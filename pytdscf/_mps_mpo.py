@@ -137,9 +137,12 @@ class MPSCoefMPO(MPSCoef):
         pass
 
     def get_ints_site(
-        self, ints_spf: SPFInts
-    ) -> dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]:
-        """Get integral between p-site bra amd p-site ket in all states pair
+        self, ints_spf: SPFInts | None
+    ) -> (
+        dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]
+        | None
+    ):
+        """Get integral between p-site bra and p-site ket in all states pair
 
         Args:
             ints_spf (SPFInts): SPF integrals. Only supported onesite operator integral.
@@ -147,6 +150,8 @@ class MPSCoefMPO(MPSCoef):
         Returns:
             Dict[Tuple[int,int],Dict[str, np.ndarray | jax.Array]]: Site integrals
         """
+        if ints_spf is None:
+            return None
         ints_spf_ovlp = (
             None if "ovlp" not in ints_spf.op_keys() else ints_spf["ovlp"]
         )
@@ -388,9 +393,11 @@ class MPSCoefMPO(MPSCoef):
                 op_block_ovlp = op_block_ovlp.shape[0]
             else:
                 is_identity_next = False
-            if isinstance(op_psite_ovlp, int):
+            if not bra_is_ket:
+                is_identity_next = False
+            elif isinstance(op_psite_ovlp, int):
                 pass
-            elif op_psite_ovlp.is_identity and bra_is_ket:
+            elif op_psite_ovlp.is_identity:
                 # np.testinig.assert_allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
                 assert isinstance(
                     op_psite_ovlp, np.ndarray | jax.Array
@@ -403,8 +410,8 @@ class MPSCoefMPO(MPSCoef):
             if is_identity_next:
                 if matLorR_bra.gauge == "A":
                     new_shape = (
-                        matLorR_bra.shape[-1],
-                        matLorR_ket.shape[-1],
+                        matLorR_bra.shape[2],
+                        matLorR_ket.shape[2],
                     )
                 else:
                     new_shape = (matLorR_bra.shape[0], matLorR_ket.shape[0])
@@ -433,8 +440,6 @@ class MPSCoefMPO(MPSCoef):
         ) -> None:
             if (key := op_psite_mpo.key) == "ovlp":
                 raise ValueError("key 'ovlp' is not expected")
-                # Already calculated above
-                return
 
             if (op_psite_mpo.is_left_side and A_is_sys) or (
                 op_psite_mpo.is_right_side and not A_is_sys
@@ -936,7 +941,7 @@ class myndarray(np.ndarray):
         self.is_identity = getattr(obj, "is_identity", None)
 
     def __repr__(self):
-        return f"{self.shape=}, {self.is_identity=}"
+        return f"myndarray(shape={self.shape}, is_identity={self.is_identity})"
 
 
 @jax.jit

@@ -213,12 +213,12 @@ class MPSCoef(ABC):
         pass
 
     @abstractmethod
-    def get_matH_cas(self, matH, ints_spf: SPFInts):
+    def get_matH_cas(self, matH, ints_spf: SPFInts | None):
         pass
 
     @abstractmethod
     def get_ints_site(
-        self, ints_spf: SPFInts, onesite_name: str = "onesite"
+        self, ints_spf: SPFInts | None, onesite_name: str = "onesite"
     ) -> dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]:
         """Get integral between p-site bra amd p-site ket in all states pair
 
@@ -446,7 +446,7 @@ class MPSCoef(ABC):
                 and self.ints_site is None
             )
         ):
-            assert isinstance(ints_spf, SPFInts)
+            # assert isinstance(ints_spf, SPFInts)
             self.ints_site = self.get_ints_site(ints_spf)
             matO_cas = (
                 matH

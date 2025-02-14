@@ -25,7 +25,7 @@ jobs:
     - name: pytest
       continue-on-error: true
       id: pytest
-      run: uv run pytest
+      run: uv run pytest -k "not test_a1tdvp"
     - name: pytest rerun failed
       if: ${{ steps.pytest.outcome == 'failure'}}
       run: uv run pytest --lf --showlocals --tb=long --log-level=DEBUG

@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.filterwarnings("ignore:DeprecationWarning")
 def test_anharmonic_dvr_func_nmr_mpssm_propagate_jax():
     # from pytdscf.basis import HarmonicOscillator
     from discvar import HarmonicOscillator
