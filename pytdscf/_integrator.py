@@ -12,6 +12,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.linalg
 
+from pytdscf._contraction import SplitStack
 from pytdscf._helper import _Debug
 
 
@@ -222,7 +223,7 @@ def short_iterative_lanczos(
 
 def short_iterative_lanczos(
     scale: float | complex,
-    multiplyOp,
+    multiplyOp: SplitStack,
     psi_states: list[np.ndarray] | list[jax.Array],
     thresh: float,
 ) -> list[np.ndarray] | list[jax.Array]:
@@ -268,7 +269,7 @@ def short_iterative_lanczos(
     ```
     for k in 1..n:
         α[k-1] = <ψk|H|ψk>
-        if k == 0:
+        if k == 1:
             |ψk+1> = H|ψk> - α[k-1]|ψk>
         else:
             |ψk+1> = H|ψk> - α[k-1]|ψk> - β[k-1]|ψk-1>
@@ -294,7 +295,7 @@ def short_iterative_lanczos(
     # short iterative lanczos should converge in a few steps
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
-    psi = multiplyOp.stack(psi_states)
+    psi = multiplyOp.stack(psi_states, extend=True)
     if use_jax := isinstance(psi, jax.Array):
         psi_conj = jnp.conj(psi)
         cvecs = stack_to_cvecs(psi)
@@ -307,7 +308,11 @@ def short_iterative_lanczos(
         if ldim == 0:
             trial_states = psi_states
         else:
-            trial_states = multiplyOp.split(cvecs[-1])
+            try:
+                trial_states = multiplyOp.split(cvecs[-1], truncate=True)
+            except Exception as e:
+                print(f"{cvecs[-1]=}")
+                raise e
 
         sigvec_states = multiplyOp.dot(trial_states)
         sigvec = multiplyOp.stack(sigvec_states)
@@ -369,6 +374,9 @@ def short_iterative_lanczos(
                 )
                 expLU = np.exp(scale * eigvals) * np.conjugate(eigvecs).T[:, 0]
                 # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
+                # NOTE: If scipy backend is MKL, numpy and mpi4py align with MKL.
+                #       Otherwise, parallelization will inefficient.
+                #       We recommend to use OpenBLAS and OpenMPI.
                 eigvec_expLU = scipy.linalg.blas.zgemv(
                     alpha=1.0,
                     a=eigvecs,

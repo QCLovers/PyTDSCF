@@ -4,13 +4,13 @@ import numpy as np
 import pytest
 from discvar import HarmonicOscillator as HO
 
+from pytdscf._const_cls import const
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator
 from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import BasInfo, Model
 from pytdscf.simulator_cls import Simulator
 from pytdscf.units import au_in_cm1
-from pytdscf._const_cls import const
 
 freqs_cm1 = [1000, 2000, 3000]
 omega2 = [(freq / au_in_cm1) ** 2 for freq in freqs_cm1]

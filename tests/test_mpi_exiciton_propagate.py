@@ -201,7 +201,8 @@ def test_mpi_exiciton_propagate(backend="numpy"):
         parallel_split_indices=[(0, 1), (2, 3)],
     )
     from loguru import logger
-    logger = logger.bind(name='rank')
+
+    logger = logger.bind(name="rank")
     logger.info(f"{ener_calc=}")
     if rank == 0:
         assert pytest.approx(ener_calc, rel=1e-3) == 0.01000

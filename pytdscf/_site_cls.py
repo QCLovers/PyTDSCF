@@ -11,7 +11,6 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 import numpy as np
-from scipy.linalg import orth
 
 from pytdscf._const_cls import const
 
@@ -273,13 +272,24 @@ class SiteCoef:
                 mat = self.data.reshape((l * c, r))
                 assert self.data.shape == (l, c, r)
                 assert mat.shape == (l * c, r)
-                Q = np.zeros((l * c, r + dr), dtype=mat.dtype)
-                Q[:, :r] = mat
-                remaining_space = np.eye(l * c) - mat @ mat.T
-                remaining_basis = orth(remaining_space)
-                Q[:, r:] = remaining_basis[:, :dr]
                 np.testing.assert_allclose(
-                    (Q.T @ Q)[: r + dr, : r + dr], np.eye(r + dr), atol=1.0e-15
+                    mat.T.conj() @ mat, np.eye(r), atol=1.0e-15
+                )
+                Q, _ = np.linalg.qr(mat, mode="complete")
+                # to align sign of Q, calculate inner product of Q and Q_ref
+                ip = mat.T.conj() @ Q
+                assert ip.shape == (r, l * c)
+                np.testing.assert_allclose(
+                    np.abs(ip[:r, :r]), np.eye(r), atol=1.0e-14
+                )
+                unflip = np.sign(np.sign(np.diag(ip[:r, :r])) + 0.5)
+                Q = Q[:, : r + dr]
+                Q[:, :r] *= unflip[np.newaxis, :]
+                np.testing.assert_allclose(Q[:, :r], mat, atol=1.0e-14)
+                np.testing.assert_allclose(
+                    (Q.T.conj() @ Q)[: r + dr, : r + dr],
+                    np.eye(r + dr),
+                    atol=1.0e-15,
                 )
                 Q = Q.reshape(l, c, r + dr)
                 return SiteCoef(data=Q, gauge="A", isite=self.isite)
@@ -287,16 +297,26 @@ class SiteCoef:
                 assert c * r >= l
                 dl = min(additional_rank, c * r - l)
                 mat = self.data.reshape((l, c * r)).transpose(1, 0)
+                np.testing.assert_allclose(
+                    mat.T.conj() @ mat, np.eye(l), atol=1.0e-15
+                )
                 assert mat.shape == (c * r, l)
                 assert self.data.shape == (l, c, r)
-                Q = np.zeros((c * r, l + dl), dtype=mat.dtype)
-                Q[:, :l] = mat
-                remaining_space = np.eye(c * r) - (mat @ mat.T)
-                remaining_basis = orth(remaining_space)
-                Q[:, l:] = remaining_basis[:, :dl]
+                Q, _ = np.linalg.qr(mat, mode="complete")
+                # to align sign of Q, calculate inner product of Q and Q_ref
+                ip = mat.T.conj() @ Q
+                assert ip.shape == (l, c * r)
+                np.testing.assert_allclose(
+                    np.abs(ip[:l, :l]), np.eye(l), atol=1.0e-14
+                )
+                unflip = np.sign(np.sign(np.diag(ip[:l, :l])) + 0.5)
+                Q = Q[:, : l + dl]
+                Q[:, :l] *= unflip[np.newaxis, :]
                 # confirm Q is orthogonal
                 np.testing.assert_allclose(
-                    (Q.T @ Q)[: l + dl, : l + dl], np.eye(l + dl), atol=1.0e-15
+                    (Q.T.conj() @ Q)[: l + dl, : l + dl],
+                    np.eye(l + dl),
+                    atol=1.0e-15,
                 )
                 Q = Q.transpose(1, 0)
                 Q = Q.reshape(l + dl, c, r)

@@ -296,7 +296,7 @@ class MPSCoefMPO(MPSCoef):
                         ones.is_identity = True
                     else:
                         ones = myndarray(
-                            np.ones((1, 1), dtype=complex), is_identity=True
+                            np.ones((1, 1, 1), dtype=complex), is_identity=True
                         )
                     op_block_ops["auto"] = ones
             else:
@@ -311,7 +311,7 @@ class MPSCoefMPO(MPSCoef):
                         ones.is_identity = True
                     else:
                         ones = myndarray(
-                            np.ones((1, 1), dtype=complex), is_identity=True
+                            np.ones((1, 1, 1), dtype=complex), is_identity=True
                         )
                     op_block_ops["ovlp"] = ones
 
@@ -322,6 +322,7 @@ class MPSCoefMPO(MPSCoef):
 
     def renormalize_op_psite(
         self,
+        *,
         psite: int,
         superblock_states: list[list[SiteCoef]],
         op_block_states: dict[
@@ -333,6 +334,7 @@ class MPSCoefMPO(MPSCoef):
         hamiltonian: TensorHamiltonian,
         A_is_sys: bool,
         superblock_states_ket: list[list[SiteCoef]] | None = None,
+        superblock_states_bra: list[list[SiteCoef]] | None = None,
     ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Contract with MPO and MPS and MPS renormalization
 
@@ -416,11 +418,13 @@ class MPSCoefMPO(MPSCoef):
                 else:
                     new_shape = (matLorR_bra.shape[0], matLorR_ket.shape[0])
                 if const.use_jax:
-                    result = jnp.eye(*new_shape, dtype=jnp.complex128)
+                    result = jnp.eye(*new_shape, dtype=jnp.complex128)[
+                        :, jnp.newaxis, :
+                    ]
                 else:
-                    result = np.eye(*new_shape, dtype=complex)
+                    result = np.eye(*new_shape, dtype=complex)[:, np.newaxis, :]
             else:
-                result = contract_with_site(
+                result = contract_with_site_mpo(
                     matLorR_bra, matLorR_ket, op_block_ovlp, op_psite_ovlp
                 )
             if isinstance(result, np.ndarray):
@@ -494,14 +498,17 @@ class MPSCoefMPO(MPSCoef):
             else:
                 op_block_next_ops["summed"] = contracted_system_summed
 
-        if superblock_states_ket is None:
+        if ket_is_not_custom := (superblock_states_ket is None):
             superblock_states_ket = superblock_states
-            bra_is_ket = True
         else:
-            bra_is_ket = False
             if not const.standard_method:
                 raise NotImplementedError
-        superblock_states_bra = superblock_states
+        if bra_is_not_custom := (superblock_states_bra is None):
+            superblock_states_bra = superblock_states
+        else:
+            if not const.standard_method:
+                raise NotImplementedError
+        bra_is_ket = bra_is_not_custom and ket_is_not_custom
 
         op_block_next = {}
         for (istate_bra, superblock_bra), (
@@ -946,4 +953,4 @@ class myndarray(np.ndarray):
 
 @jax.jit
 def get_ones():
-    return jnp.ones((1, 1), dtype=jnp.complex128)
+    return jnp.ones((1, 1, 1), dtype=jnp.complex128)

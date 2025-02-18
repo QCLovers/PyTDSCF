@@ -23,6 +23,7 @@ from pytdscf import _integrator
 from pytdscf._const_cls import const
 from pytdscf._contraction import (
     _block_type,
+    _op_keys,
     multiplyH_MPS_direct,
     multiplyH_MPS_direct_MPO,
     multiplyK_MPS_direct,
@@ -279,12 +280,12 @@ class MPSCoef(ABC):
     def construct_op_zerosite(
         self,
         superblock_states: list[list[SiteCoef]],
-        matH_cas: HamiltonianMixin | None = None,
+        operator: HamiltonianMixin | None = None,
     ) -> dict[tuple[int, int], dict[str, _block_type]]:
         """initialize op_block_psites
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
-            matH_cas (Optional[HamiltonianMixin], optional): Hamiltonian. Defaults to None.
+            operator (Optional[HamiltonianMixin], optional): Operator (such as Hamiltonian). Defaults to None.
 
         Returns:
             Dict[Tuple[int,int], Dict[str, np.ndarray]] : block operator. \
@@ -294,15 +295,17 @@ class MPSCoef(ABC):
     @abstractmethod
     def renormalize_op_psite(
         self,
+        *,
         psite: int,
         superblock_states: list[list[SiteCoef]],
         op_block_states: dict[tuple[int, int], dict[str, _block_type]],
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
-        matH: HamiltonianMixin | None,
+        hamiltonian: HamiltonianMixin | None,
         A_is_sys: bool,
         superblock_states_ket=None,
+        superblock_states_bra=None,
     ) -> dict[tuple[int, int], dict[str, _block_type]]:
         pass
 
@@ -553,9 +556,19 @@ class MPSCoef(ABC):
                 np.array(superblock[psite]) for superblock in superblock_states
             ]
         if isinstance(matOp, PolynomialHamiltonian):
-            multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states, matOp)
+            multiplyH = multiplyH_MPS_direct(
+                op_lcr_states=op_lcr,
+                psi_states=matPsi_states,
+                hamiltonian=matOp,
+            )
+        elif isinstance(matOp, TensorHamiltonian):
+            multiplyH = multiplyH_MPS_direct_MPO(
+                op_lcr_states=op_lcr,
+                psi_states=matPsi_states,
+                hamiltonian=matOp,
+            )
         else:
-            multiplyH = multiplyH_MPS_direct_MPO(op_lcr, matPsi_states, matOp)
+            raise NotImplementedError(f"{type(matOp)=}")
 
         expectation_value = _integrator.expectation_Op(
             matPsi_states,  # type: ignore
@@ -603,7 +616,11 @@ class MPSCoef(ABC):
             matPsi_states = [
                 np.array(superblock[psite]) for superblock in superblock_states
             ]
-        multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states)
+        multiplyH = multiplyH_MPS_direct(
+            op_lcr_states=op_lcr,
+            psi_states=matPsi_states,
+            hamiltonian=None,
+        )
 
         psivec = multiplyH.stack(matPsi_states)
         sigvec = multiplyH.stack(multiplyH.dot_autocorr(matPsi_states))
@@ -725,13 +742,13 @@ class MPSCoef(ABC):
                     psite, superblock_states_ket, toAPsi=A_is_sys
                 )
                 op_sys = self.renormalize_op_psite(
-                    psite,
-                    superblock_states,
-                    op_sys,
-                    ints_site,
-                    matO_cas,
-                    A_is_sys,
-                    superblock_states_ket,
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    op_block_states=op_sys,
+                    ints_site=ints_site,
+                    hamiltonian=matO_cas,
+                    A_is_sys=A_is_sys,
+                    superblock_states_ket=superblock_states_ket,
                 )
                 if self.op_sys_sites_dipo is not None:
                     self.op_sys_sites_dipo.append(op_sys)
@@ -889,27 +906,29 @@ class MPSCoef(ABC):
         ],
         matH_cas: HamiltonianMixin,
         stepsize: float,
+        tensor_shapes_out: tuple[int, ...] | None = None,
     ):
         """concatenate PolynomialHamiltonian & coefficients"""
         matPsi_states: list[np.ndarray] | list[jax.Array]
-        if const.use_jax:
-            matPsi_states = [
-                superblock[psite].data for superblock in superblock_states
-            ]  # type: ignore
-        else:
-            matPsi_states = [
-                np.array(superblock[psite]) for superblock in superblock_states
-            ]
+        matPsi_states = [
+            superblock[psite].data for superblock in superblock_states
+        ]  # type: ignore
 
         """exponentiation PolynomialHamiltonian"""
         if isinstance(matH_cas, PolynomialHamiltonian):
-            multiplyH = multiplyH_MPS_direct(op_lcr, matPsi_states, matH_cas)
+            multiplyH = multiplyH_MPS_direct(
+                op_lcr_states=op_lcr,
+                psi_states=matPsi_states,
+                hamiltonian=matH_cas,
+                tensor_shapes_out=tensor_shapes_out,
+            )
         else:
             assert isinstance(matH_cas, TensorHamiltonian)
             multiplyH = multiplyH_MPS_direct_MPO(
-                op_lcr,
-                matPsi_states,
-                matH_cas,
+                op_lcr_states=op_lcr,
+                psi_states=matPsi_states,
+                hamiltonian=matH_cas,
+                tensor_shapes_out=tensor_shapes_out,
             )
 
         if not const.doRelax:
@@ -943,7 +962,7 @@ class MPSCoef(ABC):
         op_lr: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -954,19 +973,26 @@ class MPSCoef(ABC):
         hamiltonian: HamiltonianMixin,
         svalues: list[np.ndarray] | list[jax.Array],
         stepsize: float,
+        tensor_shapes_out: tuple[int, ...] | None = None,
     ):
         """concatenate PolynomialHamiltonian & coefficients"""
         svalues_states = svalues
 
         """exponentiation PolynomialHamiltonian"""
         if isinstance(hamiltonian, PolynomialHamiltonian):
-            multiplyK = multiplyK_MPS_direct(op_lr, hamiltonian, svalues_states)
+            multiplyK = multiplyK_MPS_direct(
+                op_lr_states=op_lr,  # type: ignore
+                psi_states=svalues_states,
+                hamiltonian=hamiltonian,
+                tensor_shapes_out=tensor_shapes_out,
+            )
         else:
             assert isinstance(hamiltonian, TensorHamiltonian)
             multiplyK = multiplyK_MPS_direct_MPO(
-                op_lr,  # type: ignore
-                hamiltonian,
-                svalues_states,
+                op_lr_states=op_lr,
+                psi_states=svalues_states,
+                hamiltonian=hamiltonian,
+                tensor_shapes_out=tensor_shapes_out,
             )
 
         if not const.doRelax:
@@ -995,18 +1021,17 @@ class MPSCoef(ABC):
         A_is_sys: bool,
     ):
         """over-write sval"""
-        for istate, superblock in enumerate(superblock_states):
+        for sval, superblock in zip(svalues, superblock_states, strict=True):
             if A_is_sys:
                 """sval x B(p+1) -> Psi(p+1)"""
                 matA = superblock[psite]
                 matB = superblock[psite + 1]
                 assert matA.gauge == "A", f"{matA.gauge=}"
                 assert matB.gauge == "B", f"{matB.gauge=}"
-                sval = svalues[istate]
                 if const.use_jax:
                     matB.data = jnp.einsum("ij,jbc->ibc", sval, matB.data)
                 else:
-                    matB.data = np.tensordot(sval, matB.data, axes=1)
+                    matB.data = np.tensordot(sval, matB.data, axes=(1, 0))
                 matB.gauge = "Psi"
             else:
                 """A(p-1) x sval -> Psi(p-1)"""
@@ -1018,11 +1043,10 @@ class MPSCoef(ABC):
                 assert (
                     matA.gauge == "A"
                 ), f"matA.gauge should be A, but {matA.gauge}"
-                sval = svalues[istate]
                 if const.use_jax:
                     matA.data = jnp.einsum("ijk,kb->ijb", matA.data, sval)
                 else:
-                    matA.data = np.tensordot(matA.data, sval, axes=1)
+                    matA.data = np.tensordot(matA.data, sval, axes=(2, 0))
                 matA.gauge = "Psi"
 
     def _get_normalized_reduced_density(
@@ -1189,6 +1213,7 @@ class MPSCoef(ABC):
         op_initial_block: dict[tuple[int, int], dict[str, _block_type]]
         | None = None,
         superblock_states_ket=None,
+        superblock_states_bra=None,
     ) -> list[dict[tuple[int, int], dict[str, _block_type]]]:
         """Construct Environment Operator
 
@@ -1222,13 +1247,14 @@ class MPSCoef(ABC):
             """construct op_block for <A(0)A(1)...A(isite)|Op|A(0)A(1)...A(isite)>"""
             op_block_isites.append(
                 self.renormalize_op_psite(
-                    psite,
-                    superblock_states,
-                    op_block_isites[-1],
-                    ints_site,
-                    matH_cas,
-                    set_op_left,
-                    superblock_states_ket,
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    op_block_states=op_block_isites[-1],
+                    ints_site=ints_site,
+                    hamiltonian=matH_cas,
+                    A_is_sys=set_op_left,
+                    superblock_states_ket=superblock_states_ket,
+                    superblock_states_bra=superblock_states_bra,
                 )
             )
 
@@ -1247,6 +1273,7 @@ class MPSCoef(ABC):
         *,
         PsiB2AB: bool,
         superblock_states_ket=None,
+        superblock_states_bra=None,
         regularize=False,
     ) -> tuple[
         list[np.ndarray] | list[jax.Array],
@@ -1277,13 +1304,14 @@ class MPSCoef(ABC):
         if superblock_states_ket:
             _ = _trans_PsiB2AB_psite(superblock_states_ket)
         op_sys_next = self.renormalize_op_psite(
-            psite,
-            superblock_states,
-            op_sys,
-            ints_site,
-            matH_cas,
+            psite=psite,
+            superblock_states=superblock_states,
+            op_block_states=op_sys,
+            ints_site=ints_site,
+            hamiltonian=matH_cas,
             A_is_sys=PsiB2AB,
             superblock_states_ket=superblock_states_ket,
+            superblock_states_bra=superblock_states_bra,
         )
 
         return svalues, op_sys_next
@@ -1542,11 +1570,19 @@ def apply_superOp_direct(
 
     """exponentiation PolynomialHamiltonian"""
     if isinstance(matO_cas, PolynomialHamiltonian):
-        multiplyOp = multiplyH_MPS_direct(op_lcr, matPsi_states_init, matO_cas)
-    else:
-        multiplyOp = multiplyH_MPS_direct_MPO(
-            op_lcr, matPsi_states_init, matO_cas
+        multiplyOp = multiplyH_MPS_direct(
+            op_lcr_states=op_lcr,
+            psi_states=matPsi_states_init,
+            hamiltonian=matO_cas,
         )
+    elif isinstance(matO_cas, TensorHamiltonian):
+        multiplyOp = multiplyH_MPS_direct_MPO(
+            op_lcr_states=op_lcr,
+            psi_states=matPsi_states_init,
+            hamiltonian=matO_cas,
+        )
+    else:
+        raise NotImplementedError(f"{type(matO_cas)=}")
 
     matPsi_states_new = multiplyOp.dot(matPsi_states_init)
     norm = get_C_sval_states_norm(matPsi_states_new)

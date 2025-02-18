@@ -1166,20 +1166,20 @@ class MPSCoefSoP(MPSCoef):
     def construct_op_zerosite(
         self,
         superblock_states: list[list[SiteCoef]],
-        matH_cas: PolynomialHamiltonian | None = None,
+        operator: PolynomialHamiltonian | None = None,
     ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
         """initialize op_block_psites
 
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
-            matH_cas (Optional[PolynomialHamiltonian]) : Operator (such as Hamiltonian). Defaults to None.
+            operator (Optional[PolynomialHamiltonian]) : Operator (such as Hamiltonian). Defaults to None.
 
         Returns:
             Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]] : block operator. \
                 key is 'auto', 'ovlp', 'onesite', 'summed' or (bra_state, ket_state)
 
         """
-        autocorr_only = matH_cas is None
+        autocorr_only = operator is None
 
         op_block_states = {}
         for istate_bra, istate_ket in itertools.product(
@@ -1189,7 +1189,7 @@ class MPSCoefSoP(MPSCoef):
             statepair = (istate_bra, istate_ket)
             isDiag = istate_bra == istate_ket
             coupleJ = (
-                matH_cas.coupleJ[istate_bra][istate_ket] if matH_cas else 0.0
+                operator.coupleJ[istate_bra][istate_ket] if operator else 0.0
             )
 
             if autocorr_only:
@@ -1201,8 +1201,8 @@ class MPSCoefSoP(MPSCoef):
                     else:
                         op_block_ops["auto"] = np.ones((1, 1), dtype=complex)
             else:
-                assert isinstance(matH_cas, PolynomialHamiltonian)
-                if isDiag or coupleJ != 0.0 or matH_cas.onesite:
+                assert isinstance(operator, PolynomialHamiltonian)
+                if isDiag or coupleJ != 0.0 or operator.onesite:
                     if const.use_jax:
                         op_block_ops["ovlp"] = jnp.ones(
                             (1, 1), dtype=jnp.complex128
@@ -1210,7 +1210,7 @@ class MPSCoefSoP(MPSCoef):
                     else:
                         op_block_ops["ovlp"] = np.ones((1, 1), dtype=complex)
 
-                if matH_cas.onesite:
+                if operator.onesite:
                     if const.use_jax:
                         op_block_ops["onesite"] = jnp.zeros(
                             (1, 1), dtype=jnp.complex128
@@ -1250,6 +1250,7 @@ class MPSCoefSoP(MPSCoef):
     # @profile
     def renormalize_op_psite(
         self,
+        *,
         psite: int,
         superblock_states: list[list[SiteCoef]],
         op_block_states: dict[
@@ -1259,16 +1260,17 @@ class MPSCoefSoP(MPSCoef):
         ints_site: dict[
             tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
         ],
-        matH_cas: PolynomialHamiltonian,
+        hamiltonian: PolynomialHamiltonian,
         A_is_sys: bool,
         superblock_states_ket=None,
+        superblock_states_bra=None,
     ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
-        superblock_states_bra = superblock_states
-        superblock_states_ket = (
-            superblock_states
-            if superblock_states_ket is None
-            else superblock_states_ket
-        )
+        if superblock_states_bra is None:
+            superblock_states_bra = superblock_states
+        if superblock_states_ket is None:
+            superblock_states_ket = superblock_states
+        assert isinstance(superblock_states_bra, list)
+        assert isinstance(superblock_states_ket, list)
 
         op_block_next = {}
         for (istate_bra, superblock_bra), (
@@ -1311,7 +1313,7 @@ class MPSCoefSoP(MPSCoef):
                 if np.allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
                     op_psite_ovlp = op_psite_ovlp.shape[0]
 
-                if matH_cas and matH_cas.onesite:
+                if hamiltonian and hamiltonian.onesite:
                     op_block_onesite = op_block_statepair["onesite"]
                     op_psite_onesite = ints_site_statepair["onesite"][psite]
                     op_block_next_ops["onesite"] = contract_with_site(
@@ -1326,13 +1328,13 @@ class MPSCoefSoP(MPSCoef):
                         op_psite_onesite,
                     )
 
-                if isDiag and matH_cas and matH_cas.general:
+                if isDiag and hamiltonian and hamiltonian.general:
                     # When we implement 2nd order vibronic coupling, this part should be modified.
                     key_sys = "left" if A_is_sys else "right"
                     psite_next = psite + 1 if A_is_sys else psite - 1
 
                     nterms_general = len(
-                        matH_cas.general[istate_bra][istate_ket]
+                        hamiltonian.general[istate_bra][istate_ket]
                     )
                     op_block_general_concat: np.ndarray | jax.Array
                     op_psite_general_concat: np.ndarray | jax.Array
@@ -1348,11 +1350,11 @@ class MPSCoefSoP(MPSCoef):
                     index_dict = {}
 
                     if "enable_summed_op" in const.keys:
-                        general_renorm_byterm = matH_cas.general_new[
+                        general_renorm_byterm = hamiltonian.general_new[
                             "forward" if A_is_sys else "backward"
                         ][psite].renorm[istate_bra][istate_ket]
                     else:
-                        general_renorm_byterm = matH_cas.general[istate_bra][
+                        general_renorm_byterm = hamiltonian.general[istate_bra][
                             istate_ket
                         ]
 
@@ -1425,7 +1427,7 @@ class MPSCoefSoP(MPSCoef):
                                 op_block_next_ops["ovlp"].shape, dtype=complex
                             )
                         for iwork, term_prod in enumerate(
-                            matH_cas.general_new[
+                            hamiltonian.general_new[
                                 "forward" if A_is_sys else "backward"
                             ][psite].renorm_summed[istate_bra][istate_ket]
                         ):
@@ -1896,12 +1898,12 @@ class MPSCoefSoP(MPSCoef):
             _trans_PsiB2APsi_psite(superblock_states_ket)
 
         op_sys_next = self.renormalize_op_psite(
-            psite,
-            superblock_states,
-            op_sys,
-            ints_site,
-            matH_cas,
-            A_is_sys,
-            superblock_states_ket,
+            psite=psite,
+            superblock_states=superblock_states,
+            op_block_states=op_sys,
+            ints_site=ints_site,
+            hamiltonian=matH_cas,
+            A_is_sys=A_is_sys,
+            superblock_states_ket=superblock_states_ket,
         )
         return op_sys_next

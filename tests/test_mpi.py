@@ -19,6 +19,7 @@ import pytest
 
 logger = loguru.logger.bind(name="rank")
 
+
 def get_mps_parallel():
     import pytdscf
     import pytdscf._const_cls
@@ -36,7 +37,8 @@ def get_mps_parallel():
             )
         case 4:
             pytdscf._const_cls.const.set_runtype(
-                use_jax=False, parallel_split_indices=[(0, 2), (3, 5), (6, 8), (9, 11)]
+                use_jax=False,
+                parallel_split_indices=[(0, 2), (3, 5), (6, 8), (9, 11)],
             )
         case _:
             raise ValueError(
@@ -60,7 +62,9 @@ def get_mps_parallel():
             [1.0, 1.0, 1.0, 1.0],
             [1.0, 1.0, 1.0, 1.0],
         ]
-        superblock = lattice_info.alloc_superblock_random(m_aux_max=4, scale=1.0, weight_vib=weight_vib)
+        superblock = lattice_info.alloc_superblock_random(
+            m_aux_max=4, scale=1.0, weight_vib=weight_vib
+        )
     else:
         superblock = None
     mps_parallel = pytdscf._mps_parallel.MPSCoefParallel()
@@ -70,8 +74,10 @@ def get_mps_parallel():
     )
     return mps_parallel
 
+
 def get_hamiltonian():
     from pytdscf import TensorHamiltonian, TensorOperator
+
     if rank == 0:
         # Define a Hamiltonian
         mpo = []
@@ -99,7 +105,33 @@ def get_hamiltonian():
                         (10, 10),
                         (11, 11),
                     ): TensorOperator(
-                        mpo=mpo, legs=(0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11)
+                        mpo=mpo,
+                        legs=(
+                            0,
+                            0,
+                            1,
+                            1,
+                            2,
+                            2,
+                            3,
+                            3,
+                            4,
+                            4,
+                            5,
+                            5,
+                            6,
+                            6,
+                            7,
+                            7,
+                            8,
+                            8,
+                            9,
+                            9,
+                            10,
+                            10,
+                            11,
+                            11,
+                        ),
                     )
                 }
             ]
@@ -133,7 +165,8 @@ def test_mpi():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2 or 3 or 4 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
+    reason="Run under 2 or 3 or 4 MPI ranks",
 )
 def test_mpi_autocorr_norm():
     mps_parallel = get_mps_parallel()
@@ -166,7 +199,8 @@ def test_mpi_autocorr_norm():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2 or 3 or 4 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
+    reason="Run under 2 or 3 or 4 MPI ranks",
 )
 def test_mpi_expectation():
     mps_parallel = get_mps_parallel()
@@ -182,7 +216,8 @@ def test_mpi_expectation():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2  or 3 or 4 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
+    reason="Run under 2  or 3 or 4 MPI ranks",
 )
 def test_mpi_reduced_density():
     mps_parallel = get_mps_parallel()
@@ -214,13 +249,14 @@ def test_mpi_reduced_density():
 
 @pytest.mark.skipif(MPI is None, reason="MPI is not installed")
 @pytest.mark.skipif(
-    MPI.COMM_WORLD.Get_size() not in [2, 3, 4], reason="Run under 2 or 3 or 4 MPI ranks"
+    MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
+    reason="Run under 2 or 3 or 4 MPI ranks",
 )
 def test_mpi_propagate():
     mps_parallel = get_mps_parallel()
     hamiltonian = get_hamiltonian()
     hamiltonian.distribute_mpo_cores()
-    #with pytest.raises(NotImplementedError):
+    # with pytest.raises(NotImplementedError):
     mps_parallel.propagate(stepsize=0.1, ints_spf=None, matH=hamiltonian)
     mps_parallel.propagate(stepsize=0.1, ints_spf=None, matH=hamiltonian)
 

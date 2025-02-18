@@ -37,6 +37,7 @@ def test_anharmonic_fbr_mpsmctdh_relax_numpy():
     ener, wf = simulator.relax(improved=False, maxstep=1)
     assert pytest.approx(ener) == 0.021360262338234466
 
+
 def test_anharmonic_fbr_mpsmctdh_operate_numpy():
     from pytdscf import BasInfo, Model, Simulator, units
     from pytdscf.basis import PrimBas_HO

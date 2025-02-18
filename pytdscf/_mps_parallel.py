@@ -798,9 +798,9 @@ class MPSCoefParallel(MPSCoefMPO):
                 A_is_sys=True,
             )
             multiplyK = multiplyK_MPS_direct_MPO(
-                op_lr,
-                matOp,
-                sigvec,
+                op_lr_states=op_lr,
+                psi_states=sigvec,
+                hamiltonian=matOp,
             )
             expectation_value = _integrator.expectation_Op(
                 sigvec,  # type: ignore
