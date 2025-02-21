@@ -53,6 +53,7 @@ class Properties:
         self.auto_logger = _logger.bind(name="autocorr")
         self.pop_logger = _logger.bind(name="populations")
         self.exp_logger = _logger.bind(name="expectations")
+        self.bonddim_logger = _logger.bind(name="bonddim")
         self.pops = None
         self.expectations = {}
         self.wf_zero = wf_init
@@ -84,16 +85,19 @@ class Properties:
 
     def get_properties(
         self,
+        *,
         autocorr=True,
         energy=True,
         norm=True,
         populations=True,
         observables=True,
+        bonddim=True,
         autocorr_per_step=1,
         energy_per_step=1,
         norm_per_step=1,
         populations_per_step=1,
         observables_per_step=1,
+        bonddim_per_step=1,
     ):
         if autocorr and self.nstep % autocorr_per_step == 0:
             self._get_autocorr()
@@ -108,6 +112,8 @@ class Properties:
         if self.remain_legs is not None:
             if self.nstep % self.rd_step == 0:
                 self._export_reduced_density()
+        if bonddim and self.nstep % bonddim_per_step == 0 and const.adaptive:
+            self._get_bonddim()
 
     def _export_reduced_density(self):
         # Get reduced densities using all ranks
@@ -227,11 +233,16 @@ class Properties:
         for obs_key, matOp in self.model.observables.items():
             self.expectations[obs_key] = self.wf.expectation(matOp)
 
+    def _get_bonddim(self):
+        self.bonddim = self.wf.bonddim()
+
     def export_properties(
         self,
+        *,
         autocorr_per_step=1,
         populations_per_step=1,
         observables_per_step=1,
+        bonddim_per_step=1,
     ):
         if self.nstep % autocorr_per_step == 0:
             self._export_autocorr()
@@ -239,6 +250,8 @@ class Properties:
             self._export_populations()
         if self.nstep % observables_per_step == 0:
             self._export_expectations()
+        if const.adaptive and self.nstep % bonddim_per_step == 0:
+            self._export_bonddim()
         self._export_properties()
 
     @helper.rank0_only
@@ -295,6 +308,21 @@ class Properties:
             exp_msg += f"{exp:6.9f}\t"
         exp_msg.rstrip("\t")
         self.exp_logger.debug(exp_msg)
+
+    @helper.rank0_only
+    def _export_bonddim(self):
+        if self.bonddim is None:
+            return
+        if self.time == 0.0:
+            self.bonddim_logger.debug(
+                "# time [fs]\t"
+                + "\t".join(f"{i}" for i in range(len(self.bonddim)))
+            )
+        bonddim_msg = f"{self.time * units.au_in_fs:6.9f}\t"
+        for bonddim in self.bonddim:
+            bonddim_msg += f"{bonddim}\t"
+        bonddim_msg.rstrip("\t")
+        self.bonddim_logger.debug(bonddim_msg)
 
     @helper.rank0_only
     def _export_properties(self):

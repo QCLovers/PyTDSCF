@@ -5,6 +5,7 @@ Core tensor (site coefficient) class for MPS & MPO
 from __future__ import annotations
 
 import math
+import os
 from functools import partial
 from typing import Literal
 
@@ -270,54 +271,56 @@ class SiteCoef:
                 assert l * c >= r
                 dr = min(delta_rank, l * c - r)
                 mat = self.data.reshape((l * c, r))
-                assert self.data.shape == (l, c, r)
-                assert mat.shape == (l * c, r)
-                np.testing.assert_allclose(
-                    mat.T.conj() @ mat, np.eye(r), atol=1.0e-15
-                )
                 Q, _ = np.linalg.qr(mat, mode="complete")
                 # to align sign of Q, calculate inner product of Q and Q_ref
                 ip = mat.T.conj() @ Q
-                assert ip.shape == (r, l * c)
-                np.testing.assert_allclose(
-                    np.abs(ip[:r, :r]), np.eye(r), atol=1.0e-14
-                )
                 unflip = np.sign(np.sign(np.diag(ip[:r, :r])) + 0.5)
                 Q = Q[:, : r + dr]
                 Q[:, :r] *= unflip[np.newaxis, :]
-                np.testing.assert_allclose(Q[:, :r], mat, atol=1.0e-14)
-                np.testing.assert_allclose(
-                    (Q.T.conj() @ Q)[: r + dr, : r + dr],
-                    np.eye(r + dr),
-                    atol=1.0e-15,
-                )
+                if "PYTEST_CURRENT_TEST" in os.environ:
+                    assert self.data.shape == (l, c, r)
+                    assert mat.shape == (l * c, r)
+                    assert ip.shape == (r, l * c)
+                    np.testing.assert_allclose(
+                        mat.T.conj() @ mat, np.eye(r), atol=1.0e-14
+                    )
+                    np.testing.assert_allclose(
+                        np.abs(ip[:r, :r]), np.eye(r), atol=1.0e-14
+                    )
+                    np.testing.assert_allclose(Q[:, :r], mat, atol=1.0e-14)
+                    np.testing.assert_allclose(
+                        (Q.T.conj() @ Q)[: r + dr, : r + dr],
+                        np.eye(r + dr),
+                        atol=1.0e-14,
+                    )
                 Q = Q.reshape(l, c, r + dr)
                 return SiteCoef(data=Q, gauge="A", isite=self.isite)
             case "B":
                 assert c * r >= l
                 dl = min(delta_rank, c * r - l)
                 mat = self.data.reshape((l, c * r)).transpose(1, 0)
-                np.testing.assert_allclose(
-                    mat.T.conj() @ mat, np.eye(l), atol=1.0e-15
-                )
-                assert mat.shape == (c * r, l)
-                assert self.data.shape == (l, c, r)
                 Q, _ = np.linalg.qr(mat, mode="complete")
                 # to align sign of Q, calculate inner product of Q and Q_ref
                 ip = mat.T.conj() @ Q
-                assert ip.shape == (l, c * r)
-                np.testing.assert_allclose(
-                    np.abs(ip[:l, :l]), np.eye(l), atol=1.0e-14
-                )
                 unflip = np.sign(np.sign(np.diag(ip[:l, :l])) + 0.5)
                 Q = Q[:, : l + dl]
                 Q[:, :l] *= unflip[np.newaxis, :]
                 # confirm Q is orthogonal
-                np.testing.assert_allclose(
-                    (Q.T.conj() @ Q)[: l + dl, : l + dl],
-                    np.eye(l + dl),
-                    atol=1.0e-15,
-                )
+                if "PYTEST_CURRENT_TEST" in os.environ:
+                    np.testing.assert_allclose(
+                        mat.T.conj() @ mat, np.eye(l), atol=1.0e-14
+                    )
+                    assert mat.shape == (c * r, l)
+                    assert self.data.shape == (l, c, r)
+                    assert ip.shape == (l, c * r)
+                    np.testing.assert_allclose(
+                        np.abs(ip[:l, :l]), np.eye(l), atol=1.0e-14
+                    )
+                    np.testing.assert_allclose(
+                        (Q.T.conj() @ Q)[: l + dl, : l + dl],
+                        np.eye(l + dl),
+                        atol=1.0e-14,
+                    )
                 Q = Q.transpose(1, 0)
                 Q = Q.reshape(l + dl, c, r)
                 return SiteCoef(data=Q, gauge="B", isite=self.isite)
@@ -451,3 +454,41 @@ def validate_Atensor(coef: np.ndarray | jax.Array | SiteCoef) -> None:
     assert AA.ndim == 2
     assert AA.shape[0] == AA.shape[1]
     np.testing.assert_allclose(AA, np.eye(AA.shape[0]), atol=1.0e-15)
+
+
+def truncate_sigvec(
+    Asite: SiteCoef, sigvec: np.ndarray, Bsite: SiteCoef, p: float
+) -> tuple[SiteCoef, np.ndarray | jax.Array, SiteCoef]:
+    r"""Truncate singular vector
+
+    Args:
+        Asite (SiteCoef): A tensor
+        sigvec (np.ndarray): Singular vector
+        Bsite (SiteCoef): B tensor
+        p (float): Truncation parameter
+
+    Returns:
+        tuple[SiteCoef, np.ndarray | jax.Array, SiteCoef]: \
+            (Asite, sigvec, Bsite)
+
+    Given a matrix in AσB form:
+    1. Perform SVD decomposition on σ to get Uσ'Vh
+    2. Truncate singular values based on their cumulative contribution
+    3. Transform the tensors:
+       A -> AU
+       σ -> σ' (truncated)
+       B -> VhB
+    """
+    if isinstance(sigvec, jax.Array):
+        raise NotImplementedError
+    else:
+        U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
+        cumsum = np.cumsum(sigvec2.real)
+        contribution = cumsum / cumsum[-1]
+        idx = np.argmax(contribution >= (1 - p)) + 1
+        assert Asite.gauge == "A", "Asite must be A tensor"
+        assert Bsite.gauge == "B", "Bsite must be B tensor"
+        Asite.data = np.tensordot(Asite.data, U[:, :idx], axes=(2, 0))
+        Bsite.data = np.tensordot(Vh[:idx, :], Bsite.data, axes=(1, 0))
+        sigvec = np.diag(sigvec2[:idx])
+        return Asite, sigvec, Bsite

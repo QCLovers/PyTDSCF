@@ -64,7 +64,7 @@ logger.add(
 )
 
 
-def setup_loggers(jobname: str):
+def setup_loggers(jobname: str, adaptive: bool = False):
     """Setup loguru loggers with rank 0 filtering and file outputs
 
     Args:
@@ -73,7 +73,6 @@ def setup_loggers(jobname: str):
     if not os.path.exists(f"./{jobname}"):
         os.makedirs(f"./{jobname}")
 
-    # mainロガーのファイル出力を設定
     main_log_path = f"{jobname}/main.log"
     existing_handlers = [h for h in logger._core.handlers.values()]
     existing_paths = [
@@ -89,7 +88,6 @@ def setup_loggers(jobname: str):
             filter=make_filter("main"),
         )
 
-    # 標準エラー出力をRank0Sinkに置き換え
     for handler in existing_handlers:
         if getattr(handler._sink, "name", None) == sys.stderr:
             logger.remove(handler.id)
@@ -100,8 +98,9 @@ def setup_loggers(jobname: str):
                 filter=make_filter("main"),
             )
 
-    # その他の.datロガーを設定
     data_loggers = ["autocorr", "expectations", "populations"]
+    if adaptive:
+        data_loggers.append("bonddim")
     for name in data_loggers:
         add_file_logger(name, jobname)
 

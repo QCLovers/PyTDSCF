@@ -1,4 +1,5 @@
 import sys
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -7,7 +8,12 @@ from loguru import logger
 
 import pytdscf
 import pytdscf._const_cls
-from pytdscf._mps_cls import get_superblock_full, truncate_op_block
+from pytdscf._mps_cls import get_superblock_full
+from pytdscf._site_cls import (
+    truncate_sigvec,
+    validate_Atensor,
+    validate_Btensor,
+)
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator
 from pytdscf.hamiltonian_cls import TensorHamiltonian
@@ -45,7 +51,7 @@ def get_model():
 
     dE = 0.01  # 0.27 eV
     J = 0.001  # 0.027 eV
-    lamb = 0.0001
+    lamb = 0.001
     kappa = 0.0001
 
     basinfo = BasInfo([prim_info])
@@ -177,147 +183,112 @@ def get_model():
     return model
 
 
-def test_a1tdvp_sweep():
-    model = get_model()
-    pytdscf._const_cls.const.set_runtype(
-        use_jax=False, jobname="a1tdvp", adaptive=True
-    )
-    mps = pytdscf._mps_mpo.MPSCoefMPO.alloc_random(model)
-    assert isinstance(mps, pytdscf._mps_mpo.MPSCoefMPO)
+def sweep(
+    mps,
+    hamiltonian: TensorHamiltonian,
+    to: Literal["->", "<-"],
+    dt: float,
+):
+    from pytdscf._const_cls import const
+    Dmax = const.Dmax
+    dD = const.dD
+    p_proj = const.p_proj
+    p_svd = const.p_svd
+
     superblock = mps.superblock_states[0]
     nsite = len(superblock)
-    begin_site = 0
-    end_site = nsite - 1
-    step = 1
-    A_is_sys = True
-    dD = 3
-    dt = 0.25
-    # logger.debug(f"{superblock=}")
-    pytdscf._mps_cls.canonicalize(superblock, orthogonal_center=0)
-    superblock_full = get_superblock_full(superblock, delta_rank=dD)
-    op_sys = mps.construct_op_zerosite([superblock], operator=model.hamiltonian)
+    match to:
+        case "->":
+            step = 1
+            A_is_sys = True
+            begin_site = 0
+            end_site = nsite - 1
+        case "<-":
+            step = -1
+            A_is_sys = False
+            begin_site = nsite - 1
+            end_site = 0
+    superblock_states_full = [get_superblock_full(superblock, delta_rank=dD)]
+    op_sys = mps.construct_op_zerosite([superblock], operator=hamiltonian)
+    if mps.op_sys_sites is None:
+        op_env_sites = mps.construct_op_sites(
+            mps.superblock_states,
+            ints_site=None,
+            begin_site=end_site,
+            end_site=begin_site,
+            matH_cas=hamiltonian,
+        )
+    else:
+        op_env_sites = mps.op_sys_sites[:]
     mps.op_sys_sites = [op_sys]
-    op_env_sites = mps.construct_op_sites(
-        [superblock],
-        ints_site=None,
-        begin_site=end_site,
-        end_site=begin_site,
-        matH_cas=model.hamiltonian,
-        superblock_states_ket=None,
-        superblock_states_bra=None,
-    )
-    # logger.debug(op_sys)
-    # logger.debug(op_env_sites)
     psites_sweep = range(begin_site, end_site + step, step)
     for psite in psites_sweep:
         logger.debug(f"{psite=}")
-        op_env_thin = op_env_sites.pop()
+        op_env = op_env_sites.pop()
         if psite != end_site:
             assert len(op_env_sites) > 0
             op_env_previous = op_env_sites[-1]
-            # logger.debug(f"{op_env_thin=}")
-            # logger.debug(f"{op_env_previous=}")
-            op_env_full_braket = mps.get_op_block_full(
-                psite=psite,
-                superblock_states_full=[superblock_full],
-                op_block_previous=op_env_previous,
-                hamiltonian=model.hamiltonian,
-                construct_left=not A_is_sys,
-                mode="braket",
-            )
-            # logger.debug(f"{op_env_full_braket=}")
-            op_env_full_bra = mps.get_op_block_full(
-                psite=psite,
-                superblock_states_full=[superblock_full],
-                op_block_previous=op_env_previous,
-                hamiltonian=model.hamiltonian,
-                construct_left=not A_is_sys,
-                mode="bra",
-            )
-            op_sys_thin = mps.op_sys_sites[-1]
-            psi_left, sigvec, psi_right, op_sys_full_bra = (
-                mps.get_psi_sigvec_psi_fullblock(
+            newD, error, op_env_D_bra, op_env_D_braket = (
+                mps.get_adaptive_rank_and_block(
                     psite=psite,
-                    to="->",
-                    op_block=op_sys_thin,
-                    delta_rank=10,
-                    hamiltonian=model.hamiltonian,
+                    superblock_states_full=superblock_states_full,
+                    op_env_previous=op_env_previous,
+                    hamiltonian=hamiltonian,
+                    to=to,
                 )
             )
-            psi_states_left = [psi_left]
-            sigvec_states = [sigvec]
-            psi_states_right = [psi_right]
-            newD, error = mps.get_rank_and_projection_error(
-                psite=psite,
-                Dmax=100,
-                p=1.0e-02,
-                op_sys_full=op_sys_full_bra,
-                op_sys_thin=op_sys_thin,
-                op_env_full=op_env_full_bra,
-                op_env_thin=op_env_previous,
-                hamiltonian=model.hamiltonian,
-                psi_states_left=psi_states_left,
-                sigvec_states=sigvec_states,
-                psi_states_right=psi_states_right,
-                to="->",
-            )
-            logger.debug(f"{newD=}, {error=:3e}")
-            op_env_D_bra = truncate_op_block(op_env_full_bra, newD, mode="bra")
-            op_env_D_braket = truncate_op_block(
-                op_env_full_braket, newD, mode="braket"
-            )
-            superblock[psite + step].data = superblock_full[psite + step].data[
-                :newD, :, :
-            ]
-            R = newD
+            if to == "->":
+                R = newD
+            else:
+                L = newD
         else:
-            op_env_D_bra = op_env_thin
-            op_env_D_braket = op_env_thin
-            R = 1
+            op_env_D_bra = op_env
+            op_env_D_braket = op_env
+            if to == "->":
+                R = 1
+            else:
+                L = 1
         l, c, r = superblock[psite].data.shape
-        assert R <= r + dD, f"{R=}, {r=}, {dD=}"
-        # logger.debug(f"{op_env_thin=}")
-        # logger.debug(f"{op_env_full=}")
+        if to == "->":
+            L, C, _ = superblock[psite].data.shape
+            assert R <= r + dD, f"{R=}, {r=}, {dD=}"
+        else:
+            _, C, R = superblock[psite].data.shape
+            assert L <= l + dD, f"{L=}, {l=}, {dD=}"
         original_data = superblock[psite].data.copy()
         op_lcr = mps.operators_for_superH(
             psite=psite,
             op_sys=op_sys,
-            op_env=op_env_thin,
+            op_env=op_env,
             ints_site=None,
-            hamiltonian=model.hamiltonian,
+            hamiltonian=hamiltonian,
             A_is_sys=A_is_sys,
         )
-        # logger.debug(f"{op_lcr=}")
         mps.exp_superH_propagation_direct(
             psite=psite,
-            superblock_states=[superblock],
+            superblock_states=mps.superblock_states,
             op_lcr=op_lcr,
-            matH_cas=model.hamiltonian,
+            matH_cas=hamiltonian,
             stepsize=dt,
             tensor_shapes_out=None,
         )
-        # logger.debug(superblock[psite].data-original_data)
         propagate_data = superblock[psite].data.copy()
-
         superblock[psite].data = original_data.copy()
         op_lcr = mps.operators_for_superH(
             psite=psite,
             op_sys=op_sys,
             op_env=op_env_D_bra,
             ints_site=None,
-            hamiltonian=model.hamiltonian,
+            hamiltonian=hamiltonian,
             A_is_sys=A_is_sys,
         )
-        # logger.debug(f"{op_lcr=}")
-        logger.debug(f"{l=}, {c=}, {R=}")
-        logger.debug(f"{superblock[psite].data.shape=}")
         mps.exp_superH_propagation_direct(
             psite=psite,
-            superblock_states=[superblock],
+            superblock_states=mps.superblock_states,
             op_lcr=op_lcr,
-            matH_cas=model.hamiltonian,
+            matH_cas=hamiltonian,
             stepsize=dt,
-            tensor_shapes_out=(l, c, R),
+            tensor_shapes_out=(L, C, R),
         )
         # confirm propagated data is close to original data
         np.testing.assert_allclose(
@@ -326,193 +297,58 @@ def test_a1tdvp_sweep():
         if psite != end_site:
             svalues, op_sys = mps.trans_next_psite_AsigmaB(
                 psite=psite,
-                superblock_states=[superblock],
+                superblock_states=mps.superblock_states,
                 op_sys=op_sys,
                 ints_site=None,
-                matH_cas=model.hamiltonian,
+                matH_cas=hamiltonian,
                 PsiB2AB=A_is_sys,
             )
             assert (
-                svalues[0].shape == (R, R)
-            ), f"{svalues[0].shape=} not match {(R, R)=} where {R=} and {r=} and {dD=}"
+                svalues[0].shape == (newD, newD)
+            ), f"{svalues[0].shape=} not match {(newD, newD)=} where {newD=} and {r=} and {dD=}"
             op_lr = mps.operators_for_superK(
                 psite=psite,
                 op_sys=op_sys,
                 op_env=op_env_D_braket,
-                hamiltonian=model.hamiltonian,
+                hamiltonian=hamiltonian,
                 A_is_sys=A_is_sys,
             )
 
             svalues = mps.exp_superK_propagation_direct(
                 op_lr=op_lr,
-                hamiltonian=model.hamiltonian,
+                hamiltonian=hamiltonian,
                 svalues=svalues,
                 stepsize=dt,
             )
-            logger.debug(f"{np.linalg.svd(svalues[0], compute_uv=False)=}")
-            mps.trans_next_psite_APsiB(
-                psite=psite,
-                superblock_states=[superblock],
-                svalues=svalues,
-                A_is_sys=A_is_sys,
-            )
-            if isinstance(mps.op_sys_sites, list):
-                mps.op_sys_sites.append(op_sys)
-
-    superblock_full = []
-    begin_site = nsite - 1
-    end_site = 0
-    step = -1
-    A_is_sys = False
-    superblock_full = get_superblock_full(superblock, delta_rank=dD)
-
-    logger.debug(f"{superblock_full[-1].data.shape=}")
-    op_sys = mps.construct_op_zerosite([superblock], operator=model.hamiltonian)
-    op_env_sites = mps.op_sys_sites[:]
-    mps.op_sys_sites = [op_sys]
-    # logger.debug(op_sys)
-    # logger.debug(op_env_sites)
-    psites_sweep = range(begin_site, end_site + step, step)
-    for psite in psites_sweep:
-        logger.debug(f"{psite=}")
-        op_env_thin = op_env_sites.pop()
-        if psite != end_site:
-            op_env_previous = op_env_sites[-1]
-            # logger.debug(f"{op_env_thin=}")
-            # logger.debug(f"{op_env_previous=}")
-            op_env_full_braket = mps.get_op_block_full(
-                psite=psite,
-                superblock_states_full=[superblock_full],
-                op_block_previous=op_env_previous,
-                hamiltonian=model.hamiltonian,
-                construct_left=not A_is_sys,
-                mode="braket",
-            )
-            op_env_full_bra = mps.get_op_block_full(
-                psite=psite,
-                superblock_states_full=[superblock_full],
-                op_block_previous=op_env_previous,
-                hamiltonian=model.hamiltonian,
-                construct_left=not A_is_sys,
-                mode="bra",
-            )
-            op_sys_thin = mps.op_sys_sites[-1]
-            psi_left, sigvec, psi_right, op_sys_full_bra = (
-                mps.get_psi_sigvec_psi_fullblock(
-                    psite=psite,
-                    to="<-",
-                    op_block=op_sys_thin,
-                    delta_rank=10,
-                    hamiltonian=model.hamiltonian,
+            # logger.debug(f"{np.linalg.svd(svalues[0], compute_uv=False)=}")
+            if to == "->":
+                Asite, svalues[0], Bsite = truncate_sigvec(
+                    superblock[psite], svalues[0], superblock[psite + 1], p_svd
                 )
-            )
-            psi_states_left = [psi_left]
-            sigvec_states = [sigvec]
-            psi_states_right = [psi_right]
-            newD, error = mps.get_rank_and_projection_error(
+            else:
+                Asite, svalues[0], Bsite = truncate_sigvec(
+                    superblock[psite - 1], svalues[0], superblock[psite], p_svd
+                )
+            validate_Atensor(Asite)
+            validate_Btensor(Bsite)
+            if psite == begin_site:
+                op_sys_prev = mps.construct_op_zerosite(
+                    [superblock], operator=hamiltonian
+                )
+            else:
+                op_sys_prev = mps.op_sys_sites[-1]
+            op_sys = mps.renormalize_op_psite(
                 psite=psite,
-                Dmax=100,
-                p=1.0e-02,
-                op_sys_full=op_sys_full_bra,
-                op_sys_thin=op_sys_thin,
-                op_env_full=op_env_full_bra,
-                op_env_thin=op_env_previous,
-                hamiltonian=model.hamiltonian,
-                psi_states_left=psi_states_left,
-                sigvec_states=sigvec_states,
-                psi_states_right=psi_states_right,
-                to="<-",
-            )
-            logger.debug(f"{newD=}, {error=}")
-            op_env_D_bra = truncate_op_block(op_env_full_bra, newD, mode="bra")
-            op_env_D_braket = truncate_op_block(
-                op_env_full_braket, newD, mode="braket"
-            )
-            superblock[psite + step].data = superblock_full[psite + step].data[
-                :, :, :newD
-            ]
-            L = newD
-        else:
-            op_env_D_bra = op_env_thin
-            op_env_D_braket = op_env_thin
-            L = 1
-        l, c, r = superblock[psite].data.shape
-        assert L <= l + dD, f"{L=}, {l=}, {dD=}"
-        # logger.debug(f"{op_env_thin=}")
-        # logger.debug(f"{op_env_full=}")
-        original_data = superblock[psite].data.copy()
-        op_lcr = mps.operators_for_superH(
-            psite=psite,
-            op_sys=op_sys,
-            op_env=op_env_thin,
-            ints_site=None,
-            hamiltonian=model.hamiltonian,
-            A_is_sys=A_is_sys,
-        )
-        # logger.debug(f"{op_lcr=}")
-        mps.exp_superH_propagation_direct(
-            psite=psite,
-            superblock_states=[superblock],
-            op_lcr=op_lcr,
-            matH_cas=model.hamiltonian,
-            stepsize=dt,
-            tensor_shapes_out=None,
-        )
-        # logger.debug(superblock[psite].data-original_data)
-        propagate_data = superblock[psite].data.copy()
-        superblock[psite].data = original_data.copy()
-        op_lcr = mps.operators_for_superH(
-            psite=psite,
-            op_sys=op_sys,
-            op_env=op_env_D_bra,
-            ints_site=None,
-            hamiltonian=model.hamiltonian,
-            A_is_sys=A_is_sys,
-        )
-        # logger.debug(f"{op_lcr=}")
-        logger.debug(f"{L=}, {c=}, {r=}")
-        mps.exp_superH_propagation_direct(
-            psite=psite,
-            superblock_states=[superblock],
-            op_lcr=op_lcr,
-            matH_cas=model.hamiltonian,
-            stepsize=dt,
-            tensor_shapes_out=(L, c, r),
-        )
-        # confirm propagated data is close to original data
-        np.testing.assert_allclose(
-            superblock[psite].data[:l, :c, :r], propagate_data, atol=1e-03
-        )
-        if psite != end_site:
-            svalues, op_sys = mps.trans_next_psite_AsigmaB(
-                psite=psite,
-                superblock_states=[superblock],
-                op_sys=op_sys,
+                superblock_states=mps.superblock_states,
+                op_block_states=op_sys_prev,
                 ints_site=None,
-                matH_cas=model.hamiltonian,
-                PsiB2AB=A_is_sys,
-            )
-            assert (
-                svalues[0].shape == (L, L)
-            ), f"{svalues[0].shape=} not match {(L, L)=} where {L=} and {l=} and {dD=}"
-            op_lr = mps.operators_for_superK(
-                psite=psite,
-                op_sys=op_sys,
-                op_env=op_env_D_braket,
-                hamiltonian=model.hamiltonian,
+                hamiltonian=hamiltonian,
                 A_is_sys=A_is_sys,
-            )
-
-            svalues = mps.exp_superK_propagation_direct(
-                op_lr=op_lr,
-                hamiltonian=model.hamiltonian,
-                svalues=svalues,
-                stepsize=dt,
             )
             logger.debug(f"{np.linalg.svd(svalues[0], compute_uv=False)=}")
             mps.trans_next_psite_APsiB(
                 psite=psite,
-                superblock_states=[superblock],
+                superblock_states=mps.superblock_states,
                 svalues=svalues,
                 A_is_sys=A_is_sys,
             )
@@ -520,62 +356,51 @@ def test_a1tdvp_sweep():
                 mps.op_sys_sites.append(op_sys)
 
 
-def test_a1tdvp_projection_error():
+@pytest.mark.parametrize("use_class_method", [True, False])
+def test_a1tdvp_sweep(use_class_method: bool):
     model = get_model()
+    pytdscf._const_cls.const.set_runtype(
+        use_jax=False, jobname="a1tdvp", adaptive=True, adaptive_p_proj=1.0e-03, adaptive_p_svd=1.0e-07, adaptive_Dmax=100, adaptive_dD=10
+    )
     mps = pytdscf._mps_mpo.MPSCoefMPO.alloc_random(model)
     assert isinstance(mps, pytdscf._mps_mpo.MPSCoefMPO)
     superblock = mps.superblock_states[0]
-    superblock_full = get_superblock_full(superblock, delta_rank=10)
     nsite = len(superblock)
-    psite = 0
-    op_env_sites = mps.construct_op_sites(
-        [superblock],
-        ints_site=None,
-        begin_site=nsite - 1,
-        end_site=0,
-        matH_cas=model.hamiltonian,
-    )
-    op_env_thin = op_env_sites[-psite - 2]
-    op_env_full_bra = mps.get_op_block_full(
-        psite=psite,
-        superblock_states_full=[superblock_full],
-        op_block_previous=op_env_thin,
-        hamiltonian=model.hamiltonian,
-        construct_left=False,
-        mode="bra",
-    )
-    op_sys_thin = mps.construct_op_zerosite(
-        superblock_states=[superblock],
-        operator=model.hamiltonian,
-    )
-    psi_left, sigvec, psi_right, op_sys_full_bra = (
-        mps.get_psi_sigvec_psi_fullblock(
-            psite=psite,
-            to="->",
-            op_block=op_sys_thin,
-            delta_rank=10,
-            hamiltonian=model.hamiltonian,
+    dt = 0.1
+    # logger.debug(f"{superblock=}")
+    pytdscf._mps_cls.canonicalize(superblock, orthogonal_center=0)
+    for i_iter in range(5):
+        if use_class_method:
+            mps.propagate_along_sweep(
+                None,
+                model.hamiltonian,
+                dt,
+                begin_site=0,
+                end_site=nsite - 1,
+            )
+            mps.propagate_along_sweep(
+                None,
+                model.hamiltonian,
+                dt,
+                begin_site=nsite - 1,
+                end_site=0,
+            )
+        else:
+            sweep(
+                mps,
+                model.hamiltonian,
+                "->",
+                dt,
+            )
+            sweep(
+                mps,
+                model.hamiltonian,
+                "<-",
+                dt,
+            )
+        logger.info(
+            f"{i_iter=}, {[core.shape[2] for core in mps.superblock_states[0][:-1]]}"
         )
-    )
-    psi_states_left = [psi_left]
-    sigvec_states = [sigvec]
-    psi_states_right = [psi_right]
-    newD, error = mps.get_rank_and_projection_error(
-        psite=psite,
-        Dmax=100,
-        p=1.0e-02,
-        op_sys_full=op_sys_full_bra,
-        op_sys_thin=op_sys_thin,
-        op_env_full=op_env_full_bra,
-        op_env_thin=op_env_thin,
-        hamiltonian=model.hamiltonian,
-        psi_states_left=psi_states_left,
-        sigvec_states=sigvec_states,
-        psi_states_right=psi_states_right,
-        to="->",
-    )
-    logger.debug(f"{newD=}, {error=:3e}")
-
 
 if __name__ == "__main__":
-    pytest.main([__file__])
+    test_a1tdvp_sweep()

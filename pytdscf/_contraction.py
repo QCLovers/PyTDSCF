@@ -5,14 +5,15 @@ Tensor Contraction Module is separated from module to achieve acceleration
 from __future__ import annotations
 
 import itertools
+from functools import lru_cache
 from time import time
-from typing import Annotated
+from typing import Annotated, Any, Callable, overload
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as linalg
-from opt_einsum import contract
+from opt_einsum import contract, contract_expression
 
 import pytdscf
 from pytdscf._const_cls import const
@@ -32,6 +33,20 @@ _core_type = Annotated[
     np.ndarray | jax.Array | int | OperatorCore,
     "np.ndarray | jax.Array | int | OperatorCore",
 ]
+
+
+def get_expr(contraction: str, shapes: tuple[tuple[int, ...], ...]) -> Callable:
+    if len(shapes) > 3:
+        return contract_expression(contraction, *shapes)
+    else:
+        return _get_expr_cached(contraction, shapes)
+
+
+@lru_cache(maxsize=256)  # up to 256 different contractions
+def _get_expr_cached(
+    contraction: str, shapes: tuple[tuple[int, ...], ...]
+) -> Callable:
+    return contract_expression(contraction, *shapes)
 
 
 def is_unitmat_op(op_block_single: _block_type) -> bool:
@@ -123,7 +138,9 @@ def contract_with_site(
     if const.use_jax:
         op_next = jnp.einsum(contraction, *operator)
     else:
-        op_next = contract(contraction, *operator)
+        expr = get_expr(contraction, tuple(op.shape for op in operator))
+        op_next = expr(*operator)
+        # op_next = contract(contraction, *operator)
     return op_next
 
 
@@ -288,7 +305,7 @@ def contract_with_site_mpo(
             #   |  -q
             #   s   |
             # j-|-n n
-            contraction = "isn,jsn,mqn->iqj"
+            contraction = "ism,jsn,mqn->iqj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
             operator.append(op_LorR)  # type: ignore
         case ("B", 2, 1):
@@ -369,7 +386,9 @@ def contract_with_site_mpo(
     if const.use_jax:
         op_next = jnp.einsum(contraction, *operator)
     else:
-        op_next = contract(contraction, *operator)
+        expr = get_expr(contraction, tuple(op.shape for op in operator))
+        op_next = expr(*operator)
+        # op_next = contract(contraction, *operator)
     if len(op_next.shape) == 2:
         op_next = op_next[:, None, :]
     return op_next
@@ -957,9 +976,28 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
             hamiltonian=hamiltonian,
             tensor_shapes_out=tensor_shapes_out,
         )
+        self._op_lcr_dot_cached = {}
 
     # @profile
-    def _op_lcr_dot(self, _op_l, _op_c, _op_r, _trial):
+    @overload
+    def _op_lcr_dot(
+        self,
+        _op_l: int | np.ndarray,
+        _op_c: int | np.ndarray,
+        _op_r: int | np.ndarray,
+        _trial: np.ndarray,
+        key: Any | None = None,
+    ) -> np.ndarray: ...
+    @overload
+    def _op_lcr_dot(
+        self,
+        _op_l: int | jax.Array,
+        _op_c: int | jax.Array,
+        _op_r: int | jax.Array,
+        _trial: jax.Array,
+        key: Any | None = None,
+    ) -> jax.Array: ...
+    def _op_lcr_dot(self, _op_l, _op_c, _op_r, _trial, key: Any | None = None):
         """Operator and LCR MPS Multiplication"""
         """
         Tensor contraction diagram:
@@ -971,6 +1009,12 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         | |    j    | |
         | |-b-|T|-s-| |
         """
+        if (
+            not const.use_jax
+            and key is not None
+            and key in self._op_lcr_dot_cached
+        ):
+            return self._op_lcr_dot_cached[key](_trial)
         operator = [_trial]
         if isinstance(_op_l, int):
             op_l_mode = 1
@@ -1078,12 +1122,26 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         if const.use_jax:
             sig_lcr = jnp.einsum(contraction, *operator)
         else:
+            if key is not None:
+                expr = contract_expression(
+                    contraction,
+                    _trial.shape,
+                    *operator[1:],
+                    constants=list(range(1, len(operator))),
+                )
+                self._op_lcr_dot_cached[key] = expr
+                return expr(_trial)
             sig_lcr = contract(contraction, *operator)
             # Numpy might be accelerated by BLAS ZGEMM due to the hermitian property of the operator
         return sig_lcr
 
-    # @profile
-    def dot(self, trial_states) -> list[np.ndarray] | list[jax.Array]:
+    @overload
+    def dot(self, trial_states: list[np.ndarray]) -> list[np.ndarray]: ...
+    @overload
+    def dot(self, trial_states: list[jax.Array]) -> list[jax.Array]: ...
+    def dot(
+        self, trial_states: list[np.ndarray] | list[jax.Array]
+    ) -> list[np.ndarray] | list[jax.Array]:
         """Only supported MPO"""
         sigvec_states: list[np.ndarray] | list[jax.Array]
         sigvec_states = [None for _ in trial_states]  # type: ignore
@@ -1101,28 +1159,41 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
 
             if (coupleJ := self.matH_cas.coupleJ[i][j]) != 0.0:
                 sigvec_add = (
-                    self._op_lcr_dot(*op_lcr["ovlp"], trial_states[j]) * coupleJ
+                    self._op_lcr_dot(
+                        *op_lcr["ovlp"],  # type: ignore
+                        trial_states[j],  # type: ignore
+                        key="ovlp",
+                    )
+                    * coupleJ
                 )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    if sigvec_states[i] is None:
+                    if (sigvec_states_i := sigvec_states[i]) is None:
                         sigvec_states[i] = sigvec_add
                     else:
-                        sigvec_states[i] += sigvec_add
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
 
             for key, (op_l, op_c, op_r) in op_lcr.items():
                 if key == "ovlp":
                     # Already calculated in the above with coupleJ.
                     continue
-                sigvec_add = self._op_lcr_dot(op_l, op_c, op_r, trial_states[j])
+                sigvec_add = self._op_lcr_dot(
+                    op_l,  # type: ignore
+                    op_c,  # type: ignore
+                    op_r,  # type: ignore
+                    trial_states[j],  # type: ignore
+                    key=key,
+                )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    if sigvec_states[i] is None:
+                    if (sigvec_states_i := sigvec_states[i]) is None:
                         sigvec_states[i] = sigvec_add
                     else:
-                        sigvec_states[i] += sigvec_add
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
             if const.use_jax:
                 sigvec_states[i] = add_to_sigvec_states(
                     sigvec_states[i], sigvecs_add
@@ -1165,8 +1236,25 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
             hamiltonian=hamiltonian,
             tensor_shapes_out=tensor_shapes_out,
         )
+        self._op_lr_dot_cached = {}
 
-    def _op_lr_dot(self, _op_l, _op_r, _trial):
+    @overload
+    def _op_lr_dot(
+        self,
+        _op_l: int | np.ndarray,
+        _op_r: int | np.ndarray,
+        _trial: np.ndarray,
+        key: Any | None = None,
+    ) -> np.ndarray: ...
+    @overload
+    def _op_lr_dot(
+        self,
+        _op_l: int | jax.Array,
+        _op_r: int | jax.Array,
+        _trial: jax.Array,
+        key: Any | None = None,
+    ) -> jax.Array: ...
+    def _op_lr_dot(self, _op_l, _op_r, _trial, key: Any | None = None):
         """
 
         -a     r-
@@ -1176,6 +1264,12 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         -b b-s s-
 
         """
+        if (
+            not const.use_jax
+            and key is not None
+            and key in self._op_lr_dot_cached
+        ):
+            return self._op_lr_dot_cached[key](_trial)
 
         match (isinstance(_op_l, int), isinstance(_op_r, int)):
             case (True, True):
@@ -1206,10 +1300,26 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         if const.use_jax:
             return jnp.einsum(contraction, *operator)
         else:
+            if key is not None:
+                expr = contract_expression(
+                    contraction,
+                    _trial.shape,
+                    *operator[1:],
+                    constants=list(range(1, len(operator))),
+                )
+                self._op_lr_dot_cached[key] = expr
+                return expr(_trial)
             return contract(contraction, *operator)
 
-    def dot(self, trial_states):
-        sigvec_states = [None for _ in trial_states]
+    @overload
+    def dot(self, trial_states: list[np.ndarray]) -> list[np.ndarray]: ...
+    @overload
+    def dot(self, trial_states: list[jax.Array]) -> list[jax.Array]: ...
+    def dot(
+        self, trial_states: list[np.ndarray] | list[jax.Array]
+    ) -> list[np.ndarray] | list[jax.Array]:
+        sigvec_states: list[np.ndarray] | list[jax.Array]
+        sigvec_states = [None for _ in trial_states]  # type: ignore
         for i, j in itertools.product(
             range(len(self.matH_cas.coupleJ)), repeat=2
         ):
@@ -1220,27 +1330,35 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
                 continue
             if (coupleJ := self.matH_cas.coupleJ[i][j]) != 0.0:
                 sigvec_add = (
-                    self._op_lr_dot(*op_lr["ovlp"], trial_states[j]) * coupleJ
+                    self._op_lr_dot(*op_lr["ovlp"], trial_states[j], key="ovlp")  # type: ignore
+                    * coupleJ
                 )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    if sigvec_states[i] is None:
+                    if (sigvec_states_i := sigvec_states[i]) is None:
                         sigvec_states[i] = sigvec_add
                     else:
-                        sigvec_states[i] += sigvec_add
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
             for key, (op_l, op_r) in op_lr.items():
                 if key == "ovlp":
                     # Already calculated in the above with coupleJ.
                     continue
-                sigvec_add = self._op_lr_dot(op_l, op_r, trial_states[j])
+                sigvec_add = self._op_lr_dot(
+                    op_l,  # type: ignore
+                    op_r,  # type: ignore
+                    trial_states[j],  # type: ignore
+                    key=key,
+                )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    if sigvec_states[i] is None:
+                    if (sigvec_states_i := sigvec_states[i]) is None:
                         sigvec_states[i] = sigvec_add
                     else:
-                        sigvec_states[i] += sigvec_add
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
             if const.use_jax:
                 sigvec_states[i] = add_to_sigvec_states(
                     sigvec_states[i], sigvecs_add

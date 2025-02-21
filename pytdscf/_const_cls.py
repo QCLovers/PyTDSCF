@@ -93,6 +93,7 @@ class Const:
     def __setattr__(self, name, value):
         if name != "verbose" and name in self.__dict__:
             logger.warning(f"rebind const {name}")
+        logger.info(f"Param defined: {name} = {value}")
         self.__dict__[name] = value
 
     def set_runtype(
@@ -112,8 +113,12 @@ class Const:
         thresh_sil: float = 1.0e-09,
         verbose: int = 2,
         use_mpo: bool = True,
-        adaptive: bool = False,
         parallel_split_indices: list[tuple[int, int]] | None = None,
+        adaptive: bool = False,
+        adaptive_Dmax: int = 100,
+        adaptive_dD: int = 10,
+        adaptive_p_proj: float = 1.0e-04,
+        adaptive_p_svd: float = 1.0e-07,
     ):
         """
 
@@ -162,7 +167,7 @@ class Const:
             self.jobname = jobname
 
         # すべてのrankでロガーをセットアップ
-        setup_loggers(self.jobname)
+        setup_loggers(self.jobname, adaptive=adaptive)
         # rank0のみが実際に出力する
         logger.info(CBOLD + CVIOLET + pytdscf + CEND)
         logger.debug(f"START TIME: {datetime.datetime.now()}")
@@ -187,6 +192,10 @@ class Const:
         self.standard_method = standard_method
         self.use_mpo = use_mpo
         self.adaptive = adaptive
+        self.Dmax = adaptive_Dmax
+        self.dD = adaptive_dD
+        self.p_proj = adaptive_p_proj
+        self.p_svd = adaptive_p_svd
         if adaptive:
             logger.warning("Adaptive calculation is experimental.")
         if self.use_mpo:

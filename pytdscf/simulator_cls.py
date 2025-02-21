@@ -170,6 +170,11 @@ class Simulator:
         norm_per_step: int = 1,
         populations_per_step: int = 1,
         parallel_split_indices: list[tuple[int, int]] | None = None,
+        adaptive: bool = False,
+        adaptive_Dmax: int = 20,
+        adaptive_dD: int = 5,
+        adaptive_p_proj: float = 1.0e-04,
+        adaptive_p_svd: float = 1.0e-07,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -228,6 +233,11 @@ class Simulator:
             thresh_sil=thresh_sil,
             use_mpo=self.model.use_mpo,
             parallel_split_indices=parallel_split_indices,
+            adaptive=adaptive,
+            adaptive_Dmax=adaptive_Dmax,
+            adaptive_dD=adaptive_dD,
+            adaptive_p_proj=adaptive_p_proj,
+            adaptive_p_svd=adaptive_p_svd,
         )
 
         return self._execute(
@@ -369,11 +379,11 @@ class Simulator:
                 logger.info(f"Saved wavefunction {time_fs:8.3f} [fs]")
                 self.save_wavefunction(wf)
             properties.get_properties(
-                autocorr,
-                energy,
-                norm,
-                populations,
-                observables,
+                autocorr=autocorr,
+                energy=energy,
+                norm=norm,
+                populations=populations,
+                observables=observables,
                 autocorr_per_step=autocorr_per_step,
                 energy_per_step=energy_per_step,
                 norm_per_step=norm_per_step,

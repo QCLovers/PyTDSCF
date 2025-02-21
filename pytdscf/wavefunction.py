@@ -134,6 +134,19 @@ class WFunc:
         """
         return self.ci_coef.pop_states()
 
+    def bonddim(self) -> list[int]:
+        """
+
+        get bond dimension of WF
+
+        Returns:
+            List[int] : bond dimension of WF
+        """
+        assert isinstance(self.ci_coef, MPSCoef)
+        mps = self.ci_coef
+        bonddim = [site.shape[2] for site in mps.superblock_states[0][:-1]]
+        return bonddim
+
     def propagate(self, matH: HamiltonianMixin, stepsize: float):
         """
 
