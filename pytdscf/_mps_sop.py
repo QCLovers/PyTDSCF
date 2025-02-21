@@ -135,6 +135,9 @@ class MPSCoefSoP(MPSCoef):
             MPSCoef : MPSCoef class object
 
         """
+        logger.warning(
+            "Sum-of-Products (SOP) based calculation will be executed, but it is inefficient and will be deprecated, use Conventional MPO or Grid-MPO based calculation instead. See example such as https://qclovers.github.io/PyTDSCF/notebook/TD_reduced_density_exciton.html and https://kenhino.github.io/PyMPO/example/pytdscf-taylor.html"
+        )
 
         (
             nstate,
