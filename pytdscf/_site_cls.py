@@ -251,7 +251,7 @@ class SiteCoef:
             coef = SiteCoef(data=matL, gauge="A", isite=self.isite)
         return (coef, sval)
 
-    def thin_to_full(self, additional_rank: int = 1) -> SiteCoef:
+    def thin_to_full(self, delta_rank: int = 1) -> SiteCoef:
         """
         QR decomposition is defined by
         [[Q1, Q2]] [[R1],
@@ -268,7 +268,7 @@ class SiteCoef:
         match self.gauge:
             case "A":
                 assert l * c >= r
-                dr = min(additional_rank, l * c - r)
+                dr = min(delta_rank, l * c - r)
                 mat = self.data.reshape((l * c, r))
                 assert self.data.shape == (l, c, r)
                 assert mat.shape == (l * c, r)
@@ -295,7 +295,7 @@ class SiteCoef:
                 return SiteCoef(data=Q, gauge="A", isite=self.isite)
             case "B":
                 assert c * r >= l
-                dl = min(additional_rank, c * r - l)
+                dl = min(delta_rank, c * r - l)
                 mat = self.data.reshape((l, c * r)).transpose(1, 0)
                 np.testing.assert_allclose(
                     mat.T.conj() @ mat, np.eye(l), atol=1.0e-15

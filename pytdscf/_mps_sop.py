@@ -984,7 +984,7 @@ class MPSCoefSoP(MPSCoef):
             )
         op_sys_sites = self.construct_op_sites(
             superblock_states,
-            ints_site,
+            ints_site=ints_site,
             begin_site=begin_site,
             end_site=end_site,
             matH_cas=matH_cas,
@@ -999,7 +999,7 @@ class MPSCoefSoP(MPSCoef):
             )
         op_env_sites = self.construct_op_sites(
             superblock_states,
-            ints_site,
+            ints_site=ints_site,
             begin_site=end_site,
             end_site=begin_site,
             matH_cas=matH_cas,
@@ -1110,7 +1110,7 @@ class MPSCoefSoP(MPSCoef):
         op_sys = self.construct_op_zerosite(superblock_states_bra, matO_cas)
         op_env_sites = self.construct_op_sites(
             superblock_states_bra,
-            ints_site,
+            ints_site=ints_site,
             begin_site=end_site,
             end_site=begin_site,
             matH_cas=matO_cas,
@@ -1236,23 +1236,9 @@ class MPSCoefSoP(MPSCoef):
 
         return op_block_states
 
-    def renormalize_auto_psite(
-        self,
-        op_block_auto: int | np.ndarray | jax.Array,
-        op_psite_auto: np.ndarray | jax.Array,
-        matLorR_bra: SiteCoef,
-        matLorR_ket: SiteCoef,
-    ) -> np.ndarray | jax.Array:
-        return contract_with_site(
-            matLorR_bra.conj(),
-            matLorR_ket,
-            op_block_auto,
-            op_psite_auto,
-        )
-
     # @profile
+    @staticmethod
     def renormalize_op_psite(
-        self,
         *,
         psite: int,
         superblock_states: list[list[SiteCoef]],
@@ -1268,6 +1254,19 @@ class MPSCoefSoP(MPSCoef):
         superblock_states_ket=None,
         superblock_states_bra=None,
     ) -> dict[tuple[int, int], dict[str, np.ndarray | jax.Array]]:
+        def _renormalize_auto_psite(
+            op_block_auto: int | np.ndarray | jax.Array,
+            op_psite_auto: np.ndarray | jax.Array,
+            matLorR_bra: SiteCoef,
+            matLorR_ket: SiteCoef,
+        ) -> np.ndarray | jax.Array:
+            return contract_with_site(
+                matLorR_bra.conj(),
+                matLorR_ket,
+                op_block_auto,
+                op_psite_auto,
+            )
+
         if superblock_states_bra is None:
             superblock_states_bra = superblock_states
         if superblock_states_ket is None:
@@ -1296,7 +1295,7 @@ class MPSCoefSoP(MPSCoef):
             ints_site_statepair = ints_site[statepair]
             if "auto" in op_block_statepair:
                 if isDiag:
-                    op_block_next_ops["auto"] = self.renormalize_auto_psite(
+                    op_block_next_ops["auto"] = _renormalize_auto_psite(
                         op_block_auto=op_block_statepair["auto"],
                         op_psite_auto=ints_site_statepair["auto"][psite],
                         matLorR_bra=matLorR_bra,

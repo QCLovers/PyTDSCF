@@ -10,6 +10,7 @@ import math
 from abc import ABC, abstractmethod
 from functools import partial
 from time import time
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -89,11 +90,17 @@ class MPSCoef(ABC):
     def __init__(self):
         self.op_sys_sites_dipo: list | None = None
         self.ints_site_dipo: (
-            dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]
+            dict[
+                tuple[int, int],
+                dict[_op_keys, _block_type],
+            ]
             | None
         ) = None
         self.ints_site: (
-            dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]
+            dict[
+                tuple[int, int],
+                dict[_op_keys, _block_type],
+            ]
             | None
         ) = None
         self.op_sys_sites: list | None = None
@@ -220,7 +227,7 @@ class MPSCoef(ABC):
     @abstractmethod
     def get_ints_site(
         self, ints_spf: SPFInts | None, onesite_name: str = "onesite"
-    ) -> dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Get integral between p-site bra amd p-site ket in all states pair
 
         Args:
@@ -228,7 +235,7 @@ class MPSCoef(ABC):
             onesite_name (str, optional) : Defaults to 'onesite'.
 
         Returns:
-            Dict[Tuple[int,int],Dict[str, np.ndarray]]: Site integrals
+            Dict[Tuple[int,int],Dict[_op_keys, np.ndarray]]: Site integrals
         """
         pass
 
@@ -236,8 +243,8 @@ class MPSCoef(ABC):
     def construct_mfop_MPS(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, _block_type]],
-        op_env: dict[tuple[int, int], dict[str, _block_type]],
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
         matH_cas,
         A_is_sys: bool,
         ints_spf: SPFInts | None = None,
@@ -252,9 +259,7 @@ class MPSCoef(ABC):
     @abstractmethod
     def construct_mfop_along_sweep(
         self,
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]],
         matH_cas,
         *,
         begin_site: int,
@@ -265,9 +270,7 @@ class MPSCoef(ABC):
     @abstractmethod
     def construct_mfop_along_sweep_TEMP4DIPOLE(
         self,
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]],
         matO_cas,
         *,
         begin_site: int,
@@ -281,50 +284,47 @@ class MPSCoef(ABC):
         self,
         superblock_states: list[list[SiteCoef]],
         operator: HamiltonianMixin | None = None,
-    ) -> dict[tuple[int, int], dict[str, _block_type]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """initialize op_block_psites
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
             operator (Optional[HamiltonianMixin], optional): Operator (such as Hamiltonian). Defaults to None.
 
         Returns:
-            Dict[Tuple[int,int], Dict[str, np.ndarray]] : block operator. \
+            Dict[Tuple[int,int], Dict[_op_keys, np.ndarray]] : block operator. \
+                'ovlp' and 'auto' operator are 2-rank tensor, 'diag_mpo' is 3-rank tensor, 'nondiag_mpo' is 4-rank tensor. \
+                '~_summed' means complementary operator.
         """
         pass
 
+    @staticmethod
     @abstractmethod
     def renormalize_op_psite(
-        self,
         *,
         psite: int,
         superblock_states: list[list[SiteCoef]],
-        op_block_states: dict[tuple[int, int], dict[str, _block_type]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        op_block_states: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]] | None,
         hamiltonian: HamiltonianMixin | None,
         A_is_sys: bool,
         superblock_states_ket=None,
         superblock_states_bra=None,
-    ) -> dict[tuple[int, int], dict[str, _block_type]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         pass
 
     @abstractmethod
     def operators_for_superH(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, _block_type]],
-        op_env: dict[tuple[int, int], dict[str, _block_type]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ]
-        | None,
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]] | None,
         hamiltonian: HamiltonianMixin,
         A_is_sys: bool,
     ) -> list[
         list[
             dict[
-                str,
+                _op_keys,
                 tuple[
                     _block_type,
                     _block_type,
@@ -339,14 +339,14 @@ class MPSCoef(ABC):
 
         Args:
             psite (int): site index on "Psi"
-            op_sys (Dict[Tuple[int,int], Dict[str, _block_type]]): System operator
-            op_env (Dict[Tuple[int,int], Dict[str, _block_type]]): Environment operator
-            ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral
+            op_sys (Dict[Tuple[int,int], Dict[_op_keys, _block_type]]): System operator
+            op_env (Dict[Tuple[int,int], Dict[_op_keys, _block_type]]): Environment operator
+            ints_site (Dict[Tuple[int,int],Dict[_op_keys, np.ndarray]]): Site integral
             matH_cas (PolynomialHamiltonian) : Hamiltonian
             A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[_block_type, _block_type, _block_type]]]]: \
+            List[List[Dict[_op_keys, Tuple[_block_type, _block_type, _block_type]]]]: \
                 [i-bra-state][j-ket-state]['q'] =  (op_l, op_c, op_r)
         """
         pass
@@ -355,14 +355,14 @@ class MPSCoef(ABC):
     def operators_for_superK(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, _block_type]],
-        op_env: dict[tuple[int, int], dict[str, _block_type]],
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
         hamiltonian: HamiltonianMixin,
         A_is_sys: bool,
     ) -> list[
         list[
             dict[
-                str,
+                _op_keys,
                 tuple[_block_type, _block_type],
             ]
         ]
@@ -373,13 +373,13 @@ class MPSCoef(ABC):
 
         Args:
             psite (int): site index on "Psi"
-            op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
-            op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
+            op_sys (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): System operator
+            op_env (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): Environment operator
             matH_cas (PolynomialHamiltonian) : Hamiltonian
             A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
+            List[List[Dict[_op_keys, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
                 [i-bra-state][j-ket-state]['q'] =  (op_l, op_r)
         """
         pass
@@ -532,11 +532,14 @@ class MPSCoef(ABC):
         else:
             ints_site = self.get_ints_site(ints_spf)
         matOp = self.get_matH_sweep(matOp)
-        op_sys = self.construct_op_zerosite(superblock_states, matOp)
+        op_sys = self.construct_op_zerosite(
+            superblock_states,
+            operator=matOp,
+        )
         nsite = len(superblock_states[0])
         op_env = self.construct_op_sites(
             superblock_states,
-            ints_site,
+            ints_site=ints_site,
             begin_site=nsite - 1,
             end_site=0,
             matH_cas=matOp,
@@ -597,10 +600,16 @@ class MPSCoef(ABC):
         nstate = len(superblock_states)
         # - inefficient impl-#
         ints_site = self.get_ints_site(ints_spf)
-        op_sys = self.construct_op_zerosite(superblock_states)
+        op_sys = self.construct_op_zerosite(
+            superblock_states,
+            operator=None,
+        )
         nsite = len(superblock_states[0])
         op_env = self.construct_op_sites(
-            superblock_states, ints_site, begin_site=nsite - 1, end_site=0
+            superblock_states,
+            ints_site=ints_site,
+            begin_site=nsite - 1,
+            end_site=0,
         ).pop()
         op_lcr = self.operators_for_autocorr(
             psite, op_sys, op_env, ints_site, nstate, True
@@ -678,9 +687,7 @@ class MPSCoef(ABC):
     def apply_dipole_along_sweep(
         self,
         mps_coef_init: MPSCoef,
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]],
         matO_cas: HamiltonianMixin,
         begin_site: int = 0,
         end_site: int | None = None,
@@ -693,11 +700,14 @@ class MPSCoef(ABC):
         A_is_sys = begin_site < end_site
         superblock_states = self.superblock_states
         superblock_states_ket = mps_coef_init.superblock_states
-        op_sys = self.construct_op_zerosite(superblock_states, matO_cas)
+        op_sys = self.construct_op_zerosite(
+            superblock_states,
+            operator=matO_cas,
+        )
         if self.op_sys_sites_dipo is None:
             op_env_sites = self.construct_op_sites(
                 superblock_states,
-                ints_site,
+                ints_site=ints_site,
                 begin_site=end_site,
                 end_site=begin_site,
                 matH_cas=matO_cas,
@@ -756,27 +766,24 @@ class MPSCoef(ABC):
 
     def propagate_along_sweep(
         self,
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ]
-        | None,
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]] | None,
         matH_cas: HamiltonianMixin,
         stepsize: float,
         *,
         begin_site: int,
         end_site: int,
-        op_sys_initial: dict[tuple[int, int], dict[str, _block_type]]
+        op_sys_initial: dict[tuple[int, int], dict[_op_keys, _block_type]]
         | None = None,
-    ) -> dict[tuple[int, int], dict[str, _block_type]]:
+    ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Propagate MPS along a sweep
 
         Args:
-            ints_site (dict[tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]]): interaction site
+            ints_site (dict[tuple[int, int], dict[_op_keys, list[np.ndarray] | list[jax.Array]]]): interaction site
             matH_cas (HamiltonianMixin): Hamiltonian
             stepsize (float): time step
 
         Returns:
-            dict[tuple[int, int], dict[str, _block_type]]: System block operators at the end of the sweep
+            dict[tuple[int, int], dict[_op_keys, _block_type]]: System block operators at the end of the sweep
         """
         assert max(begin_site, end_site) < len(self.superblock_states[0])
         A_is_sys = begin_site <= end_site
@@ -787,7 +794,10 @@ class MPSCoef(ABC):
         superblock_states = self.superblock_states
 
         if op_sys_initial is None:
-            op_sys = self.construct_op_zerosite(superblock_states, matH_cas)
+            op_sys = self.construct_op_zerosite(
+                superblock_states,
+                operator=matH_cas,
+            )
         else:
             op_sys = op_sys_initial
 
@@ -795,7 +805,7 @@ class MPSCoef(ABC):
             # If t==0 or Include SPF or time-dependent Hamiltonian
             op_env_sites = self.construct_op_sites(
                 superblock_states,
-                ints_site,
+                ints_site=ints_site,
                 begin_site=end_site,
                 end_site=begin_site,
                 matH_cas=matH_cas,
@@ -895,7 +905,7 @@ class MPSCoef(ABC):
         op_lcr: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -981,7 +991,7 @@ class MPSCoef(ABC):
         """exponentiation PolynomialHamiltonian"""
         if isinstance(hamiltonian, PolynomialHamiltonian):
             multiplyK = multiplyK_MPS_direct(
-                op_lr_states=op_lr,  # type: ignore
+                op_lr_states=op_lr,
                 psi_states=svalues_states,
                 hamiltonian=hamiltonian,
                 tensor_shapes_out=tensor_shapes_out,
@@ -1203,31 +1213,29 @@ class MPSCoef(ABC):
     def construct_op_sites(
         self,
         superblock_states: list[list[SiteCoef]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
         *,
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]] | None,
         begin_site: int,
         end_site: int,
         matH_cas: HamiltonianMixin | None = None,
-        op_initial_block: dict[tuple[int, int], dict[str, _block_type]]
+        op_initial_block: dict[tuple[int, int], dict[_op_keys, _block_type]]
         | None = None,
         superblock_states_ket=None,
         superblock_states_bra=None,
-    ) -> list[dict[tuple[int, int], dict[str, _block_type]]]:
+    ) -> list[dict[tuple[int, int], dict[_op_keys, _block_type]]]:
         """Construct Environment Operator
 
         Args:
             superblock_states (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
-            ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray]]): Site integral
+            ints_site (Dict[Tuple[int,int],Dict[_op_keys, np.ndarray]]): Site integral
             begin_site (int) : begin site index
             end_site (int) : end site index
             matH_cas (HamiltonianMixin) : Hamiltonian
-            op_initial_block (Dict[Tuple[int,int], Dict[str, _block_type]]) : initial block operators.
+            op_initial_block (Dict[Tuple[int,int], Dict[_op_keys, _block_type]]) : initial block operators.
             superblock_states_ket (List[List[SiteCoef]]) : Super Blocks (Tensor Cores) of each electronic states
 
         Returns:
-            List[Dict[Tuple[int,int], Dict[str, _block_type]]] : Env. Operator
+            List[Dict[Tuple[int,int], Dict[_op_keys, _block_type]]] : Env. Operator
         """
 
         assert (
@@ -1235,7 +1243,8 @@ class MPSCoef(ABC):
         ), f"{begin_site=} == {end_site=}"
         if op_initial_block is None:
             op_initial_block = self.construct_op_zerosite(
-                superblock_states, matH_cas
+                superblock_states,
+                operator=matH_cas,
             )
         op_block_isites = [op_initial_block]
         set_op_left = begin_site < end_site
@@ -1265,10 +1274,8 @@ class MPSCoef(ABC):
         self,
         psite: int,
         superblock_states: list[list[SiteCoef]],
-        op_sys: dict[tuple[int, int], dict[str, _block_type]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]] | None,
         matH_cas: HamiltonianMixin,
         *,
         PsiB2AB: bool,
@@ -1277,7 +1284,7 @@ class MPSCoef(ABC):
         regularize=False,
     ) -> tuple[
         list[np.ndarray] | list[jax.Array],
-        dict[tuple[int, int], dict[str, _block_type]],
+        dict[tuple[int, int], dict[_op_keys, _block_type]],
     ]:
         """..Psi(p) B(p+1).. -> ..A(p) sval B(p+1)"""
 
@@ -1319,17 +1326,15 @@ class MPSCoef(ABC):
     def operators_for_autocorr(
         self,
         psite: int,
-        op_sys: dict[tuple[int, int], dict[str, _block_type]],
-        op_env: dict[tuple[int, int], dict[str, _block_type]],
-        ints_site: dict[
-            tuple[int, int], dict[str, list[np.ndarray] | list[jax.Array]]
-        ],
+        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        ints_site: dict[tuple[int, int], dict[_op_keys, _block_type]],
         nstate: int,
         A_is_sys: bool,
     ) -> list[
         list[
             dict[
-                str,
+                _op_keys,
                 tuple[
                     _block_type,
                     _block_type,
@@ -1344,20 +1349,20 @@ class MPSCoef(ABC):
 
         Args:
             psite (int): site index on "Psi"
-            op_sys (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): System operator
-            op_env (Dict[Tuple[int,int], Dict[str, np.ndarray | jax.Array]]): Environment operator
-            ints_site (Dict[Tuple[int,int],Dict[str, np.ndarray | jax.Array]]): Site integral
+            op_sys (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): System operator
+            op_env (Dict[Tuple[int,int], Dict[_op_keys, np.ndarray | jax.Array]]): Environment operator
+            ints_site (Dict[Tuple[int,int],Dict[_op_keys, np.ndarray | jax.Array]]): Site integral
             nstate (int): number of state
             A_is_sys (bool): Whether left block is System
 
         Returns:
-            List[List[Dict[str, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
+            List[List[Dict[_op_keys, Tuple[np.ndarray, np.ndarray, np.ndarray]]]]: \
                 [i-bra-state][j-ket-state]['auto'] =  (op_l, op_c, op_r)
         """
         op_lcr: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -1379,11 +1384,266 @@ class MPSCoef(ABC):
                 if A_is_sys
                 else op_sys[statepair]["auto"]
             )
-            op_c_auto = ints_site[statepair]["auto"][psite]
+            auto_site = ints_site[statepair]["auto"]
+            assert isinstance(auto_site, list)
+            op_c_auto = auto_site[psite]
 
             op_lcr[istate][istate] = {"auto": (op_l_auto, op_c_auto, op_r_auto)}
 
         return op_lcr
+
+    def get_psi_sigvec_psi_fullblock(
+        self,
+        psite: int,
+        to: Literal["->", "<-"],
+        op_block: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        delta_rank: int,
+        hamiltonian: TensorHamiltonian,
+    ):
+        """
+        if to == "right":
+        calculate AAσB=AAΨ',
+        then return Ψ, σ, Ψ'
+        if to == "left":
+        calculate AσBB=Ψ'BB,
+        then return Ψ', σ, Ψ
+        """
+        if len(self.superblock_states) > 1:
+            raise NotImplementedError("multi MPS is not implemented")
+        psi_site = self.superblock_states[0][psite].copy()
+        nsite = len(self.superblock_states[0])
+        superblock_states: list[list[SiteCoef]]
+        match to:
+            case "->":
+                B_site = self.superblock_states[0][psite + 1]
+                A_site, sigvec = psi_site.gauge_trf(key="Psi2Asigma")
+                psi_prime_site = np.tensordot(sigvec, B_site.data, axes=(1, 0))
+                A_site_full = A_site.thin_to_full(delta_rank=delta_rank)
+                superblock_states = [[None for _ in range(nsite)]]  # type: ignore
+                superblock_states[0][psite] = A_site
+                superblock_states_bra = [[None for _ in range(nsite)]]
+                superblock_states_bra[0][psite] = A_site_full
+                op_block_A_full = self.renormalize_op_psite(
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    op_block_states=op_block,
+                    ints_site=None,
+                    hamiltonian=hamiltonian,
+                    A_is_sys=True,
+                    superblock_states_bra=superblock_states_bra,
+                    superblock_states_ket=None,
+                )
+                return psi_site.data, sigvec, psi_prime_site, op_block_A_full
+            case "<-":
+                A_site = self.superblock_states[0][psite - 1]
+                B_site, sigvec = psi_site.gauge_trf(key="Psi2sigmaB")
+                psi_prime_site = np.tensordot(A_site.data, sigvec, axes=(2, 0))
+                B_site_full = B_site.thin_to_full(delta_rank=delta_rank)
+                superblock_states = [[None for _ in range(nsite)]]  # type: ignore
+                superblock_states[0][psite] = B_site
+                superblock_states_bra = [[None for _ in range(nsite)]]
+                superblock_states_bra[0][psite] = B_site_full
+                op_block_B_full = self.renormalize_op_psite(
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    op_block_states=op_block,
+                    ints_site=None,
+                    hamiltonian=hamiltonian,
+                    A_is_sys=False,
+                    superblock_states_bra=superblock_states_bra,
+                    superblock_states_ket=None,
+                )
+                return psi_prime_site, sigvec, psi_site.data, op_block_B_full
+            case _:
+                raise ValueError(f"{to=} is not valid")
+
+    def get_rank_and_projection_error(
+        self,
+        psite: int,
+        Dmax: int,
+        p: float,
+        op_sys_full: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_sys_thin: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env_full: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        op_env_thin: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        hamiltonian: TensorHamiltonian,
+        psi_states_left: list[np.ndarray] | list[jax.Array],
+        sigvec_states: list[np.ndarray] | list[jax.Array],
+        psi_states_right: list[np.ndarray] | list[jax.Array],
+        to: Literal["->", "<-"],
+    ) -> tuple[int, float]:
+        """
+        calculate f(D) = |H(D', D)Psi_left|^2 - |K(D)sig|^2 + |H(D, D')Psi_right|^2
+        """
+        Dmin, Dtarget = sigvec_states[0].shape
+        assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
+        Dleft, d_left, Dtarget = psi_states_left[0].shape
+        assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
+        Dtarget, d_right, Dright = psi_states_right[0].shape
+        assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
+        Dmax = min((Dmax, Dleft * d_left, Dright * d_right))
+        assert Dmin <= Dmax, f"{Dmin=} <= {Dmax=}"
+        logger.debug(f"{Dmin=}, {Dmax=}")
+        total_error_prev: float
+        for D in range(Dmin, Dmax + 1):
+            op_env_D = truncate_op_block(op_env_full, D, mode="bra")
+            op_sys_D = truncate_op_block(op_sys_full, D, mode="bra")
+
+            if Dmin == Dmax:
+                return Dmin, 0.0
+
+            op_lcr1 = self.operators_for_superH(
+                psite=psite if to == "->" else psite - 1,
+                op_sys=op_sys_thin,
+                op_env=op_env_D,
+                ints_site=None,
+                hamiltonian=hamiltonian,
+                A_is_sys=True,
+            )
+            op_lcr2 = self.operators_for_superH(
+                psite=psite + 1 if to == "->" else psite,
+                op_sys=op_sys_D,
+                op_env=op_env_thin,
+                ints_site=None,
+                hamiltonian=hamiltonian,
+                A_is_sys=True,
+            )
+            op_lr = self.operators_for_superK(
+                psite=psite if to == "->" else psite - 1,
+                op_sys=op_sys_D,
+                op_env=op_env_D,
+                hamiltonian=hamiltonian,
+                A_is_sys=True,
+            )
+            if isinstance(hamiltonian, TensorHamiltonian):
+                Heff_left = multiplyH_MPS_direct_MPO(
+                    op_lcr1,
+                    psi_states_left,
+                    hamiltonian,
+                    tensor_shapes_out=(
+                        psi_states_left[0].shape[0],
+                        psi_states_left[0].shape[1],
+                        D,
+                    ),
+                )
+                Heff_right = multiplyH_MPS_direct_MPO(
+                    op_lcr2,
+                    psi_states_right,
+                    hamiltonian,
+                    tensor_shapes_out=(
+                        D,
+                        psi_states_right[0].shape[1],
+                        psi_states_right[0].shape[2],
+                    ),
+                )
+                Keff = multiplyK_MPS_direct_MPO(
+                    op_lr,
+                    sigvec_states,
+                    hamiltonian,
+                    tensor_shapes_out=(D, D),
+                )
+            else:
+                Heff_left = multiplyH_MPS_direct(
+                    op_lcr1,
+                    psi_states_left,
+                    hamiltonian,
+                    tensor_shapes_out=(
+                        psi_states_left[0].shape[0],
+                        psi_states_left[0].shape[1],
+                        D,
+                    ),
+                )
+                Heff_right = multiplyH_MPS_direct(
+                    op_lcr2,
+                    psi_states_right,
+                    hamiltonian,
+                    tensor_shapes_out=(
+                        D,
+                        psi_states_right[0].shape[1],
+                        psi_states_right[0].shape[2],
+                    ),
+                )
+                Keff = multiplyK_MPS_direct(
+                    op_lr,
+                    sigvec_states,
+                    hamiltonian,
+                    tensor_shapes_out=(D, D),
+                )
+            psi_states_left_in = psi_states_left
+            psi_states_right_in = psi_states_right
+            sigvec_states_in = sigvec_states
+            psi_states_left_out = Heff_left.dot(psi_states_left_in)
+            psi_states_left_vec = Heff_left.stack(
+                psi_states_left_out, extend=False
+            )
+            psi_states_right_out = Heff_right.dot(psi_states_right_in)
+            psi_states_right_vec = Heff_right.stack(
+                psi_states_right_out, extend=False
+            )
+            sigvec_states_out = Keff.dot(sigvec_states_in)
+            sigvec_states_vec = Keff.stack(sigvec_states_out, extend=False)
+
+            Hleft_error = np.inner(
+                psi_states_left_vec.conj(), psi_states_left_vec
+            ).real.item()
+            Hright_error = np.inner(
+                psi_states_right_vec.conj(), psi_states_right_vec
+            ).real.item()
+            K_error = np.inner(
+                sigvec_states_vec.conj(), sigvec_states_vec
+            ).real.item()
+            total_error = Hleft_error - K_error + Hright_error
+            logger.debug(f"{D=}, {total_error=:4e}")
+            if D > Dmin:
+                metric = (total_error - total_error_prev) / total_error  # noqa: F821
+                logger.debug(f"{D=}, {metric=:4e}")
+                if metric < p:
+                    return D - 1, metric
+            # uv run ruff check --fix --unsafe-fixes may delete following line but it is necessary
+            total_error_prev = total_error  # noqa: F841
+
+        return max(Dmin, D), 0.0
+
+    def get_op_block_full(
+        self,
+        psite: int,
+        superblock_states_full: list[list[SiteCoef]],
+        op_block_previous: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        hamiltonian: TensorHamiltonian,
+        construct_left: bool,
+        mode: Literal["bra", "braket"],
+    ):
+        superblock_states = self.superblock_states
+        if len(superblock_states) != 1:
+            raise NotImplementedError("only support single superblock")
+
+        if construct_left:
+            step = -1
+        else:
+            step = +1
+
+        match mode:
+            case "bra":
+                superblock_states_bra: list[list[SiteCoef]] | None = (
+                    superblock_states_full
+                )
+                superblock_states_ket = None
+            case "braket":
+                superblock_states = superblock_states_full
+                superblock_states_bra = None
+                superblock_states_ket = None
+
+        block_full = self.renormalize_op_psite(
+            psite=psite + step,
+            superblock_states=superblock_states,
+            op_block_states=op_block_previous,
+            ints_site=None,
+            hamiltonian=hamiltonian,
+            A_is_sys=construct_left,
+            superblock_states_ket=superblock_states_ket,
+            superblock_states_bra=superblock_states_bra,
+        )
+        return block_full
 
 
 def _prod(arr: list[int] | np.ndarray) -> int:
@@ -2095,3 +2355,67 @@ def contract_all_superblock(
     for coef in superblock[-2::-1]:
         core = einsum("ijk,k...->ij...", coef.data, core)
     return core[0, ...]
+
+
+def truncate_op_block(
+    op_block: dict[tuple[int, int], dict[_op_keys, _block_type]],
+    D: int,
+    mode: Literal["bra", "braket"],
+) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
+    op_block_truncated = {}
+    for state_key, op_block_state in op_block.items():
+        op_block_state_truncated = {}
+        for key, value in op_block_state.items():
+            assert isinstance(value, np.ndarray | jax.Array)
+            assert len(value.shape) == 3, f"{value.shape=} is not 3"
+            if mode == "bra":
+                op_block_state_truncated[key] = value[:D, :, :]
+            elif mode == "braket":
+                op_block_state_truncated[key] = value[:D, :, :D]
+            else:
+                raise ValueError(f"{mode=} is not valid")
+        op_block_truncated[state_key] = op_block_state_truncated
+    logger.debug(
+        f"{[(key, value.shape) for key, value in op_block_truncated[(0,0)].items()]}"
+    )
+    return op_block_truncated  # type: ignore
+
+
+def get_superblock_full(
+    superblock: list[SiteCoef], delta_rank: int
+) -> list[SiteCoef]:
+    superblock_full = []
+    nsite = len(superblock)
+    for i, core in enumerate(superblock):
+        actual_delta_rank = 0
+        match core.gauge:
+            case "A":
+                if i == nsite - 1:
+                    pass
+                else:
+                    l1, c1, r1 = core.data.shape
+                    l2, c2, r2 = superblock[i + 1].data.shape
+                    assert l2 == r1
+                    actual_delta_rank = max(
+                        min(delta_rank, min(l1 * c1 - r1, c2 * r2 - l2)), 0
+                    )
+            case "B":
+                if i == 0:
+                    pass
+                else:
+                    l1, c1, r1 = core.data.shape
+                    l2, c2, r2 = superblock[i - 1].data.shape
+                    assert l1 == r2
+                    actual_delta_rank = max(
+                        min(delta_rank, min(c1 * r1 - l1, l2 * c2 - r2)), 0
+                    )
+            case _:
+                pass
+        if actual_delta_rank == 0:
+            superblock_full.append(core)
+        else:
+            superblock_full.append(
+                core.thin_to_full(delta_rank=actual_delta_rank)
+            )
+
+    return superblock_full

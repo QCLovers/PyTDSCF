@@ -565,7 +565,7 @@ class multiplyH_MPS_direct(SplitStack):
         op_lcr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -794,7 +794,7 @@ class multiplyK_MPS_direct(SplitStack):
         op_lr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -938,7 +938,7 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         op_lcr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
                         _block_type,
                         _block_type,
@@ -1160,7 +1160,7 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         tensor_shapes_out: tuple[int, ...] | None = None,
     ):
         super().__init__(
-            op_lr_states=op_lr_states,  # type: ignore
+            op_lr_states=op_lr_states,
             psi_states=psi_states,
             hamiltonian=hamiltonian,
             tensor_shapes_out=tensor_shapes_out,

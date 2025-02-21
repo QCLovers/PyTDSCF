@@ -320,8 +320,8 @@ class MPSCoefMPO(MPSCoef):
 
         return op_block_states  # type: ignore
 
+    @staticmethod
     def renormalize_op_psite(
-        self,
         *,
         psite: int,
         superblock_states: list[list[SiteCoef]],
