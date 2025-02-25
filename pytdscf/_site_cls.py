@@ -106,7 +106,7 @@ class SiteCoef:
         return SiteCoef(self.data / scale, self.gauge, self.isite)
 
     def dot_conj(self, other):
-        return np.inner(np.conj(other).flatten(), np.array(self).flatten())
+        return np.inner(np.conj(other).ravel(), np.array(self).ravel())
 
     def size(self):
         return self.data.size

@@ -1566,105 +1566,81 @@ class MPSCoef(ABC):
         assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
         Dmax = min((Dmax, Dleft * d_left, Dright * d_right))
         assert Dmin <= Dmax, f"{Dmin=} <= {Dmax=}"
+        if Dmin == Dmax:
+            return Dmin, 0.0
         total_error_prev: float
+        op_env_D = truncate_op_block(op_env_full, Dmax, mode="bra")
+        op_sys_D = truncate_op_block(op_sys_full, Dmax, mode="bra")
+        op_lcr1 = self.operators_for_superH(
+            psite=psite if to == "->" else psite - 1,
+            op_sys=op_sys_thin if to == "->" else op_sys_D,
+            op_env=op_env_D if to == "->" else op_env_thin,
+            ints_site=None,
+            hamiltonian=hamiltonian,
+            A_is_sys=to == "->",
+        )
+        op_lcr2 = self.operators_for_superH(
+            psite=psite + 1 if to == "->" else psite,
+            op_sys=op_sys_D if to == "->" else op_sys_thin,
+            op_env=op_env_thin if to == "->" else op_env_D,
+            ints_site=None,
+            hamiltonian=hamiltonian,
+            A_is_sys=to == "->",
+        )
+        op_lr = self.operators_for_superK(
+            psite=psite if to == "->" else psite - 1,
+            op_sys=op_sys_D,
+            op_env=op_env_D,
+            hamiltonian=hamiltonian,
+            A_is_sys=to == "->",
+        )
+        if isinstance(hamiltonian, TensorHamiltonian):
+            Heff_left = multiplyH_MPS_direct_MPO(
+                op_lcr1,
+                psi_states_left,
+                hamiltonian,
+                tensor_shapes_out=(
+                    psi_states_left[0].shape[0],
+                    psi_states_left[0].shape[1],
+                    Dmax,
+                ),
+            )
+            Heff_right = multiplyH_MPS_direct_MPO(
+                op_lcr2,
+                psi_states_right,
+                hamiltonian,
+                tensor_shapes_out=(
+                    Dmax,
+                    psi_states_right[0].shape[1],
+                    psi_states_right[0].shape[2],
+                ),
+            )
+            Keff = multiplyK_MPS_direct_MPO(
+                op_lr,
+                sigvec_states,
+                hamiltonian,
+                tensor_shapes_out=(Dmax, Dmax),
+            )
+        else:
+            raise NotImplementedError("only support TensorHamiltonian")
+        psi_states_left_in = psi_states_left
+        psi_states_right_in = psi_states_right
+        sigvec_states_in = sigvec_states
+        psi_states_left_out = Heff_left.dot(psi_states_left_in)
+        # psi_states_left_vec = Heff_left.stack(
+        #     psi_states_left_out, extend=False
+        # )
+        psi_states_right_out = Heff_right.dot(psi_states_right_in)
+        # psi_states_right_vec = Heff_right.stack(
+        #     psi_states_right_out, extend=False
+        # )
+        sigvec_states_out = Keff.dot(sigvec_states_in)
+        # sigvec_states_vec = Keff.stack(sigvec_states_out, extend=False)
+
         for D in range(Dmin, Dmax + 1):
-            op_env_D = truncate_op_block(op_env_full, D, mode="bra")
-            op_sys_D = truncate_op_block(op_sys_full, D, mode="bra")
-
-            if Dmin == Dmax:
-                return Dmin, 0.0
-
-            op_lcr1 = self.operators_for_superH(
-                psite=psite if to == "->" else psite - 1,
-                op_sys=op_sys_thin if to == "->" else op_sys_D,
-                op_env=op_env_D if to == "->" else op_env_thin,
-                ints_site=None,
-                hamiltonian=hamiltonian,
-                A_is_sys=to == "->",
-            )
-            op_lcr2 = self.operators_for_superH(
-                psite=psite + 1 if to == "->" else psite,
-                op_sys=op_sys_D if to == "->" else op_sys_thin,
-                op_env=op_env_thin if to == "->" else op_env_D,
-                ints_site=None,
-                hamiltonian=hamiltonian,
-                A_is_sys=to == "->",
-            )
-            op_lr = self.operators_for_superK(
-                psite=psite if to == "->" else psite - 1,
-                op_sys=op_sys_D,
-                op_env=op_env_D,
-                hamiltonian=hamiltonian,
-                A_is_sys=to == "->",
-            )
-            if isinstance(hamiltonian, TensorHamiltonian):
-                Heff_left = multiplyH_MPS_direct_MPO(
-                    op_lcr1,
-                    psi_states_left,
-                    hamiltonian,
-                    tensor_shapes_out=(
-                        psi_states_left[0].shape[0],
-                        psi_states_left[0].shape[1],
-                        D,
-                    ),
-                )
-                Heff_right = multiplyH_MPS_direct_MPO(
-                    op_lcr2,
-                    psi_states_right,
-                    hamiltonian,
-                    tensor_shapes_out=(
-                        D,
-                        psi_states_right[0].shape[1],
-                        psi_states_right[0].shape[2],
-                    ),
-                )
-                Keff = multiplyK_MPS_direct_MPO(
-                    op_lr,
-                    sigvec_states,
-                    hamiltonian,
-                    tensor_shapes_out=(D, D),
-                )
-            else:
-                Heff_left = multiplyH_MPS_direct(
-                    op_lcr1,
-                    psi_states_left,
-                    hamiltonian,
-                    tensor_shapes_out=(
-                        psi_states_left[0].shape[0],
-                        psi_states_left[0].shape[1],
-                        D,
-                    ),
-                )
-                Heff_right = multiplyH_MPS_direct(
-                    op_lcr2,
-                    psi_states_right,
-                    hamiltonian,
-                    tensor_shapes_out=(
-                        D,
-                        psi_states_right[0].shape[1],
-                        psi_states_right[0].shape[2],
-                    ),
-                )
-                Keff = multiplyK_MPS_direct(
-                    op_lr,
-                    sigvec_states,
-                    hamiltonian,
-                    tensor_shapes_out=(D, D),
-                )
-            psi_states_left_in = psi_states_left
-            psi_states_right_in = psi_states_right
-            sigvec_states_in = sigvec_states
-            psi_states_left_out = Heff_left.dot(psi_states_left_in)
-            psi_states_left_vec = Heff_left.stack(
-                psi_states_left_out, extend=False
-            )
-            psi_states_right_out = Heff_right.dot(psi_states_right_in)
-            psi_states_right_vec = Heff_right.stack(
-                psi_states_right_out, extend=False
-            )
-            sigvec_states_out = Keff.dot(sigvec_states_in)
-            sigvec_states_vec = Keff.stack(sigvec_states_out, extend=False)
-
+            psi_states_left_vec = psi_states_left_out[0][:, :, :D].ravel()
+            psi_states_right_vec = psi_states_right_out[0][:D, :, :].ravel()
+            sigvec_states_vec = sigvec_states_out[0][:D, :D].ravel()
             Hleft_error = np.inner(
                 psi_states_left_vec.conj(), psi_states_left_vec
             ).real.item()
@@ -1996,9 +1972,7 @@ def get_C_sval_states_norm(
         )
     else:
         norm = math.sqrt(
-            np.sum(
-                [linalg.norm(x.flatten()) ** 2 for x in matPsi_or_sval_states]
-            )
+            np.sum([linalg.norm(x.ravel()) ** 2 for x in matPsi_or_sval_states])
         )
     return norm
 

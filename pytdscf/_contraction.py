@@ -520,7 +520,8 @@ class SplitStack:
                     psi_states = [
                         np.pad(x, ((0, L - l), (0, R - r))) for x in psi_states
                     ]
-            psi = np.hstack([x.flatten() for x in psi_states])
+            # psi = np.hstack([x.flatten() for x in psi_states])
+            psi = np.hstack([x.ravel() for x in psi_states])
         return psi
 
     def split(
