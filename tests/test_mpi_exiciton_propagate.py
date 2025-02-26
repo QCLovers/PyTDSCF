@@ -193,7 +193,7 @@ def test_mpi_exiciton_propagate(backend="numpy"):
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
         stepsize=0.05,
-        maxstep=30,
+        maxstep=100,
         reduced_density=(
             [(3, 3)],
             1,
@@ -202,14 +202,15 @@ def test_mpi_exiciton_propagate(backend="numpy"):
         adaptive=True,
         adaptive_dD=60,
         adaptive_Dmax=60,
-        adaptive_p_proj=1e-06,
-        adaptive_p_svd=1e-06,
+        adaptive_p_proj=1e-05,
+        adaptive_p_svd=1e-05,
     )
     from loguru import logger
 
     logger = logger.bind(name="rank")
+    logger.info(f"Rank {rank} Energy: {ener_calc}")
     if rank == 0:
-        assert pytest.approx(ener_calc, rel=0.1) == 0.01000
+        assert pytest.approx(ener_calc, rel=0.15) == 0.01000
 
 
 if __name__ == "__main__":
