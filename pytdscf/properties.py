@@ -333,7 +333,10 @@ class Properties:
         autocorr = self.autocorr
 
         if norm is not None:
-            if abs(norm - 1.0) > 1.0e-06:
+            threshold = (
+                1.0e-02 if const.adaptive or const.mpi_size > 1 else 1e-06
+            )
+            if abs(norm - 1.0) > threshold:
                 logger.warning(
                     f"Wave Function norm is not 1.0, but {norm} when {time_fs} fs"
                 )

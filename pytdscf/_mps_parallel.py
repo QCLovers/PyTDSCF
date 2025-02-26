@@ -166,15 +166,13 @@ class MPSCoefParallel(MPSCoefMPO):
         psi_L, psi_R = self.recv_Psi_from_right(even_rank=True)
         self.send_op_sys_to_left(even_rank=False, matH=matH, pop_op_sys=False)
         op_env_previous = self.recv_op_sys_from_right(even_rank=True)
-        op_sys_from_left, op_sys_from_right, Bsite = (
-            self.propagate_joint_two_sites(
-                even_rank=True,
-                matH=matH,
-                stepsize=stepsize,
-                op_env_previous=op_env_previous,
-                psi_L=psi_L,
-                psi_R=psi_R,
-            )
+        op_sys_from_right, Bsite = self.propagate_joint_two_sites(
+            even_rank=True,
+            matH=matH,
+            stepsize=stepsize,
+            op_env_previous=op_env_previous,
+            psi_L=psi_L,
+            psi_R=psi_R,
         )
         self.send_B_to_right(even_rank=True, Bsite=Bsite)
         self.recv_B_from_left(even_rank=False)
@@ -196,9 +194,7 @@ class MPSCoefParallel(MPSCoefMPO):
         #     A_is_sys=False,
         # )
         # (5) -> (6)=(3)
-        self.send_joint_sigvec_to_right(
-            even_rank=True, truncate=False
-        )  # because already truncated
+        self.send_joint_sigvec_to_right(even_rank=True)
         self.recv_joint_sigvec_from_left(even_rank=False)
         self.send_op_sys_to_right(even_rank=True)
         op_sys_from_left = self.recv_op_sys_from_left(even_rank=False)
@@ -238,15 +234,13 @@ class MPSCoefParallel(MPSCoefMPO):
         # self.recv_joint_sigvec_from_right(even_rank=False, matH=matH)
         # op_sys_from_right = self.recv_op_sys_from_right(even_rank=False)
         # (1) -> (0)
-        op_sys_from_left, op_env_from_left, Bsite = (
-            self.propagate_joint_two_sites(
-                even_rank=False,
-                matH=matH,
-                stepsize=stepsize,
-                op_env_previous=op_env_previous,
-                psi_L=psi_L,
-                psi_R=psi_R,
-            )
+        op_env_from_left, Bsite = self.propagate_joint_two_sites(
+            even_rank=False,
+            matH=matH,
+            stepsize=stepsize,
+            op_env_previous=op_env_previous,
+            psi_L=psi_L,
+            psi_R=psi_R,
         )
         self.send_B_to_right(even_rank=False, Bsite=Bsite)
         self.recv_B_from_left(even_rank=True)
@@ -278,7 +272,7 @@ class MPSCoefParallel(MPSCoefMPO):
         if (
             not is_update_rank(even_rank)
         ) or const.mpi_rank == const.mpi_size - 1:
-            return None, None, None
+            return None, None
 
         assert isinstance(self.op_sys_sites, list)
         assert isinstance(psi_L, SiteCoef)
@@ -403,9 +397,12 @@ class MPSCoefParallel(MPSCoefMPO):
             sigvec=svalues[0],
             Bsite=Bsite,
             p=const.p_svd,
+            regularize=True,
         )
         self.joint_sigvec_not_pinv = self.joint_sigvec
         self.superblock_states[0][-1] = Asite
+        superblock[-2] = Asite
+        superblock[-1] = Bsite
         op_sys = self.renormalize_op_psite(
             psite=self.nsite - 1,
             superblock_states=[superblock],
@@ -423,7 +420,7 @@ class MPSCoefParallel(MPSCoefMPO):
             A_is_sys=False,
         )
         self.op_sys_sites.append(op_sys)
-        return op_sys, op_env, Bsite
+        return op_env, Bsite
 
     def reset_left_op_blocks(self, matH: TensorHamiltonian):
         """
@@ -528,15 +525,11 @@ class MPSCoefParallel(MPSCoefMPO):
         #     stepsize=stepsize,
         # )[0]
 
-    def send_joint_sigvec_to_right(
-        self, even_rank: bool, truncate: bool = True
-    ):
+    def send_joint_sigvec_to_right(self, even_rank: bool):
         """
-        Left rank              | Right rank
-        A-A-...-A-x            |   B-...-B-B
-        A-A-...-A-U-σ-Vh       |   B-...-B-B
-        A-A-...-A-U-σ-σ^+-σ-Vh |   B-...-B-B
-        A-A-...-A-Ψ-σ^+        | x-B-...-B-B
+        Left rank     | Right rank
+        A-A-...-A-x   |   B-...-B-B
+        A-A-...-Ψ-x^+ | x-B-...-B-B
         """
         if (
             not is_update_rank(even_rank)
@@ -548,24 +541,11 @@ class MPSCoefParallel(MPSCoefMPO):
         assert superblock[-1].gauge == "A"
         if not isinstance(joint_sigvec, np.ndarray):
             raise NotImplementedError
-        if truncate:
-            superblock[-1], joint_sigvec, Vh = truncate_sigvec(
-                Asite=superblock[-1],
-                sigvec=joint_sigvec,
-                Bsite=None,
-                p=const.p_svd,
-            )
-            comm.send(
-                joint_sigvec @ Vh,
-                dest=const.mpi_rank + 1,
-                tag=2,
-            )
-        else:
-            comm.send(
-                joint_sigvec,
-                dest=const.mpi_rank + 1,
-                tag=2,
-            )
+        comm.send(
+            joint_sigvec,
+            dest=const.mpi_rank + 1,
+            tag=2,
+        )
         self.joint_sigvec_not_pinv = joint_sigvec
         self.joint_sigvec = np.linalg.pinv(joint_sigvec)
         np.testing.assert_allclose(

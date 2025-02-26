@@ -484,7 +484,11 @@ def truncate_sigvec(
 
 
 def truncate_sigvec(
-    Asite: SiteCoef | None, sigvec: np.ndarray, Bsite: SiteCoef | None, p: float
+    Asite: SiteCoef | None,
+    sigvec: np.ndarray,
+    Bsite: SiteCoef | None,
+    p: float,
+    regularize: bool = False,
 ) -> tuple[SiteCoef | np.ndarray, np.ndarray, SiteCoef | np.ndarray]:
     r"""Truncate singular vector
 
@@ -517,7 +521,6 @@ def truncate_sigvec(
         cumsum = np.cumsum(sigvec2.real)
         contribution = cumsum / cumsum[-1]
         idx = np.argmax(contribution >= (1 - p)) + 1
-        sigvec = np.diag(sigvec2[:idx])
         if isinstance(Asite, SiteCoef):
             assert Asite.gauge == "A", "Asite must be A tensor"
             Asite.data = np.tensordot(Asite.data, U[:, :idx], axes=(2, 0))
@@ -530,4 +533,12 @@ def truncate_sigvec(
             R = Bsite
         else:
             R = Vh[:idx, :]
-        return L, sigvec, R
+    if regularize and sigvec.shape != (1, 1):
+        sqrt_epsrho = math.sqrt(const.epsrho)
+        sigvec2 = np.where(
+            sigvec2 > 64.0e0 * sqrt_epsrho,
+            sigvec2,
+            sigvec2 + sqrt_epsrho * np.exp(-sigvec2 / sqrt_epsrho),
+        )
+    sigvec = np.diag(sigvec2[:idx])
+    return L, sigvec, R
