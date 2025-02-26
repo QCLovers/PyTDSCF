@@ -1,6 +1,7 @@
 """Wave function handling module"""
 
 from copy import deepcopy
+from itertools import chain
 from time import time
 
 import jax
@@ -16,6 +17,11 @@ from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef, SPFInts
 from pytdscf.basis._primints_cls import PrimInts
 from pytdscf.hamiltonian_cls import HamiltonianMixin, PolynomialHamiltonian
+
+try:
+    from mpi4py import MPI
+except Exception:
+    MPI = None  # type: ignore
 
 logger = logger.bind(name="main")
 
@@ -134,7 +140,7 @@ class WFunc:
         """
         return self.ci_coef.pop_states()
 
-    def bonddim(self) -> list[int]:
+    def bonddim(self) -> list[int] | None:
         """
 
         get bond dimension of WF
@@ -144,7 +150,19 @@ class WFunc:
         """
         assert isinstance(self.ci_coef, MPSCoef)
         mps = self.ci_coef
-        bonddim = [site.shape[2] for site in mps.superblock_states[0][:-1]]
+        if const.mpi_size == 1:
+            bonddim = [site.shape[2] for site in mps.superblock_states[0][:-1]]
+        else:
+            bonddim_rank = [site.shape[2] for site in mps.superblock_states[0]]
+            comm = MPI.COMM_WORLD
+            bonddim_all: list[list[int]] = comm.gather(bonddim_rank, root=0)  # type: ignore
+            if comm.rank == 0:
+                bonddim = []
+                for rank in chain(*bonddim_all):
+                    bonddim.append(rank)
+                bonddim.pop()
+            else:
+                bonddim = None
         return bonddim
 
     def propagate(self, matH: HamiltonianMixin, stepsize: float):

@@ -788,6 +788,7 @@ class MPSCoef(ABC):
         end_site: int,
         op_sys_initial: dict[tuple[int, int], dict[_op_keys, _block_type]]
         | None = None,
+        skip_end_site: bool = False,
     ) -> dict[tuple[int, int], dict[_op_keys, _block_type]]:
         """Propagate MPS along a sweep
 
@@ -844,21 +845,21 @@ class MPSCoef(ABC):
 
         if const.adaptive:
             assert (
-                len(self.superblock_states) == 1
+                len(superblock_states) == 1
             ), "Only one superblock is implemented for adaptive calculation"
             assert (
                 isinstance(matH_cas, TensorHamiltonian) and const.use_mpo
             ), "Only MPO is implemented for adaptive calculation"
             superblock_states_full = [
-                get_superblock_full(
-                    self.superblock_states[0], delta_rank=const.dD
-                )
+                get_superblock_full(superblock_states[0], delta_rank=const.dD)
             ]
 
         psites_sweep = range(begin_site, end_site + step, step)
         for psite in psites_sweep:
             if const.verbose == 4:
                 helper._ElpTime.ci_etc -= time()
+            if skip_end_site and psite == end_site:
+                return op_sys
             helper._Debug.site_now = psite
             op_env = op_env_sites.pop()
 
@@ -867,6 +868,7 @@ class MPSCoef(ABC):
                 newD, error, op_env_D_bra, op_env_D_braket = (
                     self.get_adaptive_rank_and_block(
                         psite=psite,
+                        superblock_states=superblock_states,
                         superblock_states_full=superblock_states_full,
                         op_env_previous=op_env_previous,
                         hamiltonian=matH_cas,  # type: ignore
@@ -1478,6 +1480,7 @@ class MPSCoef(ABC):
     def get_psi_sigvec_psi_fullblock(
         self,
         psite: int,
+        superblock_states: list[list[SiteCoef]],
         to: Literal["->", "<-"],
         op_block: dict[tuple[int, int], dict[_op_keys, _block_type]],
         delta_rank: int,
@@ -1491,49 +1494,47 @@ class MPSCoef(ABC):
         calculate AσBB=Ψ'BB,
         then return Ψ', σ, Ψ
         """
-        if len(self.superblock_states) > 1:
+        if len(superblock_states) > 1:
             raise NotImplementedError("multi MPS is not implemented")
-        psi_site = self.superblock_states[0][psite].copy()
-        nsite = len(self.superblock_states[0])
-        superblock_states: list[list[SiteCoef]]
+        psi_site = superblock_states[0][psite].copy()
+        nsite = len(superblock_states[0])
+        superblock_states_trans: list[list[SiteCoef]]
+        superblock_states_trans = [[None for _ in range(nsite)]]  # type: ignore
+        superblock_states_trans_bra = [[None for _ in range(nsite)]]
         match to:
             case "->":
-                B_site = self.superblock_states[0][psite + 1]
+                B_site = superblock_states[0][psite + 1]
                 A_site, sigvec = psi_site.gauge_trf(key="Psi2Asigma")
                 psi_prime_site = np.tensordot(sigvec, B_site.data, axes=(1, 0))
                 A_site_full = A_site.thin_to_full(delta_rank=delta_rank)
-                superblock_states = [[None for _ in range(nsite)]]  # type: ignore
-                superblock_states[0][psite] = A_site
-                superblock_states_bra = [[None for _ in range(nsite)]]
-                superblock_states_bra[0][psite] = A_site_full
+                superblock_states_trans[0][psite] = A_site
+                superblock_states_trans_bra[0][psite] = A_site_full
                 op_block_A_full = self.renormalize_op_psite(
                     psite=psite,
-                    superblock_states=superblock_states,
+                    superblock_states=superblock_states_trans,
                     op_block_states=op_block,
                     ints_site=None,
                     hamiltonian=hamiltonian,
                     A_is_sys=True,
-                    superblock_states_bra=superblock_states_bra,
+                    superblock_states_bra=superblock_states_trans_bra,
                     superblock_states_ket=None,
                 )
                 return psi_site.data, sigvec, psi_prime_site, op_block_A_full
             case "<-":
-                A_site = self.superblock_states[0][psite - 1]
+                A_site = superblock_states[0][psite - 1]
                 B_site, sigvec = psi_site.gauge_trf(key="Psi2sigmaB")
                 psi_prime_site = np.tensordot(A_site.data, sigvec, axes=(2, 0))
                 B_site_full = B_site.thin_to_full(delta_rank=delta_rank)
-                superblock_states = [[None for _ in range(nsite)]]  # type: ignore
-                superblock_states[0][psite] = B_site
-                superblock_states_bra = [[None for _ in range(nsite)]]
-                superblock_states_bra[0][psite] = B_site_full
+                superblock_states_trans[0][psite] = B_site
+                superblock_states_trans_bra[0][psite] = B_site_full
                 op_block_B_full = self.renormalize_op_psite(
                     psite=psite,
-                    superblock_states=superblock_states,
+                    superblock_states=superblock_states_trans,
                     op_block_states=op_block,
                     ints_site=None,
                     hamiltonian=hamiltonian,
                     A_is_sys=False,
-                    superblock_states_bra=superblock_states_bra,
+                    superblock_states_bra=superblock_states_trans_bra,
                     superblock_states_ket=None,
                 )
                 return psi_prime_site, sigvec, psi_site.data, op_block_B_full
@@ -1665,13 +1666,13 @@ class MPSCoef(ABC):
     def get_op_block_full(
         self,
         psite: int,
+        superblock_states: list[list[SiteCoef]],
         superblock_states_full: list[list[SiteCoef]],
         op_block_previous: dict[tuple[int, int], dict[_op_keys, _block_type]],
         hamiltonian: TensorHamiltonian,
         to: Literal["->", "<-"],
         mode: Literal["bra", "braket"],
     ):
-        superblock_states = self.superblock_states
         if len(superblock_states) != 1:
             raise NotImplementedError("only support single superblock")
 
@@ -1708,6 +1709,7 @@ class MPSCoef(ABC):
         self,
         *,
         psite: int,
+        superblock_states: list[list[SiteCoef]],
         superblock_states_full: list[list[SiteCoef]],
         op_env_previous: dict[tuple[int, int], dict[_op_keys, _block_type]],
         hamiltonian: TensorHamiltonian,
@@ -1743,6 +1745,7 @@ class MPSCoef(ABC):
         ), "only support single superblock"
         op_env_full_braket = self.get_op_block_full(
             psite=psite,
+            superblock_states=superblock_states,
             superblock_states_full=superblock_states_full,
             op_block_previous=op_env_previous,
             hamiltonian=hamiltonian,
@@ -1752,6 +1755,7 @@ class MPSCoef(ABC):
         # logger.debug(f"{op_env_full_braket=}")
         op_env_full_bra = self.get_op_block_full(
             psite=psite,
+            superblock_states=superblock_states,
             superblock_states_full=superblock_states_full,
             op_block_previous=op_env_previous,
             hamiltonian=hamiltonian,
@@ -1765,18 +1769,19 @@ class MPSCoef(ABC):
         if to == "->":
             Dmax = min(
                 const.Dmax,
-                self.superblock_states[0][psite].data.shape[2] + const.dD,
+                superblock_states[0][psite].data.shape[2] + const.dD,
             )
-            delta_rank = Dmax - self.superblock_states[0][psite].data.shape[2]
+            delta_rank = Dmax - superblock_states[0][psite].data.shape[2]
         else:
             Dmax = min(
                 const.Dmax,
-                self.superblock_states[0][psite].data.shape[0] + const.dD,
+                superblock_states[0][psite].data.shape[0] + const.dD,
             )
-            delta_rank = Dmax - self.superblock_states[0][psite].data.shape[0]
+            delta_rank = Dmax - superblock_states[0][psite].data.shape[0]
         psi_left, sigvec, psi_right, op_sys_full_bra = (
             self.get_psi_sigvec_psi_fullblock(
                 psite=psite,
+                superblock_states=superblock_states,
                 to=to,
                 op_block=op_sys_thin,
                 delta_rank=delta_rank,
@@ -1807,13 +1812,13 @@ class MPSCoef(ABC):
         )
         match to:
             case "->":
-                self.superblock_states[0][
-                    psite + 1
-                ].data = superblock_states_full[0][psite + 1].data[:newD, :, :]
+                superblock_states[0][psite + 1].data = superblock_states_full[
+                    0
+                ][psite + 1].data[:newD, :, :]
             case "<-":
-                self.superblock_states[0][
-                    psite - 1
-                ].data = superblock_states_full[0][psite - 1].data[:, :, :newD]
+                superblock_states[0][psite - 1].data = superblock_states_full[
+                    0
+                ][psite - 1].data[:, :, :newD]
         return newD, error, op_env_D_bra, op_env_D_braket
 
 
@@ -1974,6 +1979,10 @@ def get_C_sval_states_norm(
         norm = math.sqrt(
             np.sum([linalg.norm(x.ravel()) ** 2 for x in matPsi_or_sval_states])
         )
+    from loguru import logger as _logger
+
+    logger = _logger.bind(name="rank")
+    logger.debug(f"{norm=}")
     return norm
 
 

@@ -231,12 +231,14 @@ def sweep(
             newD, error, op_env_D_bra, op_env_D_braket = (
                 mps.get_adaptive_rank_and_block(
                     psite=psite,
+                    superblock_states=mps.superblock_states,
                     superblock_states_full=superblock_states_full,
                     op_env_previous=op_env_previous,
                     hamiltonian=hamiltonian,
                     to=to,
                 )
             )
+            logger.debug(f"{newD=}, {error=}")
             if to == "->":
                 R = newD
             else:
@@ -360,7 +362,7 @@ def sweep(
 def test_a1tdvp_sweep(use_class_method: bool):
     model = get_model()
     pytdscf._const_cls.const.set_runtype(
-        use_jax=False, jobname="a1tdvp", adaptive=True, adaptive_p_proj=1.0e-03, adaptive_p_svd=1.0e-07, adaptive_Dmax=100, adaptive_dD=10
+        use_jax=False, jobname="a1tdvp", adaptive=True, adaptive_p_proj=1.0e-05, adaptive_p_svd=1.0e-07, adaptive_Dmax=100, adaptive_dD=30
     )
     mps = pytdscf._mps_mpo.MPSCoefMPO.alloc_random(model)
     assert isinstance(mps, pytdscf._mps_mpo.MPSCoefMPO)

@@ -29,16 +29,33 @@ def get_mps_parallel():
     match pytdscf._const_cls.const.mpi_size:
         case 2:
             pytdscf._const_cls.const.set_runtype(
-                use_jax=False, parallel_split_indices=[(0, 5), (6, 11)]
+                use_jax=False,
+                parallel_split_indices=[(0, 5), (6, 11)],
+                adaptive=True,
+                adaptive_Dmax=30,
+                adaptive_dD=30,
+                adaptive_p_proj=1e-04,
+                adaptive_p_svd=1e-7,
             )
         case 3:
             pytdscf._const_cls.const.set_runtype(
-                use_jax=False, parallel_split_indices=[(0, 3), (4, 7), (8, 11)]
+                use_jax=False,
+                parallel_split_indices=[(0, 3), (4, 7), (8, 11)],
+                adaptive=True,
+                adaptive_Dmax=30,
+                adaptive_dD=30,
+                adaptive_p_proj=1e-04,
+                adaptive_p_svd=1e-7,
             )
         case 4:
             pytdscf._const_cls.const.set_runtype(
                 use_jax=False,
                 parallel_split_indices=[(0, 2), (3, 5), (6, 8), (9, 11)],
+                adaptive=True,
+                adaptive_Dmax=30,
+                adaptive_dD=30,
+                adaptive_p_proj=1e-04,
+                adaptive_p_svd=1e-7,
             )
         case _:
             raise ValueError(
@@ -63,7 +80,7 @@ def get_mps_parallel():
             [1.0, 1.0, 1.0, 1.0],
         ]
         superblock = lattice_info.alloc_superblock_random(
-            m_aux_max=4, scale=1.0, weight_vib=weight_vib
+            m_aux_max=1, scale=1.0, weight_vib=weight_vib
         )
     else:
         superblock = None

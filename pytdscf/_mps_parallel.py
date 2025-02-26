@@ -12,8 +12,14 @@ from loguru import logger
 from pytdscf import _integrator
 from pytdscf._const_cls import const
 from pytdscf._contraction import _block_type, _op_keys, multiplyK_MPS_direct_MPO
-from pytdscf._mps_cls import CC2ALambdaB, SiteCoef, canonicalize
+from pytdscf._mps_cls import (
+    CC2ALambdaB,
+    SiteCoef,
+    canonicalize,
+    get_superblock_full,
+)
 from pytdscf._mps_mpo import MPSCoefMPO, myndarray
+from pytdscf._site_cls import truncate_sigvec
 from pytdscf._spf_cls import SPFInts
 from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
@@ -46,6 +52,8 @@ class MPSCoefParallel(MPSCoefMPO):
     superblock_all_B_world: list[SiteCoef]  # whole data stored in rank0
     superblock_all_A_world: list[SiteCoef]  # whole data stored in rank0
     joint_sigvec: np.ndarray | jax.Array  # Site with sigma gauge
+    psi_L: SiteCoef | None  # orthogonal center recieved from left rank
+    psi_R: SiteCoef | None  # orthogonal center recieved from right rank
 
     @classmethod
     def alloc_random(cls, model: Model) -> MPSCoefParallel:
@@ -105,31 +113,42 @@ class MPSCoefParallel(MPSCoefMPO):
             else:
                 self.op_sys_sites = left_op_blocks
         # (0) -> (1)
-        self.send_to_left_op_sys(
-            even_rank=True, matH=matH, pop_op_sys=reset_op_block
-        )
-        op_sys_from_right = self.recv_from_right_op_sys(even_rank=False)
-        self.propagate_joint_sigvec(
-            stepsize,
-            even_rank=False,
-            op_sys=op_sys_from_right,
+        self.send_op_sys_to_left(
+            even_rank=True,
             matH=matH,
-            A_is_sys=True,
+            pop_op_sys=True,  # reset_op_block
         )
+        op_sys_from_right = self.recv_op_sys_from_right(even_rank=False)
+        # self.propagate_joint_sigvec(
+        #     stepsize,
+        #     even_rank=False,
+        #     op_sys=op_sys_from_right,
+        #     matH=matH,
+        #     A_is_sys=True,
+        # )
         # (1) -> (2)
-        self.send_to_right_joint_sigvec(even_rank=False)
-        self.recv_from_left_joint_sigvec(even_rank=True)
-        self.send_to_right_op_sys(even_rank=False)
-        op_sys_from_left = self.recv_from_left_op_sys(even_rank=True)
+        self.send_joint_sigvec_to_right(even_rank=False)
+        self.recv_joint_sigvec_from_left(even_rank=True)
+        self.send_op_sys_to_right(even_rank=False)
+        op_sys_from_left = self.recv_op_sys_from_left(even_rank=True)
         # (2) -> (3)
         if const.mpi_rank % 2 == 0:
             begin_site = 0
             end_site = self.nsite - 1
             op_sys = op_sys_from_left
+            if const.mpi_rank == const.mpi_size - 1:
+                skip_end_site = False
+            else:
+                skip_end_site = True
         else:
             begin_site = self.nsite - 1
             end_site = 0
             op_sys = op_sys_from_right
+            skip_end_site = True
+            # if const.mpi_rank == 0:
+            #     skip_end_site = False
+            # else:
+            #     skip_end_site = True
         self.propagate_along_sweep(
             ints_site,
             matH,
@@ -137,42 +156,67 @@ class MPSCoefParallel(MPSCoefMPO):
             begin_site=begin_site,
             end_site=end_site,
             op_sys_initial=op_sys,
+            skip_end_site=skip_end_site,
         )
         # (3) -> (4)
-        self.send_to_left_joint_sigvec(even_rank=False)
-        self.recv_from_right_joint_sigvec(even_rank=True, matH=matH)
-        self.send_to_left_op_sys(even_rank=False, matH=matH, pop_op_sys=False)
-        op_sys_from_right = self.recv_from_right_op_sys(even_rank=True)
-        # (4) -> (5)
-        self.propagate_joint_sigvec(
-            stepsize,
-            even_rank=True,
-            op_sys=op_sys_from_right,
-            matH=matH,
-            A_is_sys=True,
+        # self.send_joint_sigvec_to_left(even_rank=False)
+        # self.recv_joint_sigvec_from_right(even_rank=True, matH=matH)
+        self.send_Psi_to_left(even_rank=False)
+        psi_L, psi_R = self.recv_Psi_from_right(even_rank=True)
+        self.send_op_sys_to_left(even_rank=False, matH=matH, pop_op_sys=False)
+        op_env_previous = self.recv_op_sys_from_right(even_rank=True)
+        op_sys_from_left, op_sys_from_right, Bsite = (
+            self.propagate_joint_two_sites(
+                even_rank=True,
+                matH=matH,
+                stepsize=stepsize,
+                op_env_previous=op_env_previous,
+                psi_L=psi_L,
+                psi_R=psi_R,
+            )
         )
+        self.send_B_to_right(even_rank=True, Bsite=Bsite)
+        self.recv_B_from_left(even_rank=False)
+        # (4) -> (5)
+        # self.propagate_joint_sigvec(
+        #     stepsize,
+        #     even_rank=True,
+        #     op_sys=op_sys_from_right,
+        #     matH=matH,
+        #     A_is_sys=True,
+        # )
         self.save_all_A(even_rank=True)
         self.save_all_B(even_rank=False)
-        self.propagate_joint_sigvec(
-            stepsize,
-            even_rank=True,
-            op_sys=op_sys_from_right,
-            matH=matH,
-            A_is_sys=False,
-        )
+        # self.propagate_joint_sigvec(
+        #     stepsize,
+        #     even_rank=True,
+        #     op_sys=op_sys_from_right,
+        #     matH=matH,
+        #     A_is_sys=False,
+        # )
         # (5) -> (6)=(3)
-        self.send_to_right_joint_sigvec(even_rank=True)
-        self.send_to_right_op_sys(even_rank=True)
-        self.recv_from_left_joint_sigvec(even_rank=False)
-        op_sys_from_left = self.recv_from_left_op_sys(even_rank=False)
+        self.send_joint_sigvec_to_right(
+            even_rank=True, truncate=False
+        )  # because already truncated
+        self.recv_joint_sigvec_from_left(even_rank=False)
+        self.send_op_sys_to_right(even_rank=True)
+        op_sys_from_left = self.recv_op_sys_from_left(even_rank=False)
         if const.mpi_rank % 2 == 0:
             begin_site = self.nsite - 1
             end_site = 0
             op_sys = op_sys_from_right
+            if const.mpi_rank == 0:
+                skip_end_site = False
+            else:
+                skip_end_site = True
         else:
             begin_site = 0
             end_site = self.nsite - 1
             op_sys = op_sys_from_left
+            if const.mpi_rank == const.mpi_size - 1:
+                skip_end_site = False
+            else:
+                skip_end_site = True
         # (3) -> (2)
         self.propagate_along_sweep(
             ints_site,
@@ -181,23 +225,199 @@ class MPSCoefParallel(MPSCoefMPO):
             begin_site=begin_site,
             end_site=end_site,
             op_sys_initial=op_sys,
+            skip_end_site=skip_end_site,
         )
         # (2) -> (1)
-        self.send_to_left_joint_sigvec(even_rank=True)
-        self.send_to_left_op_sys(even_rank=True, matH=matH, pop_op_sys=False)
-        self.recv_from_right_joint_sigvec(even_rank=False, matH=matH)
-        op_sys_from_right = self.recv_from_right_op_sys(even_rank=False)
+        self.send_Psi_to_left(even_rank=True)
+        psi_L, psi_R = self.recv_Psi_from_right(even_rank=False)
+        self.send_op_sys_to_left(even_rank=True, matH=matH, pop_op_sys=False)
+        op_env_previous = self.recv_op_sys_from_right(even_rank=False)
+        # self.send_joint_sigvec_to_left(even_rank=True)
+        # self.send_op_sys_to_left(even_rank=True, matH=matH, pop_op_sys=False)
+        # self.recv_joint_sigvec_from_right(even_rank=False, matH=matH)
+        # op_sys_from_right = self.recv_op_sys_from_right(even_rank=False)
         # (1) -> (0)
-        self.propagate_joint_sigvec(
-            stepsize,
-            even_rank=False,
-            op_sys=op_sys_from_right,
-            matH=matH,
-            A_is_sys=False,
+        op_sys_from_left, op_env_from_left, Bsite = (
+            self.propagate_joint_two_sites(
+                even_rank=False,
+                matH=matH,
+                stepsize=stepsize,
+                op_env_previous=op_env_previous,
+                psi_L=psi_L,
+                psi_R=psi_R,
+            )
         )
+        self.send_B_to_right(even_rank=False, Bsite=Bsite)
+        self.recv_B_from_left(even_rank=True)
+        self.send_op_env_to_right(
+            even_rank=False, op_env_from_left=op_env_from_left
+        )
+        self.recv_op_env_from_left(even_rank=True)
+        # self.propagate_joint_sigvec(
+        #     stepsize,
+        #     even_rank=False,
+        #     op_sys=op_sys_from_right,
+        #     matH=matH,
+        #     A_is_sys=False,
+        # )
         self.save_all_A(even_rank=False)
         self.save_all_B(even_rank=True)
         # self.sync_world_canonicalize()
+        # raise NotImplementedError
+
+    def propagate_joint_two_sites(
+        self,
+        even_rank: bool,
+        matH: TensorHamiltonian,
+        stepsize: float,
+        op_env_previous: dict[tuple[int, int], dict[_op_keys, _block_type]],
+        psi_L: SiteCoef | None,
+        psi_R: SiteCoef | None,
+    ):
+        if (
+            not is_update_rank(even_rank)
+        ) or const.mpi_rank == const.mpi_size - 1:
+            return None, None, None
+
+        assert isinstance(self.op_sys_sites, list)
+        assert isinstance(psi_L, SiteCoef)
+        assert isinstance(psi_R, SiteCoef)
+        op_sys_previous = self.op_sys_sites[-1]
+        joint_sigvec = self.joint_sigvec
+        psi_R.data = np.tensordot(
+            joint_sigvec,
+            psi_R.data,
+            axes=(1, 0),
+        )
+        superblock = [psi_L, psi_R]
+        canonicalize(superblock, orthogonal_center=0)
+        superblock_full = get_superblock_full(superblock, delta_rank=const.dD)
+        superblock = [None for _ in range(self.nsite - 1)] + superblock  # type: ignore
+        superblock_full = [
+            None for _ in range(self.nsite - 1)
+        ] + superblock_full  # type: ignore
+        newD, error, op_env_D_bra, op_env_D_braket = (
+            self.get_adaptive_rank_and_block(
+                psite=self.nsite - 1,
+                superblock_states=[superblock],
+                superblock_states_full=[superblock_full],
+                op_env_previous=op_env_previous,
+                hamiltonian=matH,
+                to="->",
+            )
+        )
+        op_env = op_env_D_bra
+        L, C, _ = superblock[-2].data.shape
+        tensor_shapes_out = (L, C, newD)
+        op_lcr = self.operators_for_superH(
+            psite=self.nsite - 1,
+            op_sys=op_sys_previous,
+            op_env=op_env,
+            ints_site=None,
+            hamiltonian=matH,
+            A_is_sys=True,
+        )
+        self.exp_superH_propagation_direct(
+            psite=self.nsite - 1,
+            superblock_states=[superblock],
+            op_lcr=op_lcr,
+            matH_cas=matH,
+            stepsize=stepsize,
+            tensor_shapes_out=tensor_shapes_out,
+        )
+        svalues, op_sys = self.trans_next_psite_AsigmaB(
+            psite=self.nsite - 1,
+            superblock_states=[superblock],
+            op_sys=op_sys_previous,
+            ints_site=None,
+            matH_cas=matH,
+            PsiB2AB=True,
+        )
+        op_env = op_env_D_braket
+        op_lr = self.operators_for_superK(
+            psite=self.nsite - 1,
+            op_sys=op_sys,
+            op_env=op_env,
+            hamiltonian=matH,
+            A_is_sys=True,
+        )
+        svalues = self.exp_superK_propagation_direct(
+            op_lr=op_lr,
+            hamiltonian=matH,
+            svalues=svalues,
+            stepsize=stepsize,
+        )
+        self.trans_next_psite_APsiB(
+            psite=self.nsite - 1,
+            superblock_states=[superblock],
+            svalues=svalues,
+            A_is_sys=True,
+        )
+        op_lcr = self.operators_for_superH(
+            psite=self.nsite,
+            op_sys=op_sys,
+            op_env=op_env_previous,
+            ints_site=None,
+            hamiltonian=matH,
+            A_is_sys=True,
+        )
+        self.exp_superH_propagation_direct(
+            psite=self.nsite,
+            superblock_states=[superblock],
+            op_lcr=op_lcr,
+            matH_cas=matH,
+            stepsize=stepsize,
+        )
+        svalues, op_env = self.trans_next_psite_AsigmaB(
+            psite=self.nsite,
+            superblock_states=[superblock],
+            op_sys=op_env_previous,
+            ints_site=None,
+            matH_cas=matH,
+            PsiB2AB=False,
+        )
+        op_lr = self.operators_for_superK(
+            psite=self.nsite - 1,
+            op_sys=op_sys,
+            op_env=op_env,
+            hamiltonian=matH,
+            A_is_sys=True,
+        )
+        svalues = self.exp_superK_propagation_direct(
+            op_lr=op_lr,
+            hamiltonian=matH,
+            svalues=svalues,
+            stepsize=stepsize,
+        )
+        assert len(svalues) == 1
+        Asite, Bsite = superblock[-2:]
+        assert Asite.gauge == "A"
+        assert Bsite.gauge == "B"
+        Asite, self.joint_sigvec, Bsite = truncate_sigvec(
+            Asite=Asite,
+            sigvec=svalues[0],
+            Bsite=Bsite,
+            p=const.p_svd,
+        )
+        self.superblock_states[0][-1] = Asite
+        op_sys = self.renormalize_op_psite(
+            psite=self.nsite - 1,
+            superblock_states=[superblock],
+            op_block_states=op_sys_previous,
+            ints_site=None,
+            hamiltonian=matH,
+            A_is_sys=True,
+        )
+        op_env = self.renormalize_op_psite(
+            psite=self.nsite,
+            superblock_states=[superblock],
+            op_block_states=op_env_previous,
+            ints_site=None,
+            hamiltonian=matH,
+            A_is_sys=False,
+        )
+        self.op_sys_sites.append(op_sys)
+        return op_sys, op_env, Bsite
 
     def reset_left_op_blocks(self, matH: TensorHamiltonian):
         """
@@ -276,275 +496,457 @@ class MPSCoefParallel(MPSCoefMPO):
         matH: TensorHamiltonian,
         A_is_sys: bool,
     ):
-        if is_update_rank(even_rank) and const.mpi_rank != const.mpi_size - 1:
-            assert isinstance(self.op_sys_sites, list)
-            op_env = self.op_sys_sites[-1]
-            if A_is_sys:
-                psite = -1
-            else:
-                psite = self.nsite
-            op_lr = self.operators_for_superK(
-                psite=psite,
-                op_sys=op_sys,
-                op_env=op_env,
-                hamiltonian=matH,
-                A_is_sys=A_is_sys,
-            )
-            self.joint_sigvec = self.exp_superK_propagation_direct(
-                op_lr=op_lr,
-                hamiltonian=matH,
-                svalues=[self.joint_sigvec],
-                stepsize=stepsize,
-            )[0]
+        if (
+            not is_update_rank(even_rank)
+            or const.mpi_rank == const.mpi_size - 1
+        ):
+            return
+        assert isinstance(self.op_sys_sites, list)
+        op_env = self.op_sys_sites[-1]
+        if A_is_sys:
+            psite = -1
+        else:
+            psite = self.nsite
+        op_lr = self.operators_for_superK(
+            psite=psite,
+            op_sys=op_sys,
+            op_env=op_env,
+            hamiltonian=matH,
+            A_is_sys=A_is_sys,
+        )
+        self.joint_sigvec = self.exp_superK_propagation_direct(
+            op_lr=op_lr,
+            hamiltonian=matH,
+            svalues=[self.joint_sigvec],
+            stepsize=stepsize,
+        )[0]
 
-    def send_to_right_joint_sigvec(self, even_rank: bool):
-        if is_update_rank(even_rank) and const.mpi_rank != const.mpi_size - 1:
-            # x -> xx^+x
-            joint_sigvec = self.joint_sigvec
-            superblock = self.superblock_states[0]
-            assert superblock[-1].gauge == "A"
-            if isinstance(joint_sigvec, np.ndarray):
-                # regularize
-                # joint_sigvec += 1.0e-08*np.eye(joint_sigvec.shape[0], dtype=complex)
-                # joint_sigvec /= np.sqrt(np.einsum("ij,ij->", joint_sigvec.conj(), joint_sigvec))
-                self.joint_sigvec = np.linalg.pinv(joint_sigvec)
-                assert np.allclose(
-                    joint_sigvec @ self.joint_sigvec @ joint_sigvec,
-                    joint_sigvec,
-                )
-                superblock[-1].data = np.tensordot(
-                    superblock[-1].data,
-                    joint_sigvec,
-                    axes=([2], [0]),
-                )  # ijk,kl->ijl
-            else:
-                raise NotImplementedError
-            superblock[-1].gauge = "Psi"
+    def send_joint_sigvec_to_right(
+        self, even_rank: bool, truncate: bool = True
+    ):
+        """
+        Left rank              | Right rank
+        A-A-...-A-x            |   B-...-B-B
+        A-A-...-A-U-σ-Vh       |   B-...-B-B
+        A-A-...-A-U-σ-σ^+-σ-Vh |   B-...-B-B
+        A-A-...-A-Ψ-σ^+        | x-B-...-B-B
+        """
+        if (
+            not is_update_rank(even_rank)
+        ) or const.mpi_rank == const.mpi_size - 1:
+            return
+        # x -> xx^+x
+        joint_sigvec = self.joint_sigvec
+        superblock = self.superblock_states[0]
+        assert superblock[-1].gauge == "A"
+        if not isinstance(joint_sigvec, np.ndarray):
+            raise NotImplementedError
+        if truncate:
+            superblock[-1], joint_sigvec, Vh = truncate_sigvec(
+                Asite=superblock[-1],
+                sigvec=joint_sigvec,
+                Bsite=None,
+                p=const.p_svd,
+            )
+            comm.send(
+                joint_sigvec @ Vh,
+                dest=const.mpi_rank + 1,
+                tag=2,
+            )
+        else:
             comm.send(
                 joint_sigvec,
                 dest=const.mpi_rank + 1,
                 tag=2,
             )
+        self.joint_sigvec = np.linalg.pinv(joint_sigvec)
+        np.testing.assert_allclose(
+            joint_sigvec @ self.joint_sigvec @ joint_sigvec,
+            joint_sigvec,
+        )
+        superblock[-1].data = np.tensordot(
+            superblock[-1].data,
+            joint_sigvec,
+            axes=([2], [0]),
+        )  # ijk,kl->ijl
+        superblock[-1].gauge = "Psi"
 
-    def recv_from_left_joint_sigvec(self, even_rank: bool):
-        # 1. receive x
-        # 2. compute xB=Psi
-        if is_update_rank(even_rank) and const.mpi_rank != 0:
-            joint_sigvec = comm.recv(
-                source=const.mpi_rank - 1,
-                tag=2,
-            )
-            superblock = self.superblock_states[0]
-            assert superblock[0].gauge == "B", f"{superblock[0]=}"
-            if isinstance(joint_sigvec, np.ndarray):
-                superblock[0].data = np.tensordot(
-                    joint_sigvec,
-                    superblock[0].data,
-                    axes=([1], [0]),
-                )  # ij,jkl->ikl
-            else:
-                raise NotImplementedError
-            superblock[0].gauge = "Psi"
+    def recv_joint_sigvec_from_left(self, even_rank: bool):
+        """
+        Left rank       | Right rank
+        A-A-...-Ψ-x^+-x |   B-...-B-B
+        A-A-...-ψ-x^+   | x-B-...-B-B
+        A-A-...-Ψ-x^+   |   Ψ-...-B-B
+        """
+        if (not is_update_rank(even_rank)) or const.mpi_rank == 0:
+            return
+        joint_sigvec = comm.recv(
+            source=const.mpi_rank - 1,
+            tag=2,
+        )
+        superblock = self.superblock_states[0]
+        assert superblock[0].gauge == "B", f"{superblock[0]=}"
+        if isinstance(joint_sigvec, np.ndarray):
+            superblock[0].data = np.tensordot(
+                joint_sigvec,
+                superblock[0].data,
+                axes=(1, 0),
+            )  # ij,jkl->ikl
+        else:
+            raise NotImplementedError
+        superblock[0].gauge = "Psi"
 
-    def send_to_right_op_sys(self, even_rank: bool):
+    def send_op_sys_to_right(
+        self,
+        even_rank: bool,
+    ):
+        """
+        Sent following block to the right rank
+        A-A-...A-
+        | | .  |
+        W-W-...W-
+        | | .  |
+        A-A-...A-
+        """
+        if (
+            not is_update_rank(even_rank)
+            or const.mpi_rank == const.mpi_size - 1
+        ):
+            return
         assert isinstance(self.op_sys_sites, list)
-        if is_update_rank(even_rank) and const.mpi_rank != const.mpi_size - 1:
-            op_sys = self.op_sys_sites.pop()
-            send_op_block(op_sys, dest=const.mpi_rank + 1, tag1=13, tag2=23)
+        op_sys = self.op_sys_sites.pop()
+        send_op_block(op_sys, dest=const.mpi_rank + 1, tag1=13, tag2=23)
 
-    def recv_from_left_op_sys(self, even_rank: bool):
+    def recv_op_sys_from_left(self, even_rank: bool):
+        """
+        Receive following block from the left rank
+        A-A-...A-
+        | | .  |
+        W-W-...W-
+        | | .  |
+        A-A-...A-
+        """
         if is_update_rank(even_rank) and const.mpi_rank != 0:
-            op_sys = recv_op_block(source=const.mpi_rank - 1, tag1=13, tag2=23)
-            return op_sys
+            return recv_op_block(source=const.mpi_rank - 1, tag1=13, tag2=23)
         else:
             return None
 
-    def send_to_left_joint_sigvec(self, even_rank: bool):
-        # Psi -> xB -> transfer x to left
+    def send_op_env_to_right(
+        self,
+        even_rank: bool,
+        op_env_from_left: dict[tuple[int, int], dict[_op_keys, _block_type]],
+    ):
+        """
+        Sent following block to the right rank
+        -B-...
+         |
+        -W-...
+         |
+        -B-...
+        """
+        if (
+            not is_update_rank(even_rank)
+            or const.mpi_rank == const.mpi_size - 1
+        ):
+            return
+        send_op_block(
+            op_env_from_left, dest=const.mpi_rank + 1, tag1=14, tag2=24
+        )
+
+    def recv_op_env_from_left(self, even_rank: bool):
+        """
+        Receive following block from the left rank
+        -B-...
+         |
+        -W-...
+         |
+        -B-...
+        """
+        if is_update_rank(even_rank) and const.mpi_rank != 0:
+            op_sys = recv_op_block(source=const.mpi_rank - 1, tag1=14, tag2=24)
+            assert isinstance(self.op_sys_sites, list)
+            assert len(self.op_sys_sites) == self.nsite
+            self.op_sys_sites.append(op_sys)
+        else:
+            return None
+
+    def send_joint_sigvec_to_left(self, even_rank: bool):
+        """
+        Left rank     | Right rank
+        A-A-...-ψ-x   |   ψ-...-B-B
+        A-A-...-ψ-x   | σ-B-...-B-B
+        A-A-...-ψ-x-σ |   B-...-B-B
+        """
+        if not is_update_rank(even_rank) or const.mpi_rank == 0:
+            return
+        superblock = self.superblock_states[0]
+        assert superblock[0].gauge == "Psi", f"{superblock[0].gauge=}"
+        Bsite, svec = superblock[0].gauge_trf(key="Psi2sigmaB")
+        superblock[0] = Bsite
+        comm.send(svec, dest=const.mpi_rank - 1, tag=4)
+
+    def recv_joint_sigvec_from_right(
+        self, even_rank: bool, matH: TensorHamiltonian
+    ):
+        """
+        Left rank        | Right rank
+        A-A-...-ψ-x      | σ'-B-...-B-B
+        A-A-...-A-σ-x    | σ'-B-...-B-B
+        A-A-...-A-σ-x-σ' |    B-...-B-B
+        A-A-...-A-x'     |    B-...-B-B
+
+        Then, compute new A-blocks
+        """
+        assert isinstance(self.op_sys_sites, list)
+        if (
+            not is_update_rank(even_rank)
+            or const.mpi_rank == const.mpi_size - 1
+        ):
+            return
+        svec_right = comm.recv(source=const.mpi_rank + 1, tag=4)
+        superblock = self.superblock_states[-1]
+        assert superblock[-1].gauge == "Psi", f"{superblock[-1].gauge=}"
+        Asite, svec_left = superblock[-1].gauge_trf(key="Psi2Asigma")
+        superblock[-1] = Asite
+        svec_center = self.joint_sigvec
+        self.joint_sigvec = svec_left @ svec_center @ svec_right
+        self.op_sys_sites.append(
+            self.renormalize_op_psite(
+                psite=self.nsite - 1,
+                superblock_states=self.superblock_states,
+                op_block_states=self.op_sys_sites[-1],
+                ints_site=None,
+                hamiltonian=matH,
+                A_is_sys=True,
+                superblock_states_ket=None,
+            )
+        )
+
+    def send_Psi_to_left(self, even_rank: bool):
+        """
+        Left rank     | Right rank
+        A-A-...-Ψ-x   | ψ'-B-...-B-B
+        A-A-...-Ψ-x-Ψ'|    B-...-B-B
+        """
         if is_update_rank(even_rank) and const.mpi_rank != 0:
             superblock = self.superblock_states[0]
             assert superblock[0].gauge == "Psi", f"{superblock[0].gauge=}"
-            core, svec = superblock[0].gauge_trf(key="Psi2sigmaB")
-            superblock[0] = core
-            comm.send(svec, dest=const.mpi_rank - 1, tag=4)
+            comm.send(superblock[0], dest=const.mpi_rank - 1, tag=4)
 
-    def recv_from_right_joint_sigvec(
-        self, even_rank: bool, matH: TensorHamiltonian
-    ):
-        # 1. Psi -> Ay,
-        # 2. recieve z,
-        # 3. compute yxz
-        # 4. compute_op_sys_sites
-        assert isinstance(self.op_sys_sites, list)
-        if is_update_rank(even_rank) and const.mpi_rank != const.mpi_size - 1:
-            svec_right = comm.recv(source=const.mpi_rank + 1, tag=4)
-            superblock = self.superblock_states[-1]
-            assert superblock[-1].gauge == "Psi", f"{superblock[-1].gauge=}"
-            core, svec_left = superblock[-1].gauge_trf(key="Psi2Asigma")
-            superblock[-1] = core
-            svec_center = self.joint_sigvec
-            self.joint_sigvec = svec_left @ svec_center @ svec_right
-            self.op_sys_sites.append(
-                self.renormalize_op_psite(
-                    psite=self.nsite - 1,
-                    superblock_states=self.superblock_states,
-                    op_block_states=self.op_sys_sites[-1],
-                    ints_site=None,
-                    hamiltonian=matH,
-                    A_is_sys=True,
-                    superblock_states_ket=None,
-                )
-            )
+    def recv_Psi_from_right(
+        self, even_rank: bool
+    ) -> tuple[SiteCoef, SiteCoef] | tuple[None, None]:
+        """
+        Left rank     | Right rank
+        A-A-...-Ψ-x   | ψ'-B-...-B-B
+        A-A-...-Ψ-x-Ψ'|    B-...-B-B
+        """
+        if (
+            not is_update_rank(even_rank)
+        ) or const.mpi_rank == const.mpi_size - 1:
+            return None, None
+        superblock = self.superblock_states[0]
+        psi_R = comm.recv(source=const.mpi_rank + 1, tag=4)
+        psi_L = superblock[-1]
+        assert psi_L.gauge == "Psi"
+        assert psi_R.gauge == "Psi"
+        return psi_L, psi_R
 
-    def send_to_left_op_sys(
+    def send_B_to_right(self, even_rank: bool, Bsite: SiteCoef | None):
+        """
+        Left rank     | Right rank
+        A-A-...-A-x-B |   B-...-B-B
+        A-A-...-A-x   | B-B-...-B-B
+        """
+        if (
+            not is_update_rank(even_rank)
+        ) or const.mpi_rank == const.mpi_size - 1:
+            return
+        assert isinstance(Bsite, SiteCoef)
+        assert Bsite.gauge == "B"
+        comm.send(Bsite, dest=const.mpi_rank + 1, tag=3)
+
+    def recv_B_from_left(self, even_rank: bool):
+        """
+        Left rank     | Right rank
+        A-A-...-A-x-B |   B-...-B-B
+        A-A-...-A-x   | B-B-...-B-B
+        """
+        if (not is_update_rank(even_rank)) or const.mpi_rank == 0:
+            return
+        Bsite = comm.recv(source=const.mpi_rank - 1, tag=3)
+        assert isinstance(Bsite, SiteCoef)
+        assert Bsite.gauge == "B"
+        self.superblock_states[0][0] = Bsite
+
+    def send_op_sys_to_left(
         self, even_rank: bool, matH: TensorHamiltonian, pop_op_sys: bool
-    ):
-        assert isinstance(self.op_sys_sites, list)
-        if is_update_rank(even_rank) and const.mpi_rank != 0:
-            if len(self.op_sys_sites) == self.nsite + 1 and pop_op_sys:
-                op_sys = self.op_sys_sites.pop()
-            elif len(self.op_sys_sites) == self.nsite and not pop_op_sys:
-                assert self.superblock_states[0][0].gauge == "B"
-                op_sys = self.renormalize_op_psite(
-                    psite=0,
-                    superblock_states=self.superblock_states,
-                    op_block_states=self.op_sys_sites[-1],
-                    ints_site=None,
-                    hamiltonian=matH,
-                    A_is_sys=False,
-                    superblock_states_ket=None,
-                )
-                assert self.superblock_states[0][0].gauge == "B"
-            else:
-                raise ValueError(
-                    f"{len(self.op_sys_sites)=} {self.nsite=} {self.superblock_states=}"
-                )
-            send_op_block(op_sys, dest=const.mpi_rank - 1, tag1=15, tag2=25)
+    ) -> None:
+        """
+        Sent following block to the left rank
+        -B-B-B
+         | | |
+        -W-W-W
+         | | |
+        -B-B-B
 
-    def recv_from_right_op_sys(self, even_rank: bool):
-        if is_update_rank(even_rank) and const.mpi_rank != const.mpi_size - 1:
-            op_sys = recv_op_block(source=const.mpi_rank + 1, tag1=15, tag2=25)
+        Args:
+            even_rank: whether even rank will send the block
+            matH: the Hamiltonian
+            pop_op_sys: whether to pop the op_sys_sites
+        """
+        assert isinstance(self.op_sys_sites, list)
+        if (not is_update_rank(even_rank)) or const.mpi_rank == 0:
+            return
+        if len(self.op_sys_sites) == self.nsite + 1 and pop_op_sys:
+            op_sys = self.op_sys_sites.pop()
+        elif len(self.op_sys_sites) == self.nsite and not pop_op_sys:
+            match self.superblock_states[0][0].gauge:
+                case "B":
+                    op_sys = self.renormalize_op_psite(
+                        psite=0,
+                        superblock_states=self.superblock_states,
+                        op_block_states=self.op_sys_sites[-1],
+                        ints_site=None,
+                        hamiltonian=matH,
+                        A_is_sys=False,
+                        superblock_states_ket=None,
+                    )
+                case "Psi":
+                    assert self.superblock_states[0][1].gauge == "B"
+                    op_sys = self.op_sys_sites[-1]
+                case _:
+                    raise ValueError(f"{self.superblock_states[0][0].gauge=}")
         else:
-            op_sys = None
-        return op_sys
+            raise ValueError(
+                f"{len(self.op_sys_sites)=} {self.nsite=} {self.superblock_states=}"
+            )
+        send_op_block(op_sys, dest=const.mpi_rank - 1, tag1=15, tag2=25)
+
+    def recv_op_sys_from_right(self, even_rank: bool):
+        if is_update_rank(even_rank) and const.mpi_rank != const.mpi_size - 1:
+            return recv_op_block(source=const.mpi_rank + 1, tag1=15, tag2=25)
+        else:
+            return None
 
     def save_all_A(self, even_rank: bool):
-        if is_update_rank(even_rank):
-            self.superblock_all_A = [
-                SiteCoef(
-                    isite=core.isite,
-                    data=core.data.copy(),
-                    gauge=core.gauge,
-                )
-                for core in self.superblock_states[0]
-            ]
-            if const.mpi_rank != const.mpi_size - 1:
-                assert all(
-                    core.gauge == "A" for core in self.superblock_all_A
-                ), f"Found {[core.gauge for core in self.superblock_all_A]} in superblock_all_A"
-            else:
-                assert all(
-                    core.gauge == "A" for core in self.superblock_all_A[:-1]
-                ), f"Found {[core.gauge for core in self.superblock_all_A[:-1]]} in superblock_all_A"
+        if not is_update_rank(even_rank):
+            return
+        self.superblock_all_A = [
+            SiteCoef(
+                isite=core.isite,
+                data=core.data.copy(),
+                gauge=core.gauge,
+            )
+            for core in self.superblock_states[0]
+        ]
+        if const.mpi_rank != const.mpi_size - 1:
+            assert all(
+                core.gauge == "A" for core in self.superblock_all_A
+            ), f"Found {[core.gauge for core in self.superblock_all_A]} in superblock_all_A"
+        else:
+            assert all(
+                core.gauge == "A" for core in self.superblock_all_A[:-1]
+            ), f"Found {[core.gauge for core in self.superblock_all_A[:-1]]} in superblock_all_A"
 
     def save_all_B(self, even_rank: bool):
-        if is_update_rank(even_rank):
-            self.superblock_all_B = [
-                SiteCoef(
-                    isite=core.isite,
-                    data=core.data.copy(),
-                    gauge=core.gauge,
-                )
-                for core in self.superblock_states[0]
-            ]
-            if const.mpi_rank != 0:
-                assert all(
-                    core.gauge == "B" for core in self.superblock_all_B
-                ), f"Found {[core.gauge for core in self.superblock_all_B]} in superblock_all_B"
-            else:
-                assert all(
-                    core.gauge == "B" for core in self.superblock_all_B[1:]
-                ), f"Found {[core.gauge for core in self.superblock_all_B[1:]]} in superblock_all_B"
+        if not is_update_rank(even_rank):
+            return
+        self.superblock_all_B = [
+            SiteCoef(
+                isite=core.isite,
+                data=core.data.copy(),
+                gauge=core.gauge,
+            )
+            for core in self.superblock_states[0]
+        ]
+        if const.mpi_rank != 0:
+            assert all(
+                core.gauge == "B" for core in self.superblock_all_B
+            ), f"Found {[core.gauge for core in self.superblock_all_B]} in superblock_all_B"
+        else:
+            assert all(
+                core.gauge == "B" for core in self.superblock_all_B[1:]
+            ), f"Found {[core.gauge for core in self.superblock_all_B[1:]]} in superblock_all_B"
 
     def ovlp(self, conj=True) -> complex | float | None:
+        rank = const.mpi_rank
+        size = const.mpi_size
+        mid_rank = size // 2
+
+        is_forward_group = rank < mid_rank
         if const.use_jax:
             raise NotImplementedError
-        else:
-            rank = const.mpi_rank
-            size = const.mpi_size
-            mid_rank = size // 2
-
-            is_forward_group = rank < mid_rank
-            superblock_data = [
-                core.data.copy()
-                if i == len(self.superblock_states[0]) - 1
-                else core.data
-                for i, core in enumerate(self.superblock_states[0])
+        superblock_data = [
+            core.data.copy()
+            if i == len(self.superblock_states[0]) - 1
+            else core.data
+            for i, core in enumerate(self.superblock_states[0])
+        ]
+        if const.mpi_rank != const.mpi_size - 1:
+            # einsum ijk,kl->ijl
+            superblock_data[-1] = np.einsum(
+                "ijk,kl->ijl", superblock_data[-1], self.joint_sigvec
+            )
+        ket_cores: list[np.ndarray] = [ket for ket in superblock_data]  # type: ignore
+        if conj:
+            bra_cores: list[np.ndarray] = [
+                bra.conj()  # type: ignore
+                for bra in superblock_data
             ]
-            if const.mpi_rank != const.mpi_size - 1:
-                # einsum ijk,kl->ijl
-                superblock_data[-1] = np.einsum(
-                    "ijk,kl->ijl", superblock_data[-1], self.joint_sigvec
-                )
-            ket_cores: list[np.ndarray] = [ket for ket in superblock_data]  # type: ignore
-            if conj:
-                bra_cores: list[np.ndarray] = [
-                    bra.conj()  # type: ignore
-                    for bra in superblock_data
-                ]
-            else:
-                bra_cores = ket_cores
+        else:
+            bra_cores = ket_cores
 
-            block = None
+        block = None
 
-            if is_forward_group:
-                if rank == 0:
-                    block = _ovlp_single_state_np_from_left(
-                        bra_cores, ket_cores, block
-                    )
-                else:
-                    block = comm.recv(source=rank - 1, tag=0)
-                    block = _ovlp_single_state_np_from_left(
-                        bra_cores, ket_cores, block
-                    )
-                if rank != mid_rank - 1:
-                    comm.send(block, dest=rank + 1, tag=0)
-                elif rank == mid_rank - 1 and rank != 0:
-                    comm.send(block, dest=0, tag=0)
-                elif rank == mid_rank - 1 and rank == 0:
-                    pass
-                else:
-                    raise ValueError(f"{rank=}")
-            else:
-                if rank == size - 1:
-                    block = _ovlp_single_state_np_from_right(
-                        bra_cores, ket_cores, block
-                    )
-                else:
-                    block = comm.recv(source=rank + 1, tag=1)
-                    block = _ovlp_single_state_np_from_right(
-                        bra_cores, ket_cores, block
-                    )
-                if rank != mid_rank:
-                    comm.send(block, dest=rank - 1, tag=1)
-                elif rank == mid_rank:
-                    comm.send(block, dest=0, tag=1)
-                else:
-                    raise ValueError(f"{rank=}")
-
+        if is_forward_group:
             if rank == 0:
-                if mid_rank - 1 == 0:
-                    block_left = block
-                else:
-                    block_left = comm.recv(source=mid_rank - 1, tag=0)
-                block_right = comm.recv(source=mid_rank, tag=1)
-                final_result = np.einsum("ab,ab->", block_left, block_right)
-                if conj:
-                    return final_result.real
-                else:
-                    return complex(final_result)
+                block = _ovlp_single_state_np_from_left(
+                    bra_cores, ket_cores, block
+                )
             else:
-                return None
+                block = comm.recv(source=rank - 1, tag=0)
+                block = _ovlp_single_state_np_from_left(
+                    bra_cores, ket_cores, block
+                )
+            if rank != mid_rank - 1:
+                comm.send(block, dest=rank + 1, tag=0)
+            elif rank == mid_rank - 1 and rank != 0:
+                comm.send(block, dest=0, tag=0)
+            elif rank == mid_rank - 1 and rank == 0:
+                pass
+            else:
+                raise ValueError(f"{rank=}")
+        else:
+            if rank == size - 1:
+                block = _ovlp_single_state_np_from_right(
+                    bra_cores, ket_cores, block
+                )
+            else:
+                block = comm.recv(source=rank + 1, tag=1)
+                block = _ovlp_single_state_np_from_right(
+                    bra_cores, ket_cores, block
+                )
+            if rank != mid_rank:
+                comm.send(block, dest=rank - 1, tag=1)
+            elif rank == mid_rank:
+                comm.send(block, dest=0, tag=1)
+            else:
+                raise ValueError(f"{rank=}")
+
+        if rank == 0:
+            if mid_rank - 1 == 0:
+                block_left = block
+            else:
+                block_left = comm.recv(source=mid_rank - 1, tag=0)
+            block_right = comm.recv(source=mid_rank, tag=1)
+            final_result = np.einsum("ab,ab->", block_left, block_right)
+            if conj:
+                return final_result.real
+            else:
+                return complex(final_result)
+        else:
+            return None
 
     def autocorr(self, ints_spf: SPFInts, psite: int = 0) -> complex | None:
         return self.ovlp(conj=False)

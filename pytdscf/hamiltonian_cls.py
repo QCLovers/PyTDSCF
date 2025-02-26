@@ -760,8 +760,8 @@ class TensorHamiltonian(HamiltonianMixin):
                     if isinstance(mpo_ij, MatrixProductOperators):
                         if k < len(split_indices) - 1:
                             calc_point = mpo_ij.calc_point[
-                                split_indices[k] : split_indices[k + 1]
-                            ]
+                                split_indices[k] : split_indices[k + 1] + 1
+                            ]  # for adaptive calculation, terminate site should be shared.
                         else:
                             calc_point = mpo_ij.calc_point[split_indices[k] :]
                         send_data_k[(i, j)] = calc_point
@@ -774,8 +774,11 @@ class TensorHamiltonian(HamiltonianMixin):
         recv_data = comm.scatter(send_data_all, root=0)
         for i, j in itertools.product(range(self.nstate), range(self.nstate)):
             if recv_data[(i, j)] is not None:
+                nsite = const.end_site_rank - const.bgn_site_rank + 1
+                if const.mpi_rank != const.mpi_size - 1:
+                    nsite += 1
                 mpo_ij = MatrixProductOperators(
-                    nsite=const.end_site_rank - const.bgn_site_rank + 1,
+                    nsite=nsite,
                     operators={},
                     backend="jax" if const.use_jax else "numpy",
                 )

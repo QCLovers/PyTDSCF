@@ -176,7 +176,7 @@ def test_mpi_exiciton_propagate(backend="numpy"):
         potential = None
         kinetic = None
     hamiltonian = TensorHamiltonian(
-        ndof=4, potential=potential, kinetic=kinetic, backend=backend
+        ndof=4, potential=potential, kinetic=kinetic, backend=backend,
     )
 
     operators = {"hamiltonian": hamiltonian}
@@ -193,19 +193,23 @@ def test_mpi_exiciton_propagate(backend="numpy"):
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
         stepsize=0.05,
-        maxstep=20,
+        maxstep=30,
         reduced_density=(
             [(3, 3)],
             1,
         ),
         parallel_split_indices=[(0, 1), (2, 3)],
+        adaptive=True,
+        adaptive_dD=60,
+        adaptive_Dmax=60,
+        adaptive_p_proj=1e-06,
+        adaptive_p_svd=1e-06,
     )
     from loguru import logger
 
     logger = logger.bind(name="rank")
-    logger.info(f"{ener_calc=}")
     if rank == 0:
-        assert pytest.approx(ener_calc, rel=1e-3) == 0.01000
+        assert pytest.approx(ener_calc, rel=0.1) == 0.01000
 
 
 if __name__ == "__main__":

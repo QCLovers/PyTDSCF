@@ -308,15 +308,10 @@ def short_iterative_lanczos(
         if ldim == 0:
             trial_states = psi_states
         else:
-            try:
-                trial_states = multiplyOp.split(cvecs[-1], truncate=True)
-            except Exception as e:
-                print(f"{cvecs[-1]=}")
-                raise e
+            trial_states = multiplyOp.split(cvecs[-1], truncate=True)
 
         sigvec_states = multiplyOp.dot(trial_states)
         sigvec = multiplyOp.stack(sigvec_states)
-
         if use_jax:
             if ldim == 0:
                 beta_l = None

@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 import os
 from functools import partial
-from typing import Literal
+from typing import Literal, overload
 
 import jax
 import jax.numpy as jnp
@@ -49,8 +49,11 @@ class SiteCoef:
     ):
         self.data = data
         self.gauge = gauge
-        self.shape = data.shape
         self.isite = isite
+
+    @property
+    def shape(self):
+        return self.data.shape
 
     def copy(self):
         return SiteCoef(self.data.copy(), self.gauge, self.isite)
@@ -456,9 +459,33 @@ def validate_Atensor(coef: np.ndarray | jax.Array | SiteCoef) -> None:
     np.testing.assert_allclose(AA, np.eye(AA.shape[0]), atol=1.0e-15)
 
 
+@overload
 def truncate_sigvec(
     Asite: SiteCoef, sigvec: np.ndarray, Bsite: SiteCoef, p: float
-) -> tuple[SiteCoef, np.ndarray | jax.Array, SiteCoef]:
+) -> tuple[SiteCoef, np.ndarray, SiteCoef]: ...
+
+
+@overload
+def truncate_sigvec(
+    Asite: None, sigvec: np.ndarray, Bsite: SiteCoef, p: float
+) -> tuple[np.ndarray, np.ndarray, SiteCoef]: ...
+
+
+@overload
+def truncate_sigvec(
+    Asite: SiteCoef, sigvec: np.ndarray, Bsite: None, p: float
+) -> tuple[SiteCoef, np.ndarray, np.ndarray]: ...
+
+
+@overload
+def truncate_sigvec(
+    Asite: None, sigvec: np.ndarray, Bsite: None, p: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+
+
+def truncate_sigvec(
+    Asite: SiteCoef | None, sigvec: np.ndarray, Bsite: SiteCoef | None, p: float
+) -> tuple[SiteCoef | np.ndarray, np.ndarray, SiteCoef | np.ndarray]:
     r"""Truncate singular vector
 
     Args:
@@ -478,6 +505,10 @@ def truncate_sigvec(
        A -> AU
        σ -> σ' (truncated)
        B -> VhB
+
+    If Asite is None, return (U, σ', VhB)
+    If Bsite is None, return (AU, σ', Vh)
+    If both are None, return (U, σ', Vh)
     """
     if isinstance(sigvec, jax.Array):
         raise NotImplementedError
@@ -486,9 +517,17 @@ def truncate_sigvec(
         cumsum = np.cumsum(sigvec2.real)
         contribution = cumsum / cumsum[-1]
         idx = np.argmax(contribution >= (1 - p)) + 1
-        assert Asite.gauge == "A", "Asite must be A tensor"
-        assert Bsite.gauge == "B", "Bsite must be B tensor"
-        Asite.data = np.tensordot(Asite.data, U[:, :idx], axes=(2, 0))
-        Bsite.data = np.tensordot(Vh[:idx, :], Bsite.data, axes=(1, 0))
         sigvec = np.diag(sigvec2[:idx])
-        return Asite, sigvec, Bsite
+        if isinstance(Asite, SiteCoef):
+            assert Asite.gauge == "A", "Asite must be A tensor"
+            Asite.data = np.tensordot(Asite.data, U[:, :idx], axes=(2, 0))
+            L = Asite
+        else:
+            L = U[:, :idx]
+        if isinstance(Bsite, SiteCoef):
+            assert Bsite.gauge == "B", "Bsite must be B tensor"
+            Bsite.data = np.tensordot(Vh[:idx, :], Bsite.data, axes=(1, 0))
+            R = Bsite
+        else:
+            R = Vh[:idx, :]
+        return L, sigvec, R
