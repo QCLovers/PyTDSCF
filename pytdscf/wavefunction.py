@@ -13,10 +13,15 @@ import pytdscf._helper as helper
 from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef, _ovlp_single_state_jax
 from pytdscf._mps_mpo import MPSCoefMPO
+from pytdscf._mps_parallel import MPSCoefParallel
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef, SPFInts
 from pytdscf.basis._primints_cls import PrimInts
-from pytdscf.hamiltonian_cls import HamiltonianMixin, PolynomialHamiltonian
+from pytdscf.hamiltonian_cls import (
+    HamiltonianMixin,
+    PolynomialHamiltonian,
+    TensorHamiltonian,
+)
 
 try:
     from mpi4py import MPI
@@ -346,6 +351,7 @@ class WFunc:
         self,
         matH: HamiltonianMixin,
         stepsize: float,
+        istep: int,
     ):
         """
 
@@ -375,7 +381,16 @@ class WFunc:
 
         if const.verbose == 4:
             helper._ElpTime.ci -= time()
-        self.ci_coef.propagate(stepsize, self.ints_spf, matH)
+        if isinstance(self.ci_coef, MPSCoefParallel):
+            assert isinstance(matH, TensorHamiltonian)
+            self.ci_coef.propagate(
+                stepsize,
+                None,
+                matH,
+                load_balance=(istep - 1) % const.load_balance_interval == 0,
+            )
+        else:
+            self.ci_coef.propagate(stepsize, self.ints_spf, matH)
         if const.verbose == 4:
             helper._ElpTime.ci += time()
         spf_occ = None

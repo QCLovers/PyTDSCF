@@ -3,6 +3,7 @@ Shared constant parameters are defined here.
 """
 
 import datetime
+import os
 
 from loguru import logger
 
@@ -199,9 +200,9 @@ class Const:
         if adaptive:
             logger.warning("Adaptive calculation is experimental.")
         if self.use_mpo:
-            assert (
-                self.standard_method
-            ), "MPO is only available for standard method."
+            assert self.standard_method, (
+                "MPO is only available for standard method."
+            )
         if parallel_split_indices is not None:
             assert len(parallel_split_indices) == self.mpi_size
             # self.regularize_site = True
@@ -229,7 +230,8 @@ const.epsrho = 1.0e-8  # default
 const.tol_CMF = 1.0e-14
 const.max_stepsize = 0.010 / units.au_in_fs  # [au]
 const.tol_RK45 = 1.0e-8  # default
-
+const.load_balance_interval = 100
+const.pytest_enabled = "PYTEST_CURRENT_TEST" in os.environ
 try:
     from mpi4py import MPI
 

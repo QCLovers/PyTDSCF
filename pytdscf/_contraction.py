@@ -267,7 +267,6 @@ def contract_with_site_mpo(
                 # |  s
                 # m--|-j
                 contraction = "mri,msj,rsq->iqj"
-                contraction = "mri,msj,rsq->iqj"
                 operator.append(data[0, :, :, :])  # type: ignore
         case ("A", 3, 2):
             assert isinstance(op_site, OperatorCore)
@@ -499,9 +498,9 @@ class SplitStack:
                 if len(psi_states[0].shape) == 3:
                     l, c, r = psi_states[0].shape  # noqa: E741
                     L, C, R = self.tensor_shapes_out
-                    assert (
-                        L >= l and C >= c and R >= r
-                    ), f"{L=}, {C=}, {R=}, {l=}, {c=}, {r=}"
+                    assert L >= l and C >= c and R >= r, (
+                        f"{L=}, {C=}, {R=}, {l=}, {c=}, {r=}"
+                    )
                     psi_states = [
                         np.pad(
                             x,

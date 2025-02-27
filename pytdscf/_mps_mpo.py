@@ -401,9 +401,9 @@ class MPSCoefMPO(MPSCoef):
                 pass
             elif op_psite_ovlp.is_identity:
                 # np.testinig.assert_allclose(op_psite_ovlp, np.eye(*op_psite_ovlp.shape)):
-                assert isinstance(
-                    op_psite_ovlp, np.ndarray | jax.Array
-                ), f"{op_psite_ovlp=}"
+                assert isinstance(op_psite_ovlp, np.ndarray | jax.Array), (
+                    f"{op_psite_ovlp=}"
+                )
                 op_psite_ovlp = op_psite_ovlp.shape[0]
             else:
                 is_identity_next = False
@@ -841,12 +841,12 @@ class MPSCoefMPO(MPSCoef):
                     continue
                 op_r_key = op_r[key] if key in op_r else op_r_ovlp
                 op_l_key = op_l[key] if key in op_l else op_l_ovlp
-                assert (
-                    key in op_r
-                ), f"Right side key {key} should be included in summed at {psite}-site"
-                assert (
-                    key in op_l
-                ), f"Left side key {key} should be included in summed at {psite}-site"
+                assert key in op_r, (
+                    f"Right side key {key} should be included in summed at {psite}-site"
+                )
+                assert key in op_l, (
+                    f"Left side key {key} should be included in summed at {psite}-site"
+                )
                 if op_lr_state is None:
                     op_lr_state = {key: (op_l_key, op_r_key)}
                 else:

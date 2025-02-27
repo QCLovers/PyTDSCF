@@ -85,7 +85,7 @@ class multiplyH_CI(object):
 
     def split(self, ci_flat):
         data = []
-        ci_flat_states = np.split(ci_flat, self.split_idx)
+        ci_flat_states = np.split(ci_flat, self.split_idx)  # type: ignore
         for istate in range(self.nstate):
             nspf_list = self.nspf_list_states[istate]
             data.append(ci_flat_states[istate].reshape(nspf_list))

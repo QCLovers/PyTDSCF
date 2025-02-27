@@ -281,7 +281,7 @@ def progressbar(it, prefix="", size=40, out=sys.stdout):
         x = int(size * j / count)
 
         print(
-            f'{prefix}[{u"█" * x}{"." * (size - x)}] {j}/{count}',
+            f"{prefix}[{'█' * x}{'.' * (size - x)}] {j}/{count}",
             end="\r",
             file=out,
             flush=True,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import _pickle  # type: ignore
+import _pickle
 import math
 import os
 import pickle
@@ -148,9 +148,9 @@ class TensorOperator:
                         )
             else:
                 self.legs = legs
-                assert (
-                    len(self.legs) == len(self.shape)
-                ), f"Tensor shape {self.shape} and legs {self.legs} are different"
+                assert len(self.legs) == len(self.shape), (
+                    f"Tensor shape {self.shape} and legs {self.legs} are different"
+                )
 
     @property
     def dtype(self) -> np.dtype:
@@ -1361,7 +1361,7 @@ def database_to_dataframe(
     """When you want to load parquet file, use
     df = pl.parquet(db.replace(".db", ".parquet"))
     """
-    logger.info(f'DataFrame is saved as {db.replace(".db", ".parquet")}')
+    logger.info(f"DataFrame is saved as {db.replace('.db', '.parquet')}")
 
     return df
 

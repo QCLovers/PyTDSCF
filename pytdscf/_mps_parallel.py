@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from collections import Counter
 
 import jax
@@ -83,55 +84,40 @@ class MPSCoefParallel(MPSCoefMPO):
         stepsize: float,
         ints_spf: None,
         matH: TensorHamiltonian,
+        load_balance: bool = False,
     ):
-        ints_site = None
-        #    | rank0    | rank1    | rank2    | rank3   | diff
-        # (0)| ψ B B x+ | A A A x  | B B B x+ | A A ψ   |
-        # (1)| ψ B B x+ | A A A x' | B B B x+ | A A ψ   | x -> x' (even_rank=True & rank!=size-1)
-        # (2)| ψ B B x+ | A A ψ x+ | ψ B B x+ | A A ψ   | Ax'B -> Aψx+ψB
+        # Number of quotes ' indicates propated steps
+        #    | rank0     | rank1    | rank2     | rank3   | diff
+        # (1)| ψ B B x+  | A A A x  | B B B x+  | A A ψ   | x -> x' (even_rank=True & rank!=size-1)
+        # (2)| ψ B B x+  | A A ψ x+ | ψ B B x+  | A A ψ   | Ax'B -> Aψx+ψB
         # ...
-        # (3)| A'A'ψ'x+ | ψ'B'B'x' | A'A'ψ'x+ | ψ'B'B'  | sweep
-        # (4)| A'A'A'x  | B'B'B'x' | A'A'A'x  | B'B'B'  | ψ'x+ψ' -> A'xB'
-        # (5)| A'A'A'x' | B'B'B'x' | A'A'A'x' | B'B'B'  | x -> x' (even_rank=False)
-        # (6)| A'A'ψ'x+'| ψ'B'B'x' | A'A'ψ'x+'| ψ'B'B'  | A'x'B' -> A'ψ'x+'ψ'B'
+        # (3)| A'A'ψ x+  | ψ B'B'x  | A'A'ψ x+  | ψ B'B'  | sweep
+        # (4)| A'A'A'x'' | B'B'B'x  | A'A'A'x'' | B'B'B'  | ψ x+ψ -> A'x''B'
+        # (5)| A'A'ψ'x+''| ψ'B'B'x  | A'A'ψ'x+''| ψ'B'B'  | A'x''B' -> ψ'x+''ψ'
 
-        op_sys_sites_is_none = self.op_sys_sites is None
-        reset_op_block = comm.allreduce(op_sys_sites_is_none, op=MPI.LOR)
+        ints_site = None
+        op_sys_sites_is_none: bool = self.op_sys_sites is None
+        reset_op_block: bool = comm.allreduce(op_sys_sites_is_none, op=MPI.LOR)
 
         if reset_op_block:
             right_op_blocks = self.reset_right_op_blocks(matH)
-            if const.mpi_rank == 0:
-                assert len(right_op_blocks) == self.nsite
-            else:
-                assert len(right_op_blocks) == self.nsite + 1
             left_op_blocks = self.reset_left_op_blocks(matH)
-            if const.mpi_rank == const.mpi_size - 1:
-                assert len(left_op_blocks) == self.nsite
-            else:
-                assert len(left_op_blocks) == self.nsite + 1
             if const.mpi_rank % 2 == 0:
                 self.op_sys_sites = right_op_blocks
             else:
                 self.op_sys_sites = left_op_blocks
-        # (0) -> (1)
-        self.send_op_sys_to_left(
-            even_rank=True,
-            matH=matH,
-            pop_op_sys=True,  # reset_op_block
-        )
+        self._validate_op_sys_sites()
+        self._validate_initial_superblock_states()
+        # (1) -> (2) communicate joint sigvec and L block
+        self.send_op_sys_to_left(even_rank=True, matH=matH, pop_op_sys=True)
         op_sys_from_right = self.recv_op_sys_from_right(even_rank=False)
-        # self.propagate_joint_sigvec(
-        #     stepsize,
-        #     even_rank=False,
-        #     op_sys=op_sys_from_right,
-        #     matH=matH,
-        #     A_is_sys=True,
-        # )
-        # (1) -> (2)
-        self.send_joint_sigvec_to_right(even_rank=False)
+        comm.barrier()
+        self.send_joint_sigvec_to_right(even_rank=False, truncate=False)
         self.recv_joint_sigvec_from_left(even_rank=True)
+        comm.barrier()
         self.send_op_sys_to_right(even_rank=False)
         op_sys_from_left = self.recv_op_sys_from_left(even_rank=True)
+        comm.barrier()
         # (2) -> (3)
         if const.mpi_rank % 2 == 0:
             begin_site = 0
@@ -150,6 +136,7 @@ class MPSCoefParallel(MPSCoefMPO):
             #     skip_end_site = False
             # else:
             #     skip_end_site = True
+        time_sweep_start = time.time()
         self.propagate_along_sweep(
             ints_site,
             matH,
@@ -159,13 +146,20 @@ class MPSCoefParallel(MPSCoefMPO):
             op_sys_initial=op_sys,
             skip_end_site=skip_end_site,
         )
+        time_sweep_end = time.time()
+        ms = (time_sweep_end - time_sweep_start) * 1000
+        # share time to all ranks
+        ms_ranks = comm.allgather(ms)
+        if const.mpi_rank == 0 and load_balance:
+            formatted_ms_ranks = [f"{ms:.2e}" for ms in ms_ranks]
+            logger.info(f"Sweep time [ms]: {formatted_ms_ranks}")
         # (3) -> (4)
-        # self.send_joint_sigvec_to_left(even_rank=False)
-        # self.recv_joint_sigvec_from_right(even_rank=True, matH=matH)
         self.send_Psi_to_left(even_rank=False)
         psi_L, psi_R = self.recv_Psi_from_right(even_rank=True)
+        comm.barrier()
         self.send_op_sys_to_left(even_rank=False, matH=matH, pop_op_sys=False)
         op_env_previous = self.recv_op_sys_from_right(even_rank=True)
+        comm.barrier()
         op_sys_from_right, Bsite = self.propagate_joint_two_sites(
             even_rank=True,
             matH=matH,
@@ -173,31 +167,21 @@ class MPSCoefParallel(MPSCoefMPO):
             op_env_previous=op_env_previous,
             psi_L=psi_L,
             psi_R=psi_R,
+            truncate=True,
         )
         self.send_B_to_right(even_rank=True, Bsite=Bsite)
         self.recv_B_from_left(even_rank=False)
-        # (4) -> (5)
-        # self.propagate_joint_sigvec(
-        #     stepsize,
-        #     even_rank=True,
-        #     op_sys=op_sys_from_right,
-        #     matH=matH,
-        #     A_is_sys=True,
-        # )
+        comm.barrier()
         self.save_all_A(even_rank=True)
         self.save_all_B(even_rank=False)
-        # self.propagate_joint_sigvec(
-        #     stepsize,
-        #     even_rank=True,
-        #     op_sys=op_sys_from_right,
-        #     matH=matH,
-        #     A_is_sys=False,
-        # )
-        # (5) -> (6)=(3)
-        self.send_joint_sigvec_to_right(even_rank=True)
+        # (4) -> (5)
+        self.send_joint_sigvec_to_right(even_rank=True, truncate=False)
         self.recv_joint_sigvec_from_left(even_rank=False)
+        comm.barrier()
         self.send_op_sys_to_right(even_rank=True)
         op_sys_from_left = self.recv_op_sys_from_left(even_rank=False)
+        comm.barrier()
+        # (5)=(3) -> (2)
         if const.mpi_rank % 2 == 0:
             begin_site = self.nsite - 1
             end_site = 0
@@ -214,7 +198,6 @@ class MPSCoefParallel(MPSCoefMPO):
                 skip_end_site = False
             else:
                 skip_end_site = True
-        # (3) -> (2)
         self.propagate_along_sweep(
             ints_site,
             matH,
@@ -227,13 +210,10 @@ class MPSCoefParallel(MPSCoefMPO):
         # (2) -> (1)
         self.send_Psi_to_left(even_rank=True)
         psi_L, psi_R = self.recv_Psi_from_right(even_rank=False)
+        comm.barrier()
         self.send_op_sys_to_left(even_rank=True, matH=matH, pop_op_sys=False)
         op_env_previous = self.recv_op_sys_from_right(even_rank=False)
-        # self.send_joint_sigvec_to_left(even_rank=True)
-        # self.send_op_sys_to_left(even_rank=True, matH=matH, pop_op_sys=False)
-        # self.recv_joint_sigvec_from_right(even_rank=False, matH=matH)
-        # op_sys_from_right = self.recv_op_sys_from_right(even_rank=False)
-        # (1) -> (0)
+        comm.barrier()
         op_env_from_left, Bsite = self.propagate_joint_two_sites(
             even_rank=False,
             matH=matH,
@@ -241,24 +221,20 @@ class MPSCoefParallel(MPSCoefMPO):
             op_env_previous=op_env_previous,
             psi_L=psi_L,
             psi_R=psi_R,
+            truncate=True,
         )
         self.send_B_to_right(even_rank=False, Bsite=Bsite)
         self.recv_B_from_left(even_rank=True)
+        comm.barrier()
         self.send_op_env_to_right(
-            even_rank=False, op_env_from_left=op_env_from_left
+            even_rank=False,
+            op_env_from_left=op_env_from_left,  # type: ignore
         )
         self.recv_op_env_from_left(even_rank=True)
-        # self.propagate_joint_sigvec(
-        #     stepsize,
-        #     even_rank=False,
-        #     op_sys=op_sys_from_right,
-        #     matH=matH,
-        #     A_is_sys=False,
-        # )
+        comm.barrier()
         self.save_all_A(even_rank=False)
         self.save_all_B(even_rank=True)
         # self.sync_world_canonicalize()
-        # raise NotImplementedError
 
     def propagate_joint_two_sites(
         self,
@@ -268,7 +244,14 @@ class MPSCoefParallel(MPSCoefMPO):
         op_env_previous: dict[tuple[int, int], dict[_op_keys, _block_type]],
         psi_L: SiteCoef | None,
         psi_R: SiteCoef | None,
+        truncate: bool,
+    ) -> (
+        tuple[dict[tuple[int, int], dict[_op_keys, _block_type]], SiteCoef]
+        | tuple[None, None]
     ):
+        """
+        ΨxΨ -> ΨΨ -> ΨB -> AxB -> AΨ -> AxB
+        """
         if (
             not is_update_rank(even_rank)
         ) or const.mpi_rank == const.mpi_size - 1:
@@ -277,14 +260,17 @@ class MPSCoefParallel(MPSCoefMPO):
         assert isinstance(self.op_sys_sites, list)
         assert isinstance(psi_L, SiteCoef)
         assert isinstance(psi_R, SiteCoef)
-        op_sys_previous = self.op_sys_sites[-1]
-        # joint_sigvec = self.joint_sigvec
-        # psi_R.data = np.tensordot(
-        #     joint_sigvec,
-        #     psi_R.data,
-        #     axes=(1, 0),
-        # )
+        assert psi_L.gauge == "Psi"
+        assert psi_R.gauge == "Psi"
         l, c, r = psi_R.data.shape  # noqa: E741
+        L, C, R = psi_L.data.shape  # noqa: E741
+        assert l == R
+        assert (
+            (l, R)
+            == self.joint_sigvec.shape
+            == self.joint_sigvec_not_pinv.shape
+        )
+        op_sys_previous = self.op_sys_sites[-1]
         psi_R.data = np.linalg.lstsq(
             self.joint_sigvec_not_pinv, psi_R.data.reshape((l, c * r))
         )[0].reshape((l, c, r))
@@ -306,8 +292,8 @@ class MPSCoefParallel(MPSCoefMPO):
             )
         )
         op_env = op_env_D_bra
-        L, C, _ = superblock[-2].data.shape
         tensor_shapes_out = (L, C, newD)
+        # propagate psi_L
         op_lcr = self.operators_for_superH(
             psite=self.nsite - 1,
             op_sys=op_sys_previous,
@@ -324,6 +310,7 @@ class MPSCoefParallel(MPSCoefMPO):
             stepsize=stepsize,
             tensor_shapes_out=tensor_shapes_out,
         )
+        # propagate x
         svalues, op_sys = self.trans_next_psite_AsigmaB(
             psite=self.nsite - 1,
             superblock_states=[superblock],
@@ -346,6 +333,7 @@ class MPSCoefParallel(MPSCoefMPO):
             svalues=svalues,
             stepsize=stepsize,
         )
+        # propagate psi_R
         self.trans_next_psite_APsiB(
             psite=self.nsite - 1,
             superblock_states=[superblock],
@@ -367,6 +355,7 @@ class MPSCoefParallel(MPSCoefMPO):
             matH_cas=matH,
             stepsize=stepsize,
         )
+        # propagate x
         svalues, op_env = self.trans_next_psite_AsigmaB(
             psite=self.nsite,
             superblock_states=[superblock],
@@ -392,33 +381,38 @@ class MPSCoefParallel(MPSCoefMPO):
         Asite, Bsite = superblock[-2:]
         assert Asite.gauge == "A"
         assert Bsite.gauge == "B"
-        Asite, self.joint_sigvec, Bsite = truncate_sigvec(
-            Asite=Asite,
-            sigvec=svalues[0],
-            Bsite=Bsite,
-            p=const.p_svd,
-            regularize=True,
-        )
+        if truncate:
+            Asite, self.joint_sigvec, Bsite = truncate_sigvec(
+                Asite=Asite,
+                sigvec=svalues[0],
+                Bsite=Bsite,
+                p=const.p_svd,
+                regularize=True,
+            )
+            superblock[-2] = Asite
+            superblock[-1] = Bsite
+            # construct R block AAAA
+            op_sys = self.renormalize_op_psite(
+                psite=self.nsite - 1,
+                superblock_states=[superblock],
+                op_block_states=op_sys_previous,
+                ints_site=None,
+                hamiltonian=matH,
+                A_is_sys=True,
+            )
+            # construct L block BBBB
+            op_env = self.renormalize_op_psite(
+                psite=self.nsite,
+                superblock_states=[superblock],
+                op_block_states=op_env_previous,
+                ints_site=None,
+                hamiltonian=matH,
+                A_is_sys=False,
+            )
+        else:
+            self.joint_sigvec = svalues[0]
         self.joint_sigvec_not_pinv = self.joint_sigvec
         self.superblock_states[0][-1] = Asite
-        superblock[-2] = Asite
-        superblock[-1] = Bsite
-        op_sys = self.renormalize_op_psite(
-            psite=self.nsite - 1,
-            superblock_states=[superblock],
-            op_block_states=op_sys_previous,
-            ints_site=None,
-            hamiltonian=matH,
-            A_is_sys=True,
-        )
-        op_env = self.renormalize_op_psite(
-            psite=self.nsite,
-            superblock_states=[superblock],
-            op_block_states=op_env_previous,
-            ints_site=None,
-            hamiltonian=matH,
-            A_is_sys=False,
-        )
         self.op_sys_sites.append(op_sys)
         return op_env, Bsite
 
@@ -491,45 +485,16 @@ class MPSCoefParallel(MPSCoefMPO):
             )
         return op_block_isites
 
-    def propagate_joint_sigvec(
-        self,
-        stepsize: float,
-        even_rank: bool,
-        op_sys: dict[tuple[int, int], dict[_op_keys, _block_type]],
-        matH: TensorHamiltonian,
-        A_is_sys: bool,
-    ):
-        raise NotImplementedError
-        # if (
-        #     not is_update_rank(even_rank)
-        #     or const.mpi_rank == const.mpi_size - 1
-        # ):
-        #     return
-        # assert isinstance(self.op_sys_sites, list)
-        # op_env = self.op_sys_sites[-1]
-        # if A_is_sys:
-        #     psite = -1
-        # else:
-        #     psite = self.nsite
-        # op_lr = self.operators_for_superK(
-        #     psite=psite,
-        #     op_sys=op_sys,
-        #     op_env=op_env,
-        #     hamiltonian=matH,
-        #     A_is_sys=A_is_sys,
-        # )
-        # self.joint_sigvec = self.exp_superK_propagation_direct(
-        #     op_lr=op_lr,
-        #     hamiltonian=matH,
-        #     svalues=[self.joint_sigvec],
-        #     stepsize=stepsize,
-        # )[0]
-
-    def send_joint_sigvec_to_right(self, even_rank: bool):
+    def send_joint_sigvec_to_right(self, even_rank: bool, truncate: bool):
         """
         Left rank     | Right rank
         A-A-...-A-x   |   B-...-B-B
         A-A-...-Ψ-x^+ | x-B-...-B-B
+        or
+        Left rank        | Right rank
+        A-A-...-A-x      |     B-...-B-B
+        A-A-...-A-U-σ-V  |     B-...-B-B
+        A-A-...-A-U-σ-σ+ | σ-V-B-...-B-B
         """
         if (
             not is_update_rank(even_rank)
@@ -541,22 +506,40 @@ class MPSCoefParallel(MPSCoefMPO):
         assert superblock[-1].gauge == "A"
         if not isinstance(joint_sigvec, np.ndarray):
             raise NotImplementedError
+        if truncate:
+            U, s, Vh = truncate_sigvec(
+                Asite=None,
+                sigvec=joint_sigvec,
+                Bsite=None,
+                p=const.p_svd,
+                regularize=True,
+            )
+            joint_sigvec_to_left = s @ Vh
+            joint_sigvec_to_right = U @ s
+            self.joint_sigvec_not_pinv = s
+            self.joint_sigvec = np.linalg.pinv(s)
+        else:
+            joint_sigvec_to_left = joint_sigvec
+            joint_sigvec_to_right = joint_sigvec
+            self.joint_sigvec_not_pinv = joint_sigvec
+            self.joint_sigvec = np.linalg.pinv(joint_sigvec)
+            if const.pytest_enabled:
+                np.testing.assert_allclose(
+                    joint_sigvec_to_right
+                    @ self.joint_sigvec
+                    @ joint_sigvec_to_left,
+                    joint_sigvec,
+                )
         comm.send(
-            joint_sigvec,
+            joint_sigvec_to_left,
             dest=const.mpi_rank + 1,
             tag=2,
         )
-        self.joint_sigvec_not_pinv = joint_sigvec
-        self.joint_sigvec = np.linalg.pinv(joint_sigvec)
-        np.testing.assert_allclose(
-            joint_sigvec @ self.joint_sigvec @ joint_sigvec,
-            joint_sigvec,
-        )
         superblock[-1].data = np.tensordot(
             superblock[-1].data,
-            joint_sigvec,
-            axes=([2], [0]),
-        )  # ijk,kl->ijl
+            joint_sigvec_to_right,
+            axes=(2, 0),
+        )  # ijk,kl->ijl$
         superblock[-1].gauge = "Psi"
 
     def recv_joint_sigvec_from_left(self, even_rank: bool):
@@ -658,64 +641,6 @@ class MPSCoefParallel(MPSCoefMPO):
         else:
             return None
 
-    def send_joint_sigvec_to_left(self, even_rank: bool):
-        """
-        Left rank     | Right rank
-        A-A-...-ψ-x   |   ψ-...-B-B
-        A-A-...-ψ-x   | σ-B-...-B-B
-        A-A-...-ψ-x-σ |   B-...-B-B
-        """
-        if not is_update_rank(even_rank) or const.mpi_rank == 0:
-            return
-        superblock = self.superblock_states[0]
-        assert superblock[0].gauge == "Psi", f"{superblock[0].gauge=}"
-        Bsite, svec = superblock[0].gauge_trf(key="Psi2sigmaB")
-        superblock[0] = Bsite
-        comm.send(svec, dest=const.mpi_rank - 1, tag=4)
-
-    def recv_joint_sigvec_from_right(
-        self, even_rank: bool, matH: TensorHamiltonian
-    ):
-        """
-        Left rank        | Right rank
-        A-A-...-ψ-x      | σ'-B-...-B-B
-        A-A-...-A-σ-x    | σ'-B-...-B-B
-        A-A-...-A-σ-x-σ' |    B-...-B-B
-        A-A-...-A-x'     |    B-...-B-B
-
-        Then, compute new A-blocks
-        """
-        assert isinstance(self.op_sys_sites, list)
-        if (
-            not is_update_rank(even_rank)
-            or const.mpi_rank == const.mpi_size - 1
-        ):
-            return
-        svec_right = comm.recv(source=const.mpi_rank + 1, tag=4)
-        superblock = self.superblock_states[-1]
-        assert superblock[-1].gauge == "Psi", f"{superblock[-1].gauge=}"
-        Asite, svec_left = superblock[-1].gauge_trf(key="Psi2Asigma")
-        superblock[-1] = Asite
-        # svec_center = self.joint_sigvec
-        # self.joint_sigvec = svec_left @ svec_center @ svec_right
-        # argmin(Ax-b)^2 & |x| is minumum => x = A^+b
-        self.joint_sigvec = (
-            svec_left
-            @ np.linalg.lstsq(self.joint_sigvec_not_pinv, svec_right)[0]
-        )
-        self.joint_sigvec_not_pinv = self.joint_sigvec
-        self.op_sys_sites.append(
-            self.renormalize_op_psite(
-                psite=self.nsite - 1,
-                superblock_states=self.superblock_states,
-                op_block_states=self.op_sys_sites[-1],
-                ints_site=None,
-                hamiltonian=matH,
-                A_is_sys=True,
-                superblock_states_ket=None,
-            )
-        )
-
     def send_Psi_to_left(self, even_rank: bool):
         """
         Left rank     | Right rank
@@ -777,12 +702,12 @@ class MPSCoefParallel(MPSCoefMPO):
         self, even_rank: bool, matH: TensorHamiltonian, pop_op_sys: bool
     ) -> None:
         """
-        Sent following block to the left rank
-        -B-B-B
-         | | |
-        -W-W-W
-         | | |
-        -B-B-B
+        Sent following R block to the left rank
+            -B-B-B
+             | | |
+        R=  -W-W-W
+             | | |
+            -B-B-B
 
         Args:
             even_rank: whether even rank will send the block
@@ -793,10 +718,13 @@ class MPSCoefParallel(MPSCoefMPO):
         if (not is_update_rank(even_rank)) or const.mpi_rank == 0:
             return
         if len(self.op_sys_sites) == self.nsite + 1 and pop_op_sys:
+            # left superblock = BBBBBB and op_sys has already calculated
+            assert self.superblock_states[0][0].gauge == "B"
             op_sys = self.op_sys_sites.pop()
         elif len(self.op_sys_sites) == self.nsite and not pop_op_sys:
             match self.superblock_states[0][0].gauge:
                 case "B":
+                    # left superblock = BBBBBB
                     op_sys = self.renormalize_op_psite(
                         psite=0,
                         superblock_states=self.superblock_states,
@@ -807,6 +735,7 @@ class MPSCoefParallel(MPSCoefMPO):
                         superblock_states_ket=None,
                     )
                 case "Psi":
+                    # left superblock = PsiBBBBB
                     assert self.superblock_states[0][1].gauge == "B"
                     op_sys = self.op_sys_sites[-1]
                 case _:
@@ -835,13 +764,16 @@ class MPSCoefParallel(MPSCoefMPO):
             for core in self.superblock_states[0]
         ]
         if const.mpi_rank != const.mpi_size - 1:
-            assert all(
-                core.gauge == "A" for core in self.superblock_all_A
-            ), f"Found {[core.gauge for core in self.superblock_all_A]} in superblock_all_A"
+            assert all(core.gauge == "A" for core in self.superblock_all_A), (
+                f"Found {[core.gauge for core in self.superblock_all_A]} in superblock_all_A"
+            )
         else:
             assert all(
                 core.gauge == "A" for core in self.superblock_all_A[:-1]
-            ), f"Found {[core.gauge for core in self.superblock_all_A[:-1]]} in superblock_all_A"
+            ), (
+                f"Found {[core.gauge for core in self.superblock_all_A[:-1]]} in superblock_all_A"
+            )
+            assert self.superblock_all_A[-1].gauge == "Psi"
 
     def save_all_B(self, even_rank: bool):
         if not is_update_rank(even_rank):
@@ -855,13 +787,16 @@ class MPSCoefParallel(MPSCoefMPO):
             for core in self.superblock_states[0]
         ]
         if const.mpi_rank != 0:
-            assert all(
-                core.gauge == "B" for core in self.superblock_all_B
-            ), f"Found {[core.gauge for core in self.superblock_all_B]} in superblock_all_B"
+            assert all(core.gauge == "B" for core in self.superblock_all_B), (
+                f"Found {[core.gauge for core in self.superblock_all_B]} in superblock_all_B"
+            )
         else:
             assert all(
                 core.gauge == "B" for core in self.superblock_all_B[1:]
-            ), f"Found {[core.gauge for core in self.superblock_all_B[1:]]} in superblock_all_B"
+            ), (
+                f"Found {[core.gauge for core in self.superblock_all_B[1:]]} in superblock_all_B"
+            )
+            assert self.superblock_all_B[0].gauge == "Psi"
 
     def ovlp(self, conj=True) -> complex | float | None:
         rank = const.mpi_rank
@@ -879,9 +814,35 @@ class MPSCoefParallel(MPSCoefMPO):
         ]
         if const.mpi_rank != const.mpi_size - 1:
             # einsum ijk,kl->ijl
-            superblock_data[-1] = np.einsum(
-                "ijk,kl->ijl", superblock_data[-1], self.joint_sigvec
-            )
+            if (
+                const.mpi_rank % 2 == 0
+                and self.superblock_states[0][-1].gauge == "B"
+            ):
+                # PsiBBBx+
+                # superblock_data[-1] = np.einsum(
+                #     "ijk,kl->ijl", superblock_data[-1], self.joint_sigvec
+                # )
+                # Instead of calculating X=BA^+ where A^+ is the pseudo inverse of A,
+                # solve ATXT=BT which gives XT=AT^+BT = (BA^+)^T
+                Btensor = superblock_data[-1]
+                l, c, r = Btensor.shape  # noqa: E741
+                Bmatrix = Btensor.reshape(l * c, r)
+                solution = np.linalg.lstsq(
+                    self.joint_sigvec_not_pinv.T, Bmatrix.T
+                )[0].T
+                superblock_data[-1] = solution.reshape(l, c, r)
+            elif (
+                const.mpi_rank % 2 == 1
+                and self.superblock_states[0][-1].gauge == "A"
+            ):
+                # AAAAAx
+                superblock_data[-1] = np.tensordot(
+                    superblock_data[-1], self.joint_sigvec, axes=(2, 0)
+                )
+            else:
+                raise ValueError(
+                    f"{self.superblock_states[0][-1].gauge=} {const.mpi_rank=}"
+                )
         ket_cores: list[np.ndarray] = [ket for ket in superblock_data]  # type: ignore
         if conj:
             bra_cores: list[np.ndarray] = [
@@ -936,17 +897,55 @@ class MPSCoefParallel(MPSCoefMPO):
             block_right = comm.recv(source=mid_rank, tag=1)
             final_result = np.einsum("ab,ab->", block_left, block_right)
             if conj:
-                return final_result.real
+                return final_result.real.item()
             else:
                 return complex(final_result)
         else:
             return None
 
-    def autocorr(self, ints_spf: SPFInts, psite: int = 0) -> complex | None:
-        return self.ovlp(conj=False)
+    def autocorr(
+        self, ints_spf: SPFInts, psite: int = 0, repeat=False
+    ) -> complex | None:
+        autocorr = self.ovlp(conj=False)
+        if const.mpi_rank == 0:
+            assert isinstance(autocorr, complex)
+            if abs(autocorr) > 1.0 + 1e-03:
+                logger.info(f"MPS is reorhogonalized when {autocorr=}")
+                reortho_flag = True
+            else:
+                reortho_flag = False
+        else:
+            reortho_flag = None
+        # share reortho_flag to all ranks
+        if repeat and const.mpi_rank == 0:
+            logger.info(f"After reorthogonalization, {autocorr=}")
+        reortho_flag = comm.bcast(reortho_flag, root=0)
+        if reortho_flag and not repeat:
+            self.sync_world_canonicalize()
+            return self.autocorr(ints_spf, psite, repeat=True)
+        else:
+            return autocorr
 
-    def norm(self) -> float | None:
-        return self.ovlp(conj=True)  # type: ignore
+    def norm(self, repeat=False) -> float | None:
+        norm = self.ovlp(conj=True)
+        if const.mpi_rank == 0:
+            assert isinstance(norm, float)
+            if abs(norm - 1.0) > 1e-02:
+                logger.info(f"MPS is reorhogonalized when {norm=:.12f}")
+                reortho_flag = True
+            else:
+                reortho_flag = False
+        else:
+            reortho_flag = None
+        # share reortho_flag to all ranks
+        reortho_flag = comm.bcast(reortho_flag, root=0)
+        if repeat and const.mpi_rank == 0:
+            logger.info(f"After reorthogonalization, {norm=:.12f}")
+        if reortho_flag and not repeat:
+            self.sync_world_canonicalize()
+            return self.norm(repeat=True)
+        else:
+            return norm  # type: ignore
 
     def pop_states(self) -> list[float | None]:
         # Use reduced density and second quantization operator instead.
@@ -1085,7 +1084,7 @@ class MPSCoefParallel(MPSCoefMPO):
                 # No sigvecs
                 sigvec = np.eye(superblock[-1].data.shape[2], dtype=complex)
             else:
-                sigvec = self.joint_sigvec  # type: ignore
+                sigvec = self.joint_sigvec_not_pinv  # type: ignore
             assert isinstance(sigvec, np.ndarray)
             if len(needed_rank) == 1:
                 right_block = np.eye(sigvec.shape[0], dtype=complex)
@@ -1106,9 +1105,9 @@ class MPSCoefParallel(MPSCoefMPO):
             rd = np.tensordot(
                 left_block, right_block, axes=([-2, -1], [0, 1])
             )  # ...lb,lb...->...
-            assert (
-                rd.shape == left_block.shape[:-2] + right_block.shape[2:]
-            ), f"{rd.shape=} {left_block.shape=} {right_block.shape=}"
+            assert rd.shape == left_block.shape[:-2] + right_block.shape[2:], (
+                f"{rd.shape=} {left_block.shape=} {right_block.shape=}"
+            )
             if mid_rank == 0:
                 return [rd]
             else:
@@ -1178,14 +1177,17 @@ class MPSCoefParallel(MPSCoefMPO):
             # calculate expectation value
             left_block = op_A_block
             right_block = recv_op_block(source=rank + 1, tag1=11, tag2=21)
-            if self.superblock_states[0][-1].gauge == "A":
-                # AAA => sigvec is x
-                sigvec: list[np.ndarray] | list[jax.Array] = [self.joint_sigvec]  # type: ignore
-            elif self.superblock_states[0][-1].gauge == "B":
-                # PsiBBB or BBB => sigvec is x^+
-                sigvec = [np.linalg.pinv(self.joint_sigvec)]
-            else:
-                raise ValueError(f"{self.superblock_states[0][-1].gauge=}")
+            # if self.superblock_states[0][-1].gauge == "A":
+            #     # AAA => sigvec is x
+            #     sigvec: list[np.ndarray] | list[jax.Array] = [self.joint_sigvec]  # type: ignore
+            # elif self.superblock_states[0][-1].gauge == "B":
+            #     # PsiBBB or BBB => sigvec is x^+
+            #     sigvec = [np.linalg.pinv(self.joint_sigvec)]
+            # else:
+            #     raise ValueError(f"{self.superblock_states[0][-1].gauge=}")
+            sigvec: list[np.ndarray] | list[jax.Array] = [
+                self.joint_sigvec_not_pinv
+            ]  # type: ignore
             op_lr = self.operators_for_superK(
                 psite=self.nsite - 1,
                 op_sys=left_block,  # type: ignore
@@ -1212,7 +1214,7 @@ class MPSCoefParallel(MPSCoefMPO):
         return None
 
     def sync_world_canonicalize(self):
-        self._sync_world_canonicalizeB()  # [PsiBB][BBB][BBB]
+        self._sync_world_canonicalizeB()  # [PsiBBx+][AAAx][BBB] -> [PsiBB][BBB][BBB]
 
         # [AAAx][BBB][BBB] -> [AAA][xBBB][BBB]
         if const.mpi_rank == 0:
@@ -1228,12 +1230,10 @@ class MPSCoefParallel(MPSCoefMPO):
             if const.mpi_rank > 0
             else superblock[0].gauge == "Psi"
         )
-        left_core = superblock[0]
-        left_core.data = np.tensordot(
-            recv_joint_sigvec, left_core.data, axes=([1], [0])
-        )
+        l_core = superblock[0]
+        l_core.data = np.tensordot(recv_joint_sigvec, l_core.data, axes=(1, 0))
         # einsum ij,jkl->ikl
-        left_core.gauge = "Psi"
+        l_core.gauge = "Psi"
         # [AAA][PsiBB][BBB] -> [AAA][AAPsi][BBB]
         canonicalize(superblock, orthogonal_center=self.nsite - 1)
         assert superblock[-1].gauge == "Psi"
@@ -1260,36 +1260,41 @@ class MPSCoefParallel(MPSCoefMPO):
         comm.barrier()
 
     def _sync_world_canonicalizeB(self):
+        # PsiBBBx+AAAAxBBBBx+AAAPsi -> PsiBBB1BBBB1BBBB1BBBB
+        self._validate_initial_superblock_states()
         self.superblock_all_A = None  # type: ignore
         if const.mpi_rank == const.mpi_size - 1:
             joint_sigvec: np.ndarray = np.ones((1, 1), dtype=complex)
         else:
             joint_sigvec = comm.recv(source=const.mpi_rank + 1, tag=1)
-            joint_sigvec = self.joint_sigvec @ joint_sigvec  # type: ignore
+            if const.mpi_rank % 2 == 0:
+                joint_sigvec = np.linalg.lstsq(
+                    self.joint_sigvec_not_pinv, joint_sigvec
+                )[0]
+            else:
+                joint_sigvec = self.joint_sigvec @ joint_sigvec  # type: ignore
             self.joint_sigvec = np.eye(joint_sigvec.shape[0], dtype=complex)
             self.joint_sigvec_not_pinv = self.joint_sigvec
         assert isinstance(joint_sigvec, np.ndarray)
         superblock = [core.copy() for core in self.superblock_states[0]]
-        right_core = superblock[-1]
-        right_core.data = np.tensordot(
-            right_core.data, joint_sigvec, axes=([2], [0])
-        )
+        r_core = superblock[-1]
+        r_core.data = np.tensordot(r_core.data, joint_sigvec, axes=(2, 0))
         # einsum ijk,kl->ijl
         if const.mpi_rank != const.mpi_size - 1:
-            right_core.gauge = "Psi"
+            r_core.gauge = "Psi"
         canonicalize(superblock, orthogonal_center=0)
         assert superblock[0].gauge == "Psi"
         if const.mpi_rank != 0:
             superblock[0], joint_sigvec = superblock[0].gauge_trf("Psi2sigmaB")
             comm.send(joint_sigvec, dest=const.mpi_rank - 1, tag=1)
         else:
-            left_core = superblock[0]
+            l_core = superblock[0]
             norm = np.einsum(
                 "jk,jk->",
-                left_core.data[0, :, :].conj(),
-                left_core.data[0, :, :],
+                l_core.data[0, :, :].conj(),
+                l_core.data[0, :, :],
             )
-            left_core.data /= np.sqrt(norm)
+            l_core.data /= np.sqrt(norm)
         self.superblock_all_B = superblock
         self.superblock_states = [[core.copy() for core in superblock]]
         self.op_sys_sites = None
@@ -1331,6 +1336,43 @@ class MPSCoefParallel(MPSCoefMPO):
             return mps
         else:
             return None
+
+    def _validate_op_sys_sites(self):
+        assert isinstance(self.op_sys_sites, list)
+        if const.mpi_rank == 0 or (
+            const.mpi_rank == const.mpi_size - 1 and const.mpi_size % 2 == 0
+        ):
+            assert len(self.op_sys_sites) == self.nsite
+        else:
+            assert len(self.op_sys_sites) == self.nsite + 1
+
+    def _validate_initial_superblock_states(self):
+        if not const.pytest_enabled:
+            return
+        # for rank0
+        # PsiBBBB
+        # for even rank except 0
+        # BBBBBBB
+        # for odd rank except size-1
+        # AAAAAAA
+        # for size-1
+        # AAAAAAPsi or BBBBBBB
+        if const.mpi_rank == 0:
+            assert self.superblock_states[0][0].gauge == "Psi"
+            assert all(
+                core.gauge == "B" for core in self.superblock_states[0][1:]
+            )
+        elif const.mpi_rank % 2 == 0:
+            assert all(core.gauge == "B" for core in self.superblock_states[0])
+        elif const.mpi_rank == const.mpi_size - 1:
+            assert self.superblock_states[0][-1].gauge == "Psi"
+            assert all(
+                core.gauge == "A" for core in self.superblock_states[0][:-1]
+            )
+        elif const.mpi_rank % 2 == 1:
+            assert all(core.gauge == "A" for core in self.superblock_states[0])
+        else:
+            raise ValueError(f"{const.mpi_rank=}")
 
 
 def _ovlp_single_state_np_from_left(

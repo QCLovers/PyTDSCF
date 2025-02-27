@@ -5,7 +5,6 @@ Core tensor (site coefficient) class for MPS & MPO
 from __future__ import annotations
 
 import math
-import os
 from functools import partial
 from typing import Literal, overload
 
@@ -154,36 +153,36 @@ class SiteCoef:
         """
         match key:
             case "Psi2Asigma":
-                assert (
-                    self.gauge == "Psi"
-                ), f"Gauge must be Psi but got {self.gauge}"
+                assert self.gauge == "Psi", (
+                    f"Gauge must be Psi but got {self.gauge}"
+                )
                 sys_indx, env_indx, dot_indx = (
                     self.l_indx,
                     self.r_indx,
                     self.n_indx,
                 )
             case "C2Asigma":
-                assert (
-                    self.gauge == "C"
-                ), f"Gauge must be C but got {self.gauge}"
+                assert self.gauge == "C", (
+                    f"Gauge must be C but got {self.gauge}"
+                )
                 sys_indx, env_indx, dot_indx = (
                     self.l_indx,
                     self.r_indx,
                     self.n_indx,
                 )
             case "Psi2sigmaB":
-                assert (
-                    self.gauge == "Psi"
-                ), f"Gauge must be Psi but got {self.gauge}"
+                assert self.gauge == "Psi", (
+                    f"Gauge must be Psi but got {self.gauge}"
+                )
                 sys_indx, env_indx, dot_indx = (
                     self.r_indx,
                     self.l_indx,
                     self.n_indx,
                 )
             case "C2sigmaB":
-                assert (
-                    self.gauge == "C"
-                ), f"Gauge must be C but got {self.gauge}"
+                assert self.gauge == "C", (
+                    f"Gauge must be C but got {self.gauge}"
+                )
                 sys_indx, env_indx, dot_indx = (
                     self.r_indx,
                     self.l_indx,
@@ -243,7 +242,7 @@ class SiteCoef:
                     matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="reduced"
                 )
                 sval = R.transpose()
-                matR = Q.reshape(-1, nspf, m_aux_env).transpose((2, 1, 0))
+                matR = Q.reshape(m_aux_sys, nspf, -1).transpose((2, 1, 0))
             coef = SiteCoef(data=matR, gauge="B", isite=self.isite)
         else:
             if const.use_jax:
@@ -251,7 +250,14 @@ class SiteCoef:
             else:
                 Q, R = np.linalg.qr(matC.reshape(ndim, -1), mode="reduced")
                 sval = R
-                matL = Q.reshape(-1, nspf, m_aux_env)
+                try:
+                    matL = Q.reshape(m_aux_sys, nspf, -1)
+                except ValueError:
+                    print(Q.shape)
+                    print(R.shape)
+                    print(matC.shape)
+                    print(m_aux_sys, nspf, m_aux_env)
+                    raise
             coef = SiteCoef(data=matL, gauge="A", isite=self.isite)
         return (coef, sval)
 
@@ -280,7 +286,7 @@ class SiteCoef:
                 unflip = np.sign(np.sign(np.diag(ip[:r, :r])) + 0.5)
                 Q = Q[:, : r + dr]
                 Q[:, :r] *= unflip[np.newaxis, :]
-                if "PYTEST_CURRENT_TEST" in os.environ:
+                if const.pytest_enabled:
                     assert self.data.shape == (l, c, r)
                     assert mat.shape == (l * c, r)
                     assert ip.shape == (r, l * c)
@@ -309,7 +315,7 @@ class SiteCoef:
                 Q = Q[:, : l + dl]
                 Q[:, :l] *= unflip[np.newaxis, :]
                 # confirm Q is orthogonal
-                if "PYTEST_CURRENT_TEST" in os.environ:
+                if const.pytest_enabled:
                     np.testing.assert_allclose(
                         mat.T.conj() @ mat, np.eye(l), atol=1.0e-14
                     )

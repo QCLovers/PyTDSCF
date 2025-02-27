@@ -110,7 +110,7 @@ def export_spectrum(wave_number, intensity, filename: str = "spectrum.dat"):
         data = np.hstack(
             (wave_number.reshape((-1, 1)), intensity.reshape((-1, 1)))
         )
-        np.savetxt(f, data, fmt="%15.8f", delimiter="\t")
+        np.savetxt(f, data, fmt="%15.8f", delimiter="\t")  # type: ignore
 
 
 def plot_autocorr(time_fs: np.ndarray, autocorr: np.ndarray, gui: bool = True):

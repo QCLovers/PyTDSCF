@@ -193,7 +193,7 @@ def test_mpi_exiciton_propagate(backend="numpy"):
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
         stepsize=0.05,
-        maxstep=10,
+        maxstep=20,
         reduced_density=(
             [(3, 3)],
             1,

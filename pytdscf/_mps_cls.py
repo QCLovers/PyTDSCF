@@ -7,7 +7,6 @@ from __future__ import annotations
 import copy
 import itertools
 import math
-import os
 from abc import ABC, abstractmethod
 from functools import partial
 from time import time
@@ -414,9 +413,9 @@ class MPSCoef(ABC):
         return True
 
     def assert_psite_canonical(self, psite: int, numerical: bool = False):
-        assert self.is_psite_canonical(
-            psite, numerical
-        ), "wrong gauge status. It's assumed to be A..A(p-1)Psi(p)B(p+1)..B in superblock"
+        assert self.is_psite_canonical(psite, numerical), (
+            "wrong gauge status. It's assumed to be A..A(p-1)Psi(p)B(p+1)..B in superblock"
+        )
 
     def apply_dipole(self, ints_spf: SPFInts, ci_coef_init, matO) -> float:
         if (not const.standard_method) or (
@@ -535,9 +534,7 @@ class MPSCoef(ABC):
             complex or float : expectation value
         """
         assert psite == 0, f"psite = {psite} is not supported"
-        self.assert_psite_canonical(
-            psite, numerical="PYTEST_CURRENT_TEST_PATH" in os.environ
-        )
+        self.assert_psite_canonical(psite, numerical=const.pytest_enabled)
         superblock_states = self.superblock_states
         # - inefficient impl-#
         if hasattr(matOp, "onesite_name"):
@@ -844,12 +841,12 @@ class MPSCoef(ABC):
             self.op_sys_sites = None
 
         if const.adaptive:
-            assert (
-                len(superblock_states) == 1
-            ), "Only one superblock is implemented for adaptive calculation"
-            assert (
-                isinstance(matH_cas, TensorHamiltonian) and const.use_mpo
-            ), "Only MPO is implemented for adaptive calculation"
+            assert len(superblock_states) == 1, (
+                "Only one superblock is implemented for adaptive calculation"
+            )
+            assert isinstance(matH_cas, TensorHamiltonian) and const.use_mpo, (
+                "Only MPO is implemented for adaptive calculation"
+            )
             superblock_states_full = [
                 get_superblock_full(superblock_states[0], delta_rank=const.dD)
             ]
@@ -864,24 +861,33 @@ class MPSCoef(ABC):
             op_env = op_env_sites.pop()
 
             if const.adaptive and psite != end_site:
-                op_env_previous = op_env_sites[-1]
-                newD, error, op_env_D_bra, op_env_D_braket = (
-                    self.get_adaptive_rank_and_block(
-                        psite=psite,
-                        superblock_states=superblock_states,
-                        superblock_states_full=superblock_states_full,
-                        op_env_previous=op_env_previous,
-                        hamiltonian=matH_cas,  # type: ignore
-                        to=to,
-                    )
-                )
-                op_env = op_env_D_bra
-                L, C, R = superblock_states[0][psite].data.shape
                 if to == "->":
-                    R = newD
+                    L, C, _ = superblock_states[0][psite].data.shape
+                    R = superblock_states[0][psite + 1].data.shape[0]
                 else:
-                    L = newD
+                    _, C, R = superblock_states[0][psite].data.shape
+                    L = superblock_states[0][psite - 1].data.shape[2]
+                if _is_max_rank := is_max_rank(superblock_states[0][psite], to):
+                    pass
+                else:
+                    op_env_previous = op_env_sites[-1]
+                    newD, error, op_env_D_bra, op_env_D_braket = (
+                        self.get_adaptive_rank_and_block(
+                            psite=psite,
+                            superblock_states=superblock_states,
+                            superblock_states_full=superblock_states_full,
+                            op_env_previous=op_env_previous,
+                            hamiltonian=matH_cas,  # type: ignore
+                            to=to,
+                        )
+                    )
+                    op_env = op_env_D_bra
+                    if to == "->":
+                        R = newD
+                    else:
+                        L = newD
                 tensor_shapes_out = (L, C, R)
+                # print(f"{_is_max_rank=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=} {superblock_states[0][psite+1].data.shape=} {superblock_states[0][psite+2].data.shape=}")
             else:
                 tensor_shapes_out = None
 
@@ -895,15 +901,20 @@ class MPSCoef(ABC):
             )
             if const.verbose == 4:
                 helper._ElpTime.ci_etc += time()
-
-            self.exp_superH_propagation_direct(
-                psite=psite,
-                superblock_states=superblock_states,
-                op_lcr=op_lcr,
-                matH_cas=matH_cas,
-                stepsize=stepsize,
-                tensor_shapes_out=tensor_shapes_out,
-            )
+            try:
+                self.exp_superH_propagation_direct(
+                    psite=psite,
+                    superblock_states=superblock_states,
+                    op_lcr=op_lcr,
+                    matH_cas=matH_cas,
+                    stepsize=stepsize,
+                    tensor_shapes_out=tensor_shapes_out,
+                )
+            except Exception:
+                print(
+                    f"{psite=} {to=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=}"
+                )
+                raise
 
             if psite != end_site:
                 svalues, op_sys = self.trans_next_psite_AsigmaB(
@@ -918,7 +929,7 @@ class MPSCoef(ABC):
                 if const.verbose == 4:
                     helper._ElpTime.ci_etc -= time()
 
-                if const.adaptive:
+                if const.adaptive and not _is_max_rank:
                     op_env = op_env_D_braket
 
                 op_lr = self.operators_for_superK(
@@ -938,20 +949,21 @@ class MPSCoef(ABC):
                     stepsize=stepsize,
                 )
                 if const.adaptive:
-                    if to == "->":
-                        Asite, svalues[0], Bsite = truncate_sigvec(
-                            superblock_states[0][psite],
-                            svalues[0],
-                            superblock_states[0][psite + 1],
-                            const.p_svd,
-                        )
-                    else:
-                        Asite, svalues[0], Bsite = truncate_sigvec(
-                            superblock_states[0][psite - 1],
-                            svalues[0],
-                            superblock_states[0][psite],
-                            const.p_svd,
-                        )
+                    if False:
+                        if to == "->":
+                            Asite, svalues[0], Bsite = truncate_sigvec(
+                                superblock_states[0][psite],
+                                svalues[0],
+                                superblock_states[0][psite + 1],
+                                const.p_svd,
+                            )
+                        else:
+                            Asite, svalues[0], Bsite = truncate_sigvec(
+                                superblock_states[0][psite - 1],
+                                svalues[0],
+                                superblock_states[0][psite],
+                                const.p_svd,
+                            )
                     if psite == begin_site:
                         op_sys_prev = op_sys_initial
                     else:
@@ -978,7 +990,9 @@ class MPSCoef(ABC):
                     self.op_sys_sites.append(op_sys)
                     assert (
                         len(self.op_sys_sites) + len(op_env_sites) == nsite + 1
-                    ), f"{len(self.op_sys_sites)=} + {len(op_env_sites)=} == {nsite+1=}"
+                    ), (
+                        f"{len(self.op_sys_sites)=} + {len(op_env_sites)=} == {nsite+1=}"
+                    )
 
         return op_sys
 
@@ -1132,12 +1146,12 @@ class MPSCoef(ABC):
                 """A(p-1) x sval -> Psi(p-1)"""
                 matA = superblock[psite - 1]
                 matB = superblock[psite]
-                assert (
-                    matB.gauge == "B"
-                ), f"matB.gauge should be B, but {matB.gauge}"
-                assert (
-                    matA.gauge == "A"
-                ), f"matA.gauge should be A, but {matA.gauge}"
+                assert matB.gauge == "B", (
+                    f"matB.gauge should be B, but {matB.gauge}"
+                )
+                assert matA.gauge == "A", (
+                    f"matA.gauge should be A, but {matA.gauge}"
+                )
                 if const.use_jax:
                     matA.data = jnp.einsum("ijk,kb->ijb", matA.data, sval)
                 else:
@@ -1323,9 +1337,9 @@ class MPSCoef(ABC):
             List[Dict[Tuple[int,int], Dict[_op_keys, _block_type]]] : Env. Operator
         """
 
-        assert (
-            begin_site != end_site or len(superblock_states[0]) == 1
-        ), f"{begin_site=} == {end_site=}"
+        assert begin_site != end_site or len(superblock_states[0]) == 1, (
+            f"{begin_site=} == {end_site=}"
+        )
         if op_initial_block is None:
             op_initial_block = self.construct_op_zerosite(
                 superblock_states,
@@ -1559,13 +1573,14 @@ class MPSCoef(ABC):
         """
         calculate f(D) = |H(D', D)Psi_left|^2 - |K(D)sig|^2 + |H(D, D')Psi_right|^2
         """
-        Dmin, Dtarget = sigvec_states[0].shape
-        assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
-        Dleft, d_left, Dtarget = psi_states_left[0].shape
-        assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
-        Dtarget, d_right, Dright = psi_states_right[0].shape
-        assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
+        Dmin1, Dmin2 = sigvec_states[0].shape
+        # assert Dmin == Dtarget, f"{Dmin=} != {Dtarget=}"
+        Dleft, d_left, Dtarget1 = psi_states_left[0].shape
+        assert Dmin2 == Dtarget1, f"{Dmin2=} != {Dtarget1=}"
+        Dtarget2, d_right, Dright = psi_states_right[0].shape
+        assert Dmin1 == Dtarget2, f"{Dmin1=} != {Dtarget2=}"
         Dmax = min((Dmax, Dleft * d_left, Dright * d_right))
+        Dmin = min(Dmin1, Dmin2)
         assert Dmin <= Dmax, f"{Dmin=} <= {Dmax=}"
         if Dmin == Dmax:
             return Dmin, 0.0
@@ -1652,11 +1667,14 @@ class MPSCoef(ABC):
                 sigvec_states_vec.conj(), sigvec_states_vec
             ).real.item()
             total_error = Hleft_error - K_error + Hright_error
+            # total_error = K_error
             # logger.debug(f"{D=}, {total_error=:4e}")
+            # print(D, total_error, Hleft_error, K_error, Hright_error)
             if D > Dmin:
                 metric = (total_error - total_error_prev) / total_error  # noqa: F821
                 # logger.debug(f"ric=:4e}")
                 if metric < p:
+                    # return D, metric # always increment at least 1
                     return D - 1, metric
             # uv run ruff check --fix --unsafe-fixes may delete following line but it is necessary
             total_error_prev = total_error  # noqa: F841
@@ -1740,9 +1758,9 @@ class MPSCoef(ABC):
                 dict[tuple[int, int], dict[_op_keys, _block_type]]
             ]: Adaptive rank, error, environmental block with new_rank in bra and braket.
         """
-        assert (
-            len(superblock_states_full) == 1
-        ), "only support single superblock"
+        assert len(superblock_states_full) == 1, (
+            "only support single superblock"
+        )
         op_env_full_braket = self.get_op_block_full(
             psite=psite,
             superblock_states=superblock_states,
@@ -1767,15 +1785,23 @@ class MPSCoef(ABC):
         else:
             raise ValueError("op_sys_sites is not list")
         if to == "->":
+            # actual_delta_rank = get_actual_delta_rank(
+            #     superblock_states[0], psite+1, const.dD
+            # )
             Dmax = min(
                 const.Dmax,
-                superblock_states[0][psite].data.shape[2] + const.dD,
+                # superblock_states[0][psite].data.shape[2] + actual_delta_rank,
+                superblock_states_full[0][psite + 1].data.shape[0],
             )
             delta_rank = Dmax - superblock_states[0][psite].data.shape[2]
         else:
+            # actual_delta_rank = get_actual_delta_rank(
+            #     superblock_states[0], psite-1, const.dD
+            # )
             Dmax = min(
                 const.Dmax,
-                superblock_states[0][psite].data.shape[0] + const.dD,
+                # superblock_states[0][psite].data.shape[0] + actual_delta_rank,
+                superblock_states_full[0][psite - 1].data.shape[2],
             )
             delta_rank = Dmax - superblock_states[0][psite].data.shape[0]
         psi_left, sigvec, psi_right, op_sys_full_bra = (
@@ -1791,20 +1817,30 @@ class MPSCoef(ABC):
         psi_states_left = [psi_left]
         sigvec_states = [sigvec]
         psi_states_right = [psi_right]
-        newD, error = self.get_rank_and_projection_error(
-            psite=psite,
-            Dmax=Dmax,
-            p=const.p_proj,
-            op_sys_full=op_sys_full_bra,
-            op_sys_thin=op_sys_thin,
-            op_env_full=op_env_full_bra,
-            op_env_thin=op_env_previous,
-            hamiltonian=hamiltonian,
-            psi_states_left=psi_states_left,
-            sigvec_states=sigvec_states,
-            psi_states_right=psi_states_right,
-            to=to,
-        )
+        try:
+            newD, error = self.get_rank_and_projection_error(
+                psite=psite,
+                Dmax=Dmax,
+                p=const.p_proj,
+                op_sys_full=op_sys_full_bra,
+                op_sys_thin=op_sys_thin,
+                op_env_full=op_env_full_bra,
+                op_env_thin=op_env_previous,
+                hamiltonian=hamiltonian,
+                psi_states_left=psi_states_left,
+                sigvec_states=sigvec_states,
+                psi_states_right=psi_states_right,
+                to=to,
+            )
+        except Exception as e:
+            print(f"{psite=}, {superblock_states_full[0][psite].data.shape=}")
+            print(
+                f"{psite-1=}, {superblock_states_full[0][psite-1].data.shape=}"
+            )
+            print(
+                f"{psite+1=}, {superblock_states_full[0][psite+1].data.shape=}"
+            )
+            raise e
         # logger.debug(f"{newD=}, {error=:3e}")
         op_env_D_bra = truncate_op_block(op_env_full_bra, newD, mode="bra")
         op_env_D_braket = truncate_op_block(
@@ -2547,8 +2583,16 @@ def truncate_op_block(
             assert isinstance(value, np.ndarray | jax.Array)
             assert len(value.shape) == 3, f"{value.shape=} is not 3"
             if mode == "bra":
+                if value.shape[0] < D:
+                    raise ValueError(
+                        f"{value.shape=} is smaller than {D=} for {key=}"
+                    )
                 op_block_state_truncated[key] = value[:D, :, :]
             elif mode == "braket":
+                if value.shape[0] < D or value.shape[2] < D:
+                    raise ValueError(
+                        f"{value.shape=} is smaller than {D=} for {key=}"
+                    )
                 op_block_state_truncated[key] = value[:D, :, :D]
             else:
                 raise ValueError(f"{mode=} is not valid")
@@ -2561,37 +2605,66 @@ def get_superblock_full(
     delta_rank: int,
 ) -> list[SiteCoef]:
     superblock_full = []
-    nsite = len(superblock)
-    for i, core in enumerate(superblock):
-        actual_delta_rank = 0
-        match core.gauge:
-            case "A":
-                if i == nsite - 1:
-                    pass
-                else:
-                    l1, c1, r1 = core.data.shape
-                    l2, c2, r2 = superblock[i + 1].data.shape
-                    assert l2 == r1
-                    actual_delta_rank = max(
-                        min(delta_rank, min(l1 * c1 - r1, c2 * r2 - l2)), 0
-                    )
-            case "B":
-                if i == 0:
-                    pass
-                else:
-                    l1, c1, r1 = core.data.shape
-                    l2, c2, r2 = superblock[i - 1].data.shape
-                    assert l1 == r2
-                    actual_delta_rank = max(
-                        min(delta_rank, min(c1 * r1 - l1, l2 * c2 - r2)), 0
-                    )
-            case _:
-                pass
-        if actual_delta_rank == 0:
+    for isite, core in enumerate(superblock):
+        if core.gauge == "Psi":
             superblock_full.append(core.copy())
         else:
+            actual_delta_rank = get_actual_delta_rank(
+                superblock, isite, delta_rank
+            )
+            # l, c, r = core.data.shape
+            # if core.gauge == "A":
+            #     actual_delta_rank = max(0, min(delta_rank, l * c - r))
+            # else:
+            #     actual_delta_rank = max(0, min(delta_rank, c * r - l))
             superblock_full.append(
                 core.thin_to_full(delta_rank=actual_delta_rank)
             )
 
     return superblock_full
+
+
+def get_actual_delta_rank(
+    superblock: list[SiteCoef],
+    isite: int,
+    delta_rank: int,
+) -> int:
+    core = superblock[isite]
+    nsite = len(superblock)
+    actual_delta_rank = 0
+    match core.gauge:
+        case "A":
+            if isite == nsite - 1:
+                pass
+            else:
+                l1, c1, r1 = core.data.shape
+                l2, c2, r2 = superblock[isite + 1].data.shape
+                assert l2 == r1
+                actual_delta_rank = max(
+                    min(delta_rank, min(l1 * c1 - r1, c2 * r2 - l2)), 0
+                )
+        case "B":
+            if isite == 0:
+                pass
+            else:
+                l1, c1, r1 = core.data.shape
+                l2, c2, r2 = superblock[isite - 1].data.shape
+                assert l1 == r2
+                actual_delta_rank = max(
+                    min(delta_rank, min(c1 * r1 - l1, l2 * c2 - r2)), 0
+                )
+        case _:
+            raise ValueError(f"{core.gauge=} is not valid")
+    return actual_delta_rank
+
+
+def is_max_rank(coef: SiteCoef, to: Literal["->", "<-"] = "->") -> bool:
+    assert const.adaptive
+    L, C, R = coef.data.shape
+    if to == "->":
+        if L * C <= R or R >= const.Dmax:
+            return True
+    else:
+        if L >= C * R or L >= const.Dmax:
+            return True
+    return False

@@ -167,9 +167,9 @@ class Properties:
             modes = set()
             for key in reduced_density[0]:
                 # key must be ascending order.
-                assert key == tuple(
-                    sorted(key)
-                ), f"Reduced density key {key} must be ascending order"
+                assert key == tuple(sorted(key)), (
+                    f"Reduced density key {key} must be ascending order"
+                )
                 modes = modes.union(set(key))
                 for idof in key:
                     if f"Q{idof}" not in f.dimensions:

@@ -399,7 +399,9 @@ class Simulator:
             helper._ElpTime.steps -= time()
             if const.standard_method:
                 stepsize_actual = self.stepsize / units.au_in_fs
-                _ = wf.propagate_SM(self.model.hamiltonian, stepsize_actual)
+                _ = wf.propagate_SM(
+                    self.model.hamiltonian, stepsize_actual, istep
+                )
             else:
                 if const.doDVR:
                     raise NotImplementedError

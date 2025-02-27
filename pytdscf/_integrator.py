@@ -321,14 +321,27 @@ def short_iterative_lanczos(
             alpha.append(float(alpha_l))
             beta.append(float(beta_l))
         else:
-            alpha_l = np.inner(psi_conj, sigvec).real
+            try:
+                alpha_l = np.inner(psi_conj, sigvec).real
+            except ValueError:
+                print(
+                    psi_conj.shape,
+                    sigvec.shape,
+                    sigvec_states[0].shape,
+                    multiplyOp.tensor_shapes_out,
+                    multiplyOp.tensor_shapes_in,
+                )
+                raise
             alpha.append(float(alpha_l))
             sigvec -= cvecs[-1] * alpha_l
             if ldim > 0:
                 sigvec -= cvecs[-2] * beta_l  # noqa: F821
             beta_l = scipy.linalg.norm(sigvec)
             beta.append(float(beta_l))
-            sigvec /= beta_l
+            if beta[-1] >= 1e-15:
+                sigvec /= beta_l
+            else:
+                sigvec = np.empty_like(sigvec)
             cvecs = np.vstack([cvecs, sigvec])
         if is_converged := (beta[-1] < 1e-15):
             pass
