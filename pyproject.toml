@@ -25,7 +25,7 @@ dependencies = [
 
 [project.optional-dependencies]
 pympo = [
-    "pympo>=0.1.1",
+    "pympo>=0.1.4",
 ]
 docs = [
     "sphinx>=8.1.3",

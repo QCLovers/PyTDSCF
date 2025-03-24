@@ -36,7 +36,8 @@ prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
 @pytest.mark.skipif(
     MPI.COMM_WORLD.Get_size() == 1, reason="Not running under MPI"
 )
-def test_mpi_exiciton_propagate(backend="numpy"):
+@pytest.mark.parametrize("adaptive", [True,False])
+def test_mpi_exiciton_propagate(adaptive: bool, backend="numpy"):
     """
     |Psi> = |HO1, HO2, HO3, E0>
 
@@ -182,7 +183,10 @@ def test_mpi_exiciton_propagate(backend="numpy"):
     operators = {"hamiltonian": hamiltonian}
 
     model = Model(basinfo, operators)
-    model.m_aux_max = 1
+    if adaptive:
+        model.m_aux_max = 1
+    else:
+        model.m_aux_max = 10
     model.init_HartreeProduct = [
         [ho.get_unitary()[0].tolist() for ho in prim_info[:3]]
         + [np.array([0.0, 1.0]).tolist()]
@@ -199,7 +203,7 @@ def test_mpi_exiciton_propagate(backend="numpy"):
             1,
         ),
         parallel_split_indices=[(0, 1), (2, 3)],
-        adaptive=True,
+        adaptive=adaptive,
         adaptive_dD=60,
         adaptive_Dmax=60,
         adaptive_p_proj=1e-05,
@@ -214,4 +218,5 @@ def test_mpi_exiciton_propagate(backend="numpy"):
 
 
 if __name__ == "__main__":
-    test_mpi_exiciton_propagate(backend="numpy")
+    # test_mpi_exiciton_propagate(adaptive=True, backend="numpy")
+    test_mpi_exiciton_propagate(adaptive=False, backend="numpy")

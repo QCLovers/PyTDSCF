@@ -25,7 +25,7 @@ jobs:
     - name: pytest
       continue-on-error: true
       id: pytest
-      run: uv run pytest -k "not test_a1tdvp"
+      run: uv run pytest
     - name: pytest rerun failed
       if: ${{ steps.pytest.outcome == 'failure'}}
       run: uv run pytest --lf --showlocals --tb=long --log-level=DEBUG
@@ -35,5 +35,6 @@ jobs:
       timeout-minutes: 0.5
       run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi* # tests/test_mpi_exiciton_propagate.py
     - name: pytest-mpi rerun failed
+      timeout-minutes: 0.5
       if: ${{ steps.pytest-mpi.outcome == 'failure'}}
       run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi* --lf --showlocals --tb=long --log-level=DEBUG

@@ -70,8 +70,21 @@ def setup_loggers(jobname: str, adaptive: bool = False):
     Args:
         jobname: Name of the job/directory for log files
     """
-    if not os.path.exists(f"./{jobname}"):
+    try:
+        from mpi4py import MPI
+
+        comm = MPI.COMM_WORLD
+        rank = comm.Get_rank()
+        size = comm.Get_size()
+    except Exception:
+        rank = 0
+        size = 1
+
+    if rank == 0 and not os.path.exists(f"./{jobname}"):
         os.makedirs(f"./{jobname}")
+
+    if size > 1:
+        comm.barrier()
 
     main_log_path = f"{jobname}/main.log"
     existing_handlers = [h for h in logger._core.handlers.values()]
@@ -103,16 +116,6 @@ def setup_loggers(jobname: str, adaptive: bool = False):
         data_loggers.append("bonddim")
     for name in data_loggers:
         add_file_logger(name, jobname)
-
-    try:
-        from mpi4py import MPI
-
-        comm = MPI.COMM_WORLD
-        rank = comm.Get_rank()
-        size = comm.Get_size()
-    except Exception:
-        rank = 0
-        size = 1
 
     if size > 1:
         logger.add(

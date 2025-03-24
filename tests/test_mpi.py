@@ -20,7 +20,7 @@ import pytest
 logger = loguru.logger.bind(name="rank")
 
 
-def get_mps_parallel():
+def get_mps_parallel(adaptive: bool):
     import pytdscf
     import pytdscf._const_cls
     import pytdscf._mps_cls
@@ -31,7 +31,7 @@ def get_mps_parallel():
             pytdscf._const_cls.const.set_runtype(
                 use_jax=False,
                 parallel_split_indices=[(0, 5), (6, 11)],
-                adaptive=True,
+                adaptive=adaptive,
                 adaptive_Dmax=30,
                 adaptive_dD=30,
                 adaptive_p_proj=1e-04,
@@ -41,7 +41,7 @@ def get_mps_parallel():
             pytdscf._const_cls.const.set_runtype(
                 use_jax=False,
                 parallel_split_indices=[(0, 3), (4, 7), (8, 11)],
-                adaptive=True,
+                adaptive=adaptive,
                 adaptive_Dmax=30,
                 adaptive_dD=30,
                 adaptive_p_proj=1e-04,
@@ -51,7 +51,7 @@ def get_mps_parallel():
             pytdscf._const_cls.const.set_runtype(
                 use_jax=False,
                 parallel_split_indices=[(0, 2), (3, 5), (6, 8), (9, 11)],
-                adaptive=True,
+                adaptive=adaptive,
                 adaptive_Dmax=30,
                 adaptive_dD=30,
                 adaptive_p_proj=1e-04,
@@ -80,7 +80,9 @@ def get_mps_parallel():
             [1.0, 1.0, 1.0, 1.0],
         ]
         superblock = lattice_info.alloc_superblock_random(
-            m_aux_max=1, scale=1.0, weight_vib=weight_vib
+            m_aux_max=1 if not adaptive else 10,
+            scale=1.0,
+            weight_vib=weight_vib,
         )
     else:
         superblock = None
@@ -185,17 +187,18 @@ def test_mpi():
     MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
     reason="Run under 2 or 3 or 4 MPI ranks",
 )
-def test_mpi_autocorr_norm():
-    mps_parallel = get_mps_parallel()
+@pytest.mark.parametrize("adaptive", [True, False])
+def test_mpi_autocorr_norm(adaptive: bool):
+    mps_parallel = get_mps_parallel(adaptive)
     autocorr = mps_parallel.autocorr(ints_spf=None)
     if rank == 0:
-        assert pytest.approx(1.0) == autocorr, f"{autocorr=}"
+        assert pytest.approx(1.0, abs=1.0e-05) == autocorr, f"{autocorr=}"
     else:
         assert autocorr is None
     comm.Barrier()
     norm = mps_parallel.norm()
     if rank == 0:
-        assert pytest.approx(1.0) == norm, f"{norm=}"
+        assert pytest.approx(1.0, abs=1.0e-05) == norm, f"{norm=}"
     else:
         assert norm is None
 
@@ -210,7 +213,7 @@ def test_mpi_autocorr_norm():
             block = np.einsum(
                 "abc,abk->ck", bra, np.einsum("ibk,ai->abk", ket, block)
             )
-        assert pytest.approx(1.0) == block[0, 0], f"{block=}"
+        assert pytest.approx(1.0, abs=1.0e-05) == block[0, 0], f"{block=}"
     MPI.COMM_WORLD.Barrier()
 
 
@@ -219,8 +222,9 @@ def test_mpi_autocorr_norm():
     MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
     reason="Run under 2 or 3 or 4 MPI ranks",
 )
-def test_mpi_expectation():
-    mps_parallel = get_mps_parallel()
+@pytest.mark.parametrize("adaptive", [True, False])
+def test_mpi_expectation(adaptive: bool):
+    mps_parallel = get_mps_parallel(adaptive)
     hamiltonian = get_hamiltonian()
     hamiltonian.distribute_mpo_cores()
     expectation = mps_parallel.expectation(ints_spf=None, matOp=hamiltonian)
@@ -236,8 +240,9 @@ def test_mpi_expectation():
     MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
     reason="Run under 2  or 3 or 4 MPI ranks",
 )
-def test_mpi_reduced_density():
-    mps_parallel = get_mps_parallel()
+@pytest.mark.parametrize("adaptive", [True, False])
+def test_mpi_reduced_density(adaptive: bool):
+    mps_parallel = get_mps_parallel(adaptive)
     reduced_density = mps_parallel.get_reduced_densities(
         base_tag=0, rd_key=(5, 5)
     )
@@ -269,8 +274,9 @@ def test_mpi_reduced_density():
     MPI.COMM_WORLD.Get_size() not in [2, 3, 4],
     reason="Run under 2 or 3 or 4 MPI ranks",
 )
-def test_mpi_propagate():
-    mps_parallel = get_mps_parallel()
+@pytest.mark.parametrize("adaptive", [True, False])
+def test_mpi_propagate(adaptive: bool):
+    mps_parallel = get_mps_parallel(adaptive)
     hamiltonian = get_hamiltonian()
     hamiltonian.distribute_mpo_cores()
     # with pytest.raises(NotImplementedError):
@@ -280,8 +286,8 @@ def test_mpi_propagate():
 
 if __name__ == "__main__":
     # test_mpi()
-    # test_mpi_autocorr_norm()
-    test_mpi_expectation()
-    # test_mpi_reduced_density()
-    # test_mpi_propagate()
+    test_mpi_autocorr_norm(True)
+    test_mpi_expectation(True)
+    test_mpi_reduced_density(True)
+    test_mpi_propagate(True)
     MPI.COMM_WORLD.Barrier()

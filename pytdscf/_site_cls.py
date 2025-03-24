@@ -4,7 +4,7 @@ Core tensor (site coefficient) class for MPS & MPO
 
 from __future__ import annotations
 
-import math
+# import math
 from functools import partial
 from typing import Literal, overload
 
@@ -13,6 +13,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from pytdscf._const_cls import const
+
+SQRT_EPSRHO = 1.0e-05
+TIKHONOV_LAMBDA = 1.0e-06
+RCOND = 1.0e-14
+X_TILDE_THRESH = 1.0e-04
 
 
 class SiteCoef:
@@ -198,7 +203,8 @@ class SiteCoef:
         if regularize:
             """regularize the site coefficients"""
             ldim, ndim, rdim = matC.shape
-            sqrt_epsrho = math.sqrt(const.epsrho)
+            # sqrt_epsrho = math.sqrt(const.epsrho)
+            sqrt_epsrho = SQRT_EPSRHO
             sig_reg: jax.Array | np.ndarray
             if const.use_jax:
                 U, sig, Vh = jnp.linalg.svd(
@@ -206,7 +212,7 @@ class SiteCoef:
                     full_matrices=False,
                 )
                 sig_reg = jnp.where(
-                    sig > 64.0e0 * sqrt_epsrho,
+                    sig > sqrt_epsrho,
                     sig,
                     sig + sqrt_epsrho * jnp.exp(-sig / sqrt_epsrho),
                 )
@@ -221,7 +227,7 @@ class SiteCoef:
                     full_matrices=False,
                 )
                 sig_reg = np.where(
-                    sig > 64.0e0 * sqrt_epsrho,
+                    sig > sqrt_epsrho,
                     sig,
                     sig + sqrt_epsrho * np.exp(-sig / sqrt_epsrho),
                 )
@@ -495,6 +501,7 @@ def truncate_sigvec(
     Bsite: SiteCoef | None,
     p: float,
     regularize: bool = False,
+    keepdim: bool = False,
 ) -> tuple[SiteCoef | np.ndarray, np.ndarray, SiteCoef | np.ndarray]:
     r"""Truncate singular vector
 
@@ -520,31 +527,176 @@ def truncate_sigvec(
     If Bsite is None, return (AU, σ', Vh)
     If both are None, return (U, σ', Vh)
     """
+    if regularize:
+        raise ValueError("Use eval_PsiXpinvPsi instead")
     if isinstance(sigvec, jax.Array):
         raise NotImplementedError
+    U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
+    cumsum = np.cumsum(sigvec2.real)
+    contribution = cumsum / cumsum[-1]
+    idx = np.argmax(contribution >= (1 - p)) + 1
+    sigvec2_thin = sigvec2[:idx]
+    if not keepdim:
+        U = U[:, :idx]
+        Vh = Vh[:idx, :]
+    if isinstance(Asite, SiteCoef):
+        assert Asite.gauge == "A", "Asite must be A tensor"
+        Asite.data = np.tensordot(Asite.data, U, axes=(2, 0))
+        L = Asite
     else:
-        U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
-        cumsum = np.cumsum(sigvec2.real)
-        contribution = cumsum / cumsum[-1]
-        idx = np.argmax(contribution >= (1 - p)) + 1
-        if isinstance(Asite, SiteCoef):
-            assert Asite.gauge == "A", "Asite must be A tensor"
-            Asite.data = np.tensordot(Asite.data, U[:, :idx], axes=(2, 0))
-            L = Asite
-        else:
-            L = U[:, :idx]
-        if isinstance(Bsite, SiteCoef):
-            assert Bsite.gauge == "B", "Bsite must be B tensor"
-            Bsite.data = np.tensordot(Vh[:idx, :], Bsite.data, axes=(1, 0))
-            R = Bsite
-        else:
-            R = Vh[:idx, :]
+        L = U
+    if isinstance(Bsite, SiteCoef):
+        assert Bsite.gauge == "B", "Bsite must be B tensor"
+        Bsite.data = np.tensordot(Vh, Bsite.data, axes=(1, 0))
+        R = Bsite
+    else:
+        R = Vh
     if regularize and sigvec.shape != (1, 1):
-        sqrt_epsrho = math.sqrt(const.epsrho)
-        sigvec2 = np.where(
-            sigvec2 > 64.0e0 * sqrt_epsrho,
-            sigvec2,
-            sigvec2 + sqrt_epsrho * np.exp(-sigvec2 / sqrt_epsrho),
+        # sqrt_epsrho = math.sqrt(const.epsrho)
+        sqrt_epsrho = SQRT_EPSRHO
+        sigvec2_thin = np.where(
+            sigvec2_thin > sqrt_epsrho,
+            sigvec2_thin,
+            sigvec2_thin + sqrt_epsrho * np.exp(-sigvec2_thin / sqrt_epsrho),
         )
-    sigvec = np.diag(sigvec2[:idx])
+    if keepdim:
+        sigvec_full = np.zeros_like(sigvec2)
+        sigvec_full[:idx] = sigvec2_thin
+        sigvec = np.diag(sigvec_full)
+    else:
+        sigvec = np.diag(sigvec2_thin)
+    # print(f"{np.sum(np.diag(sigvec**2))=}")
+    sigvec /= np.sqrt(np.sum(np.diag(sigvec) ** 2))  # normalize
     return L, sigvec, R
+
+
+@overload
+def multiply_sigvec_pinv(
+    X: np.ndarray,
+    left_tensor: np.ndarray | None = None,
+    right_tensor: np.ndarray | None = None,
+) -> np.ndarray: ...
+
+
+@overload
+def multiply_sigvec_pinv(
+    X: jax.Array,
+    left_tensor: jax.Array | None = None,
+    right_tensor: jax.Array | None = None,
+) -> jax.Array: ...
+
+
+def multiply_sigvec_pinv(X, left_tensor=None, right_tensor=None):
+    """
+    Multiply X^{+} Y or Y X^{+}
+
+    Args:
+        X (np.ndarray): Matrix to multiply
+        left_tensor (np.ndarray | None): Left tensor to multiply
+        right_tensor (np.ndarray | None): Right tensor to multiply
+
+    Returns:
+        np.ndarray: Result of multiplication
+    """
+    raise ValueError("Use eval_PsiXpinvPsi instead")
+    if (
+        isinstance(X, jax.Array)
+        or isinstance(left_tensor, jax.Array)
+        or isinstance(right_tensor, jax.Array)
+    ):
+        raise NotImplementedError
+    # XTX_reg = X.T.conj() @ X + TIKHONOV_LAMBDA * np.eye(X.shape[0])
+    # X_pinv_reg = np.linalg.solve(XTX_reg, X.T.conj())
+    X_pinv_reg = np.linalg.pinv(X, rcond=RCOND)
+    match (left_tensor, right_tensor):
+        case (None, None):
+            return X_pinv_reg
+        case (None, _):
+            return np.tensordot(X_pinv_reg, right_tensor, axes=(1, 0))
+        case (_, None):
+            left_axes = left_tensor.ndim - 1
+            return np.tensordot(left_tensor, X_pinv_reg, axes=(left_axes, 0))
+        case (_, _):
+            left_axes = left_tensor.ndim - 1
+            right_axes = right_tensor.ndim - 1
+            return np.tensordot(
+                np.tensordot(left_tensor, X_pinv_reg, axes=(left_axes, 0)),
+                right_tensor,
+                axes=(right_axes, 0),
+            )
+    # if const.mpi_rank % 2 == 0 and use_lstsq:
+    #     joint_sigvec = np.linalg.lstsq(
+    #         self.joint_sigvec_not_pinv, joint_sigvec
+    #     )[0]
+    # PsiBBBx+
+    # Instead of calculating X=BA^+ where A^+ is the pseudo inverse of A,
+    # solve ATXT=BT which gives XT=AT^+BT = (BA^+)^T
+    # Btensor = superblock_data[-1]
+    # l, c, r = Btensor.shape  # noqa: E741
+    # Bmatrix = Btensor.reshape(l * c, r)
+    # solution = np.linalg.lstsq(
+    #     self.joint_sigvec_not_pinv.T, Bmatrix.T
+    # )[0].T
+    # superblock_data[-1] = solution.reshape(l, c, r)
+
+
+def eval_PsiXpinvPsi(
+    Psi_L: SiteCoef,
+    X: np.ndarray | jax.Array,
+    Psi_R: SiteCoef,
+) -> tuple[SiteCoef, SiteCoef]:
+    """
+    Evaluate Psi_L X^{+} Psi_R = AZX^{+}YB = AWB
+    """
+    if isinstance(X, jax.Array):
+        raise NotImplementedError
+    assert Psi_L.gauge == "Psi", (
+        f"Psi_L must be Psi tensor but got {Psi_L.gauge}"
+    )
+    assert Psi_R.gauge == "Psi", (
+        f"Psi_R must be Psi tensor but got {Psi_R.gauge}"
+    )
+
+    A, Z = Psi_L.gauge_trf(key="Psi2Asigma")
+    B, Y = Psi_R.gauge_trf(key="Psi2sigmaB")
+    if True:  # const.pytest_enabled:
+        assert np.linalg.norm(Z) - 1.0 < 1e-12, f"{np.linalg.norm(Z)=}"
+        assert np.linalg.norm(Y) - 1.0 < 1e-12, f"{np.linalg.norm(Y)=}"
+    Z /= np.linalg.norm(Z)
+    Y /= np.linalg.norm(Y)
+    Q, R = qr_with_same_sign_diagonal(Q=A.data, R=Z, R_ref=X)
+    A.data = Q
+    Z = R
+    Q, R = qr_with_same_sign_diagonal(Q=B.data.T, R=Y, R_ref=X)
+    B.data = Q.T
+    Y = R.T
+    dZ = Z - X
+    dY = Y - X
+    U, S, Vh = np.linalg.svd(X, full_matrices=False)
+    Sinv = np.zeros_like(S)
+    Sinv[S > X_TILDE_THRESH] = 1 / S[S > X_TILDE_THRESH]
+    Sinv = np.diag(Sinv)
+    Xpinv_tilde = Vh.T @ Sinv @ U.T
+    W = X + dZ + dY + dZ @ Xpinv_tilde @ dY
+    if True:  # const.pytest_enabled:
+        assert abs(np.linalg.norm(W) - 1.0) < 1e-02, (
+            f"Time step might be too large: {np.linalg.norm(W)=}"
+        )
+    W /= np.linalg.norm(W)
+    Psi_L = SiteCoef(A.data @ W, "Psi", Psi_L.isite)
+    return Psi_L, B
+
+
+def qr_with_same_sign_diagonal(Q, R, R_ref):
+    assert Q.ndim == 3, f"{Q.shape=}"
+    assert R.shape == R_ref.shape, f"{R.shape=} != {R_ref.shape=}"
+    diag_R = np.diag(R.real)
+    diag_R_ref = np.diag(R_ref.real)
+    # Deal with value close to zero
+    signs_R = np.sign(0.5 + np.sign(diag_R))
+    signs_R_ref = np.sign(0.5 + np.sign(diag_R_ref))
+    # Sign mismatch
+    sign_correction = signs_R != signs_R_ref
+    R[sign_correction, :] *= -1
+    Q[..., sign_correction] *= -1
+    return Q, R
