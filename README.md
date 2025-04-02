@@ -7,7 +7,7 @@
 
 
 
-PyTDSCF is a package for high-dimensional wave-packet dynamics simulation based on tensor-networks.
+PyTDSCF is a package for high-dimensional wave-packet dynamics simulations based on tensor networks.
 
 You can calculate
 - Wave packet relaxation
@@ -28,8 +28,8 @@ You can calculate
 
 - Electronic structure calculation interface for PES preparation
 
-PyTDSCF gives an option to use JAX as backend, which accelerate large tensornetwork calculation by GPU.
-(In small calculation, Numpy in CPU is sometimes faster.)
+PyTDSCF gives an option to use JAX as backend, which accelerates large tensornetwork calculation on a GPU.
+(For small calculations, NumPy on a CPU is sometimes faster.)
 
 ## Documentation
 See [Here](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html) !!
