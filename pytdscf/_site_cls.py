@@ -17,7 +17,7 @@ from pytdscf._const_cls import const
 SQRT_EPSRHO = 1.0e-05
 TIKHONOV_LAMBDA = 1.0e-06
 RCOND = 1.0e-14
-X_TILDE_THRESH = 1.0e-04
+X_TILDE_THRESH = 1.0e-03
 
 
 class SiteCoef:

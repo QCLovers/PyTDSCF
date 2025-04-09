@@ -23,6 +23,7 @@ except ImportError | ModuleNotFoundError:
     comm = None
     rank = 0
     size = 1
+    print("MPI not available, running in serial mode.")
 
 freqs_cm1 = [1000, 2000, 3000]
 omega2 = [(freq / au_in_cm1) ** 2 for freq in freqs_cm1]
@@ -218,5 +219,6 @@ def test_mpi_exiciton_propagate(adaptive: bool, backend="numpy"):
 
 
 if __name__ == "__main__":
+    # print("Running test_mpi_exiciton_propagate.py")
     # test_mpi_exiciton_propagate(adaptive=True, backend="numpy")
     test_mpi_exiciton_propagate(adaptive=False, backend="numpy")
