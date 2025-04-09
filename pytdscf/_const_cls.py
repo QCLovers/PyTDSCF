@@ -237,7 +237,9 @@ try:
 
     const.mpi_rank = MPI.COMM_WORLD.Get_rank()
     const.mpi_size = MPI.COMM_WORLD.Get_size()
+    const.mpi_comm = MPI.COMM_WORLD
 except Exception as e:
     logger.warning(f"MPI command detected but mpi4py import failed with {e}")
     const.mpi_rank = 0
     const.mpi_size = 1
+    const.mpi_comm = None

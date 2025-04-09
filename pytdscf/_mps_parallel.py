@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import time
 from collections import Counter
 
@@ -38,6 +39,22 @@ except Exception:
     comm = None  # type: ignore
 
 logger = logger.bind(name="rank")
+
+
+def mpi_abort_on_exception(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            import traceback
+
+            rank = MPI.COMM_WORLD.Get_rank()
+            logger.error(f"[Rank {rank}] Exception in '{func.__name__}': {e}")
+            traceback.print_exc()
+            MPI.COMM_WORLD.Abort(1)
+
+    return wrapper
 
 
 class MPSCoefParallel(MPSCoefMPO):
@@ -83,6 +100,7 @@ class MPSCoefParallel(MPSCoefMPO):
         mps_coef = distribute_superblock_states(mps_coef)
         return mps_coef
 
+    @mpi_abort_on_exception
     def propagate(
         self,
         stepsize: float,

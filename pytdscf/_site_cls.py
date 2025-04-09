@@ -659,7 +659,7 @@ def eval_PsiXpinvPsi(
 
     A, Z = Psi_L.gauge_trf(key="Psi2Asigma")
     B, Y = Psi_R.gauge_trf(key="Psi2sigmaB")
-    if True:  # const.pytest_enabled:
+    if const.pytest_enabled:
         assert np.linalg.norm(Z) - 1.0 < 1e-12, f"{np.linalg.norm(Z)=}"
         assert np.linalg.norm(Y) - 1.0 < 1e-12, f"{np.linalg.norm(Y)=}"
     Z /= np.linalg.norm(Z)
@@ -678,10 +678,8 @@ def eval_PsiXpinvPsi(
     Sinv = np.diag(Sinv)
     Xpinv_tilde = Vh.T @ Sinv @ U.T
     W = X + dZ + dY + dZ @ Xpinv_tilde @ dY
-    if True:  # const.pytest_enabled:
-        assert abs(np.linalg.norm(W) - 1.0) < 1e-02, (
-            f"Time step might be too large: {np.linalg.norm(W)=}"
-        )
+    if abs(np.linalg.norm(W) - 1.0) > 1e-02:
+        raise ValueError(f"Time step might be too large: {np.linalg.norm(W)=}")
     W /= np.linalg.norm(W)
     Psi_L = SiteCoef(A.data @ W, "Psi", Psi_L.isite)
     return Psi_L, B
