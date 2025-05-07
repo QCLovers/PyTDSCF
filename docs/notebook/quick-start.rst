@@ -3,9 +3,9 @@ Quick Start Examples
 =======================
 
 
-.. _Example 1: poly-SOP-H2O-relax.html
-.. _Example 2: poly-SOP-H2O-operate.html
-.. _Example 3: poly-SOP-H2O-propagate.html
+.. _Example 1: poly-SOP-H2O-relax-revised1.html
+.. _Example 2: poly-SOP-H2O-operate-revised1.html
+.. _Example 3: poly-SOP-H2O-propagate-revised1.html
 .. _Example 4: spectra-H2O.html
 .. _Example 5: LVC.html
 .. _Example 6: henon_heiles_HO-DVR.html
@@ -15,16 +15,17 @@ Quick Start Examples
 .. _Example 10: TD_reduced_density.html
 .. _Example 11: TD_reduced_density_exciton.html
 .. _Example 12: singlet_fission.html
+.. _Example 13: donor-acceptor.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 |               | Run Type    | Wavefunction | Potential  | Basis            | Backend    | misc.                          |
 +===============+=============+==============+============+==================+============+================================+
-| `Example 1`_  | Relaxation  | MPS-SM       | Polynomial | HO-FBR           | Numpy      | H2O molecule                   |
+| `Example 1`_  | Relaxation  | MPS-SM       | Polynomial | HO-DVR           | Numpy      | H2O molecule                   |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 2`_  | Operation   | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Restart from `Example 1`_      |
+| `Example 2`_  | Operation   | MPS-SM       | Polynomial | HO-DVR           | Numpy      | Restart from `Example 1`_      |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 3`_  | Propagation | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Restart from `Example 2`_      |
+| `Example 3`_  | Propagation | MPS-SM       | Polynomial | HO-DVR           | Numpy      | Restart from `Example 2`_      |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 5`_  | Propagation | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Linear vibronic coupling model |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -40,6 +41,8 @@ Quick Start Examples
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Singlet fission + 183-D bath   |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 13`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
 +---------------+----------------------------------+---------------------------+
@@ -54,9 +57,9 @@ Quick Start Examples
 .. toctree::
    :maxdepth: 1
 
-   poly-SOP-H2O-relax.ipynb
-   poly-SOP-H2O-operate.ipynb
-   poly-SOP-H2O-propagate.ipynb
+   poly-SOP-H2O-relax-revised1.ipynb
+   poly-SOP-H2O-operate-revised1.ipynb
+   poly-SOP-H2O-propagate-revised1.ipynb
    spectra-H2O.ipynb
    LVC.ipynb
    henon_heiles_HO-DVR.ipynb
@@ -66,6 +69,7 @@ Quick Start Examples
    TD_reduced_density.ipynb
    TD_reduced_density_exciton.ipynb
    singlet_fission.ipynb
+   donor-acceptor.ipynb
 
 Indices and tables
 
