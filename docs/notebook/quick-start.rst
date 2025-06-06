@@ -57,9 +57,9 @@ Quick Start Examples
 .. toctree::
    :maxdepth: 1
 
-   poly-SOP-H2O-relax-revised1.ipynb
-   poly-SOP-H2O-operate-revised1.ipynb
-   poly-SOP-H2O-propagate-revised1.ipynb
+   poly-MPO-H2O-relax.ipynb
+   poly-MPO-H2O-operate.ipynb
+   poly-MPO-H2O-propagate.ipynb
    spectra-H2O.ipynb
    LVC.ipynb
    henon_heiles_HO-DVR.ipynb
