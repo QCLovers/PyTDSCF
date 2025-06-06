@@ -410,8 +410,6 @@ class Simulator:
                 )
             helper._ElpTime.steps += time()
             properties.update(stepsize_actual)
-            if properties.time * units.au_in_fs > 2000.0:
-                break
         niter_krylov_list = list(helper._Debug.niter_krylov.values())
         niter_krylov_total = sum(niter_krylov_list)
         ncall_krylov_total = len(niter_krylov_list)
