@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import copy
 import itertools
 import math
 
@@ -111,7 +110,8 @@ class MPSCoefMPO(MPSCoef):
         return mps_coef
 
     def get_matH_sweep(self, matH: TensorHamiltonian) -> TensorHamiltonian:
-        return copy.deepcopy(matH)
+        return matH
+        # return copy.deepcopy(matH)
 
     def get_matH_tdh(self, matH, op_block_cas):
         raise NotImplementedError
@@ -722,14 +722,14 @@ class MPSCoefMPO(MPSCoef):
                         continue
                     op_r_key = op_r[key] if key in op_r else op_r_ovlp
                     op_l_key = op_l[key] if key in op_l else op_l_ovlp
-                    assert (
-                        key in op_r
-                    ), f"Right side key {key} should be included \
+                    assert key in op_r, (
+                        f"Right side key {key} should be included \
                         in summed at {psite}-site"
-                    assert (
-                        key in op_l
-                    ), f"Left side key {key} should be included \
+                    )
+                    assert key in op_l, (
+                        f"Left side key {key} should be included \
                         in summed at {psite}-site"
+                    )
                     if op_lr[istate_bra][istate_ket] is None:
                         op_lr[istate_bra][istate_ket] = {
                             key: (op_l_key, op_r_key)

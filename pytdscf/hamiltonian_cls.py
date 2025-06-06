@@ -134,10 +134,10 @@ class TermProductForm:
                     are ``'ovlp'`` when regard centered site as the ``psite``-th site.
 
         """
-        assert hasattr(
-            self, "blockop_key_sites"
-        ), "blockop_key_sites attribute \
+        assert hasattr(self, "blockop_key_sites"), (
+            "blockop_key_sites attribute \
                 has not set. Call set_blockp_key attribute before call this attribute."
+        )
         for block_lcr in block_lcr_list:
             if self.blockop_key_sites[block_lcr][psite] != "ovlp":
                 return False
@@ -307,9 +307,9 @@ def _extract_onesite(
     terms_multisite = []
     terms_onesite = []
     for term in terms_general:
-        assert (
-            len(term.op_dofs) > 0
-        ), 'define PolynomialHamiltonian scalar term as _matH attribute (not in "general" type operator)'
+        assert len(term.op_dofs) > 0, (
+            'define PolynomialHamiltonian scalar term as _matH attribute (not in "general" type operator)'
+        )
         if len(term.op_dofs) == 1:
             terms_onesite.append(
                 TermOneSiteForm(term.coef, term.op_dofs[0], term.op_keys[0])
@@ -347,9 +347,9 @@ class HamiltonianMixin:
                 [complex(0.0) for j in range(nstate)] for i in range(nstate)
             ]
         else:
-            assert (
-                len(matJ) == nstate and len(matJ[0]) == nstate
-            ), "matJ must be square matrix"
+            assert len(matJ) == nstate and len(matJ[0]) == nstate, (
+                "matJ must be square matrix"
+            )
             self.coupleJ = [
                 [complex(matJ[i][j]) for j in range(nstate)]
                 for i in range(nstate)

@@ -3,9 +3,9 @@ Quick Start Examples
 =======================
 
 
-.. _Example 1: poly-SOP-H2O-relax-revised1.html
-.. _Example 2: poly-SOP-H2O-operate-revised1.html
-.. _Example 3: poly-SOP-H2O-propagate-revised1.html
+.. _Example 1: poly-MPO-H2O-relax.html
+.. _Example 2: poly-MPO-H2O-operate.html
+.. _Example 3: poly-MPO-H2O-propagate.html
 .. _Example 4: spectra-H2O.html
 .. _Example 5: LVC.html
 .. _Example 6: henon_heiles_HO-DVR.html
@@ -16,6 +16,7 @@ Quick Start Examples
 .. _Example 11: TD_reduced_density_exciton.html
 .. _Example 12: singlet_fission.html
 .. _Example 13: donor-acceptor.html
+.. _Example 14: radicalpair.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -42,6 +43,8 @@ Quick Start Examples
 | `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Singlet fission + 183-D bath   |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 13`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 14`_ | Propagation | mixed MPS-SM | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
@@ -70,6 +73,7 @@ Quick Start Examples
    TD_reduced_density_exciton.ipynb
    singlet_fission.ipynb
    donor-acceptor.ipynb
+   radicalpair.ipynb
 
 Indices and tables
 
