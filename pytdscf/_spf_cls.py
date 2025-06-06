@@ -678,9 +678,9 @@ class SPFCoef:
                 coef_ex = np.eye(nspf, nprim, dtype=np.complex128)
 
                 """define GS phonon w.f."""
-                assert hasattr(
-                    basinfo, "primbas_gs"
-                ), 'you need to set "primbas_gs" to prepare projected initial wavefunction as a attribute of Model'
+                assert hasattr(basinfo, "primbas_gs"), (
+                    'you need to set "primbas_gs" to prepare projected initial wavefunction as a attribute of Model'
+                )
                 nspf_gs = 1
                 pbas_gs = basinfo.primbas_gs[idof]
                 nprim_gs = pbas_gs.nprim

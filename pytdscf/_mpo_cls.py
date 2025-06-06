@@ -298,7 +298,7 @@ def merge_mpos(
                 right_dim.append(right_dim[-1] + mpo[isite].shape[2])
             if const.verbose == 4:
                 logger.debug(
-                    f"{isite}-site : {mpo_merged.__sizeof__() / 10 ** 6} MBytes"
+                    f"{isite}-site : {mpo_merged.__sizeof__() / 10**6} MBytes"
                 )
             if isite == 0:
                 matrix_shape = (center_dim, right_dim[-1])
@@ -411,7 +411,7 @@ def merge_mpos(
                 right_dim.append(right_dim[-1] + mpo[isite].shape[2])
             if const.verbose == 4:
                 logger.debug(
-                    f"{isite}-site : {mpo_merged.__sizeof__() / 10 ** 6} MBytes"
+                    f"{isite}-site : {mpo_merged.__sizeof__() / 10**6} MBytes"
                 )
             if isite == nsite - 1:
                 matrix_shape = (center_dim, right_dim[-1])
@@ -931,7 +931,7 @@ def _sweep_compress_term_by_term(
         norm: np.float64 = np.sqrt(
             np.sum([np.linalg.norm(core) ** 2 for core in merged_cores])
         )
-        merged_cores = [core / norm for core in merged_cores]  # type: ignore
+        merged_cores = [core / norm for core in merged_cores]
         decomposed_cores: list[tuple[NDArray, NDArray, NDArray]] = [
             _twodot_svd(core) for core in merged_cores
         ]

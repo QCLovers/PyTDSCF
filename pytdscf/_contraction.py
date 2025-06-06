@@ -282,7 +282,7 @@ class SplitStack:
     def __init__(self, psi_states: list[np.ndarray] | list[jax.Array]):
         self._split_idx: list[int] = np.cumsum(
             [x.size for x in psi_states]
-        ).tolist()[:-1]  # type: ignore
+        ).tolist()[:-1]
         # if const.use_jax:
         #     self._split_idx = jnp.array(self._split_idx)
         self.matC_sval_shapes: list[tuple[int, ...]] = [

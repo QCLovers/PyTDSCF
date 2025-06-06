@@ -21,6 +21,7 @@ class ComplexMatrixAnimation:
         time_unit: str = "fs",
         cmap: str = "hsv",
         figshape: tuple[int, int] = (14, 10),
+        add_text: bool = False,
     ) -> None:
         self.data = data
         if time is None:
@@ -37,6 +38,7 @@ class ComplexMatrixAnimation:
         self.maxnorm = self.norm.max()
         phase = np.angle(self.data)  # -pi to pi
         self.phase = (phase + 2 * np.pi) % (2 * np.pi)  # 0 to 2pi
+        self.add_text = add_text
 
     @property
     def rows(self) -> int:
@@ -162,7 +164,8 @@ class ComplexMatrixAnimation:
 
         if magnitude > 0:
             # Size based on normalized magnitude
-            size = (magnitude / self.maxnorm) * 0.95
+            # size = (magnitude / self.maxnorm) * 0.95
+            size = np.sqrt(2.0 * (magnitude / self.maxnorm)) * 0.95
 
             # Color based on phase (normalize from [-π, π] to [0, 1])
             color = cmap(phase_value / (2 * np.pi))
@@ -178,17 +181,18 @@ class ComplexMatrixAnimation:
             self.ax.add_patch(rect)
 
             # Add text annotation
-            text = f"{value: .2f}"
-            self.ax.text(
-                j,
-                i,
-                text,
-                horizontalalignment="center",
-                verticalalignment="center",
-                fontsize=8,
-                color="white",
-                bbox=dict(facecolor="black", alpha=0.7, edgecolor="none"),
-            )
+            if self.add_text:
+                text = f"{value: .2f}"
+                self.ax.text(
+                    j,
+                    i,
+                    text,
+                    horizontalalignment="center",
+                    verticalalignment="center",
+                    fontsize=8,
+                    color="white",
+                    bbox=dict(facecolor="black", alpha=0.7, edgecolor="none"),
+                )
 
     def update(self, frame_num: int) -> None:
         """Update function for animation.
@@ -293,6 +297,7 @@ def get_anim(
     cmap: str = "hsv",
     fps: int = 5,
     dpi: int = 100,
+    add_text: bool = False,
 ) -> tuple[plt.Figure, animation.FuncAnimation]:
     """Main function to create Hinton plot animation from complex matrix data.
 
@@ -310,6 +315,7 @@ def get_anim(
             See also https://matplotlib.org/stable/users/explain/colors/colormaps.html#cyclic.
         fps (int, optional): Frames per second for GIF. Defaults to 5.
         dpi (int, optional): Dots per inch for the output GIF. Defaults to 100.
+        add_text (bool, optional): Display matrix_element or not. Defaults to False.
 
 
     Returns:
@@ -326,7 +332,7 @@ def get_anim(
     """
     # Create animation object
     anim_obj = ComplexMatrixAnimation(
-        data, time, title, row_names, col_names, time_unit, cmap=cmap
+        data, time, title, row_names, col_names, time_unit, cmap=cmap, add_text=add_text
     )
 
     # Create animation

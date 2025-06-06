@@ -592,9 +592,9 @@ class PrimInts:
         """
 
         def set_ham1_dof(state0, state1):
-            assert (
-                state0 == state1
-            ), "Hamiltonian integral matrix must be the same electronic states"
+            assert state0 == state1, (
+                "Hamiltonian integral matrix must be the same electronic states"
+            )
             ham1_dof = [None for idof in range(basinfo.get_ndof())]
             for idof in range(basinfo.get_ndof()):
                 pbas_bra = basinfo.get_primbas(state0, idof)
