@@ -26,12 +26,12 @@ class Exciton:
             self.names = [f"S{i}" for i in range(nstate)]
         else:
             self.names = names
-        assert (
-            len(self.names) == nstate
-        ), f"len(names)={len(names)} != nstate={nstate}"
-        assert all(
-            isinstance(name, str) for name in self.names
-        ), "names must be list of str"
+        assert len(self.names) == nstate, (
+            f"len(names)={len(names)} != nstate={nstate}"
+        )
+        assert all(isinstance(name, str) for name in self.names), (
+            "names must be list of str"
+        )
 
     def get_creation_matrix(self) -> NDArray[np.float64]:
         """

@@ -1,6 +1,6 @@
 [project]
 name = "pytdscf"
-version = "1.0.4"
+version = "1.0.5"
 description = "Quantum dynamics simulator with tensor networks"
 authors = [
     { name = "Kentaro Hino", email = "hino@theoc.kuchem.kyoto-u.ac.jp" },
@@ -20,12 +20,10 @@ dependencies = [
     "numpy>=2.1.2",
     "polars>=1.10.0",
     "scipy>=1.14.1",
+    "pympo>=0.1.1",
 ]
 
 [project.optional-dependencies]
-pympo = [
-    "pympo>=0.1.1",
-]
 docs = [
     "sphinx>=8.1.3",
     "sphinx-rtd-theme>=3.0.1",

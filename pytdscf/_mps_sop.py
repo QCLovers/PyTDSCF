@@ -191,9 +191,9 @@ class MPSCoefSoP(MPSCoef):
         mps_coef.site_is_dof = all(
             ndof_isite == 1 for ndof_isite in mps_coef.ndof_per_sites
         )
-        assert (
-            not mps_coef.with_matH_general or mps_coef.site_is_dof
-        ), "dof(in ints_spf) and site(in MPS) have to be identical for matH.general"
+        assert not mps_coef.with_matH_general or mps_coef.site_is_dof, (
+            "dof(in ints_spf) and site(in MPS) have to be identical for matH.general"
+        )
 
         return mps_coef
 
@@ -234,9 +234,9 @@ class MPSCoefSoP(MPSCoef):
         return matH_sweep
 
     def get_matH_tdh(self, matH, op_block_cas):
-        assert (
-            "enable_summed_op" not in const.keys
-        ), "CANNOT use summed_op and tdh_dofs at the same time"
+        assert "enable_summed_op" not in const.keys, (
+            "CANNOT use summed_op and tdh_dofs at the same time"
+        )
 
         matH_tdh = PolynomialHamiltonian(matH.nstate, len(self.dofs_tdh))
 

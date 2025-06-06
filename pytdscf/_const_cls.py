@@ -96,8 +96,9 @@ class Const:
     """
 
     def __setattr__(self, name, value):
-        if name != "verbose" and name in self.__dict__:
-            self.logger.warning(f"rebind const {name}")
+        if name not in ["verbose", "jobname"] and name in self.__dict__:
+            if self.__dict__[name] != value:
+                self.logger.warning(f"rebind const {name}")
         self.__dict__[name] = value
 
     def set_runtype(
@@ -160,9 +161,11 @@ class Const:
         set_logger("populations")
         set_logger("expectations")
         self.logger = getLogger("main").getChild(__name__)
-        self.logger.info(CBOLD + CVIOLET + pytdscf + CEND)
-        self.logger.debug(f"START TIME: {datetime.datetime.now()}")
-        self.logger.info(f"Log file is ./{self.jobname}/main.log")
+        if verbose >= 3:
+            self.logger.info(CBOLD + CVIOLET + pytdscf + CEND)
+        if verbose >= 1:
+            self.logger.info(f"START TIME: {datetime.datetime.now()}")
+            self.logger.info(f"Log file is ./{self.jobname}/main.log")
 
         self.verbose = verbose
         self.doRestart = restart
@@ -183,9 +186,9 @@ class Const:
         self.standard_method = standard_method
         self.use_mpo = use_mpo
         if self.use_mpo:
-            assert (
-                self.standard_method
-            ), "MPO is only available for standard method."
+            assert self.standard_method, (
+                "MPO is only available for standard method."
+            )
 
 
 const = Const()
@@ -223,6 +226,12 @@ def set_main_logger(overwrite: bool = True):
     # change INFO to DEBUG if you want all messages to console.
     stream_handler.setFormatter(formatter)
 
+    while logger.hasHandlers():
+        if len(logger.handlers) > 0:
+            logger.removeHandler(logger.handlers[0])
+        else:
+            break
+
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)
 
@@ -236,4 +245,11 @@ def set_logger(name: str):
     filename = f"{const.jobname}/{name}.dat"
     file_handler = FileHandler(filename, "w")
     file_handler.setLevel(DEBUG)
+
+    while logger.hasHandlers():
+        if len(logger.handlers) > 0:
+            logger.removeHandler(logger.handlers[0])
+        else:
+            break
+
     logger.addHandler(file_handler)
