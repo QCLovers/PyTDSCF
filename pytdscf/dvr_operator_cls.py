@@ -24,7 +24,10 @@ try:
     from ase.db import connect
     from ase.units import Hartree
 except ImportError:
-    print("Failed to import ase. You cannot use database.")
+    from loguru import logger as _logger
+
+    logger = _logger.bind(name="main")
+    logger.warning("Failed to import ase. You cannot use database.")
 
 
 def deepcopy(item):

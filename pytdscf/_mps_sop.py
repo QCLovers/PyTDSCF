@@ -1068,7 +1068,10 @@ class MPSCoefSoP(MPSCoef):
                 else:
                     norm = abs(np.linalg.norm(_svalues))
                 if not np.allclose(norm, np.eye(1, dtype=complex)):
-                    print(
+                    from loguru import logger as _logger
+
+                    logger = _logger.bind(name="main")
+                    logger.error(
                         f"Norm must be 1, but {norm} in mfop sweep at {psite} site"
                     )
 

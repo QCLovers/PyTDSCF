@@ -140,6 +140,7 @@ class MatrixProductOperators:
                         original_key=original_key,
                         psite=ind,
                         data=core,
+                        backend=self.backend,
                     )
                 )
             for ind in range(min(parent_key) + 1, max(parent_key)):
@@ -150,6 +151,7 @@ class MatrixProductOperators:
                             original_key=original_key,
                             psite=ind,
                             data=1,
+                            backend=self.backend,
                         )
                     )
 
@@ -176,7 +178,7 @@ class OperatorCore:
         original_key: tuple[int | tuple[int, int], ...],
         psite: int,
         data: jax.Array | np.ndarray | int,
-        backend: str = "jax",
+        backend,
     ):
         self.key = original_key
         self.psite = psite

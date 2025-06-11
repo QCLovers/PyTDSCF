@@ -259,10 +259,13 @@ class SiteCoef:
                 try:
                     matL = Q.reshape(m_aux_sys, nspf, -1)
                 except ValueError:
-                    print(Q.shape)
-                    print(R.shape)
-                    print(matC.shape)
-                    print(m_aux_sys, nspf, m_aux_env)
+                    from loguru import logger as _logger
+
+                    logger = _logger.bind(name="main")
+                    logger.error(Q.shape)
+                    logger.error(R.shape)
+                    logger.error(matC.shape)
+                    logger.error(m_aux_sys, nspf, m_aux_env)
                     raise
             coef = SiteCoef(data=matL, gauge="A", isite=self.isite)
         return (coef, sval)
@@ -379,13 +382,18 @@ class SiteCoef:
         data: np.ndarray | jax.Array
         data = np.zeros(shape, dtype="complex128")
         vibstate_array = np.array(vibstate, dtype="complex128")
-        data[0, :, 0] = vibstate_array / np.linalg.norm(vibstate_array)
+        data[0, :, 0] = vibstate_array
+        if not const.nonHermitian:
+            data[0, :, 0] /= np.linalg.norm(vibstate_array)
 
         if const.use_jax:
             data = jnp.array(data, dtype=jnp.complex128)
 
         obj = SiteCoef(data, "C", isite=isite)
-        return obj / obj.norm()
+        if not const.nonHermitian:
+            return obj / obj.norm()
+        else:
+            return obj
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))
@@ -565,7 +573,6 @@ def truncate_sigvec(
         sigvec = np.diag(sigvec_full)
     else:
         sigvec = np.diag(sigvec2_thin)
-    # print(f"{np.sum(np.diag(sigvec**2))=}")
     sigvec /= np.sqrt(np.sum(np.diag(sigvec) ** 2))  # normalize
     return L, sigvec, R
 

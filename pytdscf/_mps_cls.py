@@ -199,12 +199,12 @@ class MPSCoef(ABC):
                         )
 
         for istate in range(nstate):
-            logger.info(
+            logger.debug(
                 f"Initial MPS: {istate}-state with weights {weight_estate[istate]}"
             )
             for idof in range(ndof):
                 if const.verbose > 2:
-                    logger.info(
+                    logger.debug(
                         f"Initial MPS: {istate}-state {idof}-mode with weight "
                         + f"{np.array(weight_vib[istate][idof]) / np.linalg.norm(weight_vib[istate][idof])}"
                     )
@@ -886,10 +886,8 @@ class MPSCoef(ABC):
                     else:
                         L = newD
                 tensor_shapes_out = (L, C, R)
-                # print(f"{_is_max_rank=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=} {superblock_states[0][psite+1].data.shape=} {superblock_states[0][psite+2].data.shape=}")
             else:
                 tensor_shapes_out = None
-
             op_lcr = self.operators_for_superH(
                 psite=psite,
                 op_sys=op_sys,
@@ -910,7 +908,10 @@ class MPSCoef(ABC):
                     tensor_shapes_out=tensor_shapes_out,
                 )
             except Exception:
-                print(
+                from loguru import logger as _logger
+
+                logger = _logger.bind(name="main")
+                logger.error(
                     f"{psite=} {to=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=}"
                 )
                 raise
@@ -1055,8 +1056,9 @@ class MPSCoef(ABC):
             matPsi_states_new = _integrator.short_iterative_lanczos(
                 -1.0 * stepsize / 2, multiplyH, matPsi_states, const.thresh_exp
             )
-            norm = get_C_sval_states_norm(matPsi_states_new)
-            matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
+            if not const.nonHermitian:
+                norm = get_C_sval_states_norm(matPsi_states_new)
+                matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
 
         """update(over-write) matPsi(psite)"""
         for istate, superblock in enumerate(superblock_states):
@@ -1117,8 +1119,9 @@ class MPSCoef(ABC):
             svalues_states_new = _integrator.short_iterative_lanczos(
                 +1.0 * stepsize / 2, multiplyK, svalues_states, const.thresh_exp
             )
-            norm = get_C_sval_states_norm(svalues_states_new)
-            svalues_states_new = [x / norm for x in svalues_states_new]  # type: ignore
+            if not const.nonHermitian:
+                norm = get_C_sval_states_norm(svalues_states_new)
+                svalues_states_new = [x / norm for x in svalues_states_new]  # type: ignore
         return svalues_states_new
 
     def trans_next_psite_APsiB(
@@ -1668,7 +1671,6 @@ class MPSCoef(ABC):
             total_error = Hleft_error - K_error + Hright_error
             # total_error = K_error
             # logger.debug(f"{D=}, {total_error=:4e}")
-            # print(D, total_error, Hleft_error, K_error, Hright_error)
             if D > Dmin:
                 metric = (total_error - total_error_prev) / total_error  # noqa: F821
                 # logger.debug(f"ric=:4e}")
@@ -1832,13 +1834,19 @@ class MPSCoef(ABC):
                 to=to,
             )
         except Exception as e:
-            print(f"{psite=}, {superblock_states_full[0][psite].data.shape=}")
-            print(
+            from loguru import logger as _logger
+
+            logger = _logger.bind(name="main")
+            logger.error(
+                f"{psite=}, {superblock_states_full[0][psite].data.shape=}"
+            )
+            logger.error(
                 f"{psite-1=}, {superblock_states_full[0][psite-1].data.shape=}"
             )
-            print(
+            logger.error(
                 f"{psite+1=}, {superblock_states_full[0][psite+1].data.shape=}"
             )
+            logger.error(f"{e=}")
             raise e
         # logger.debug(f"{newD=}, {error=:3e}")
         op_env_D_bra = truncate_op_block(op_env_full_bra, newD, mode="bra")
@@ -1971,7 +1979,6 @@ class LatticeInfo:
                             isite=isite,
                         )
             superblock.append(matC)
-
         for isite in range(self.nsite - 1, 0, -1):
             matB, sval = superblock[isite].gauge_trf("C2sigmaB")
             superblock[isite] = matB
@@ -1982,11 +1989,14 @@ class LatticeInfo:
                 data = np.einsum("abc,cd->abd", matC, sval)
             superblock[isite - 1] = SiteCoef(data, gauge="C", isite=isite - 1)
 
-        superblock[0] *= scale / np.linalg.norm(superblock[0].data)
+        if not const.nonHermitian:
+            superblock[0] *= scale / np.linalg.norm(superblock[0].data)
+        else:
+            superblock[0] *= scale
         superblock[0].gauge = "Psi"
 
-        logger.info("Initial MPS Lattice")
-        logger.info(helper.get_tensornetwork_diagram_MPS(superblock))
+        logger.debug("Initial MPS Lattice")
+        logger.debug(helper.get_tensornetwork_diagram_MPS(superblock))
         return superblock
 
     def __repr__(self) -> str:

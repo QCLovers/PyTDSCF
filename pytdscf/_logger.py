@@ -86,30 +86,51 @@ def setup_loggers(jobname: str, adaptive: bool = False):
     if size > 1:
         comm.barrier()
 
+    # Remove all existing handlers to avoid accumulation when called with different jobnames
+    logger.remove()
+
+    # Add main stderr handler
+    logger.add(
+        Rank0Sink(sys.stderr),
+        format="{time:HH:mm:ss} | {level} | {message}",
+        level="INFO",
+        filter=make_filter("main"),
+    )
+
+    # Add main log file handler
     main_log_path = f"{jobname}/main.log"
-    existing_handlers = [h for h in logger._core.handlers.values()]
-    existing_paths = [
-        h._sink.name if hasattr(h._sink, "name") else None
-        for h in existing_handlers
-    ]
+    logger.add(
+        Rank0Sink(open(main_log_path, "w")),
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}",
+        level="DEBUG",
+        filter=make_filter("main"),
+    )
 
-    if main_log_path not in existing_paths:
-        logger.add(
-            Rank0Sink(open(main_log_path, "w")),
-            format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}",
-            level="DEBUG",
-            filter=make_filter("main"),
-        )
+    # Original implementation (commented out)
+    # main_log_path = f"{jobname}/main.log"
+    # existing_handlers = [h for h in logger._core.handlers.values()]
+    # existing_paths = [
+    #     h._sink.name if hasattr(h._sink, "name") else None
+    #     for h in existing_handlers
+    # ]
 
-    for handler in existing_handlers:
-        if getattr(handler._sink, "name", None) == sys.stderr:
-            logger.remove(handler.id)
-            logger.add(
-                Rank0Sink(sys.stderr),
-                format="{time:HH:mm:ss} | {level} | {message}",
-                level="INFO",
-                filter=make_filter("main"),
-            )
+    # if main_log_path not in existing_paths:
+    #     logger.add(
+    #         Rank0Sink(open(main_log_path, "w")),
+    #         format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} - {message}",
+    #         level="DEBUG",
+    #         filter=make_filter("main"),
+    #     )
+
+    # for handler in existing_handlers:
+    #     if getattr(handler._sink, "name", None) == sys.stderr:
+    #         logger.remove(handler.id)
+    #         logger.add(
+    #             Rank0Sink(sys.stderr),
+    #             format="{time:HH:mm:ss} | {level} | {message}",
+    #             level="INFO",
+    #             filter=make_filter("main"),
+    #         )
 
     data_loggers = ["autocorr", "expectations", "populations"]
     if adaptive:

@@ -16,7 +16,7 @@ Quick Start Examples
 .. _Example 11: TD_reduced_density_exciton.html
 .. _Example 12: singlet_fission.html
 .. _Example 13: donor-acceptor.html
-.. _Example 14: radicalpair.html
+.. _Example 14: radicalpair-sse.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -73,7 +73,7 @@ Quick Start Examples
    TD_reduced_density_exciton.ipynb
    singlet_fission.ipynb
    donor-acceptor.ipynb
-   radicalpair.ipynb
+   radicalpair-sse.ipynb
 
 Indices and tables
 

@@ -63,6 +63,7 @@ class Simulator:
         proj_gs: bool = False,
         t2_trick: bool = True,
         verbose: int = 2,
+        nonHermitian: bool = False,
     ):
         if backend.lower() == "jax":
             self.use_jax = True
@@ -80,6 +81,7 @@ class Simulator:
         self.ci_type = ci_type
         self.do_init_proj_gs = proj_gs
         self.verbose = verbose
+        self.nonHermitian = nonHermitian
         if proj_gs and not hasattr(model, "primbas_gs"):
             raise ValueError(
                 "If proj_gs is True, one must be set attribute model.primbas_gs: List[PrimBas_HO]"
@@ -145,6 +147,7 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
             use_mpo=self.model.use_mpo,
+            nonHermitian=self.nonHermitian,
         )
         return self._execute(autocorr, energy, norm, populations, observables)
 
@@ -238,6 +241,7 @@ class Simulator:
             adaptive_dD=adaptive_dD,
             adaptive_p_proj=adaptive_p_proj,
             adaptive_p_svd=adaptive_p_svd,
+            nonHermitian=self.nonHermitian,
         )
 
         return self._execute(
@@ -291,6 +295,7 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=verbose,
             use_mpo=self.model.use_mpo,
+            nonHermitian=self.nonHermitian,
         )
 
         return self._execute(
@@ -410,24 +415,25 @@ class Simulator:
                 )
             helper._ElpTime.steps += time()
             properties.update(stepsize_actual)
-        niter_krylov_list = list(helper._Debug.niter_krylov.values())
-        niter_krylov_total = sum(niter_krylov_list)
-        ncall_krylov_total = len(niter_krylov_list)
-        message = (
-            f"End {self.maxstep - 1:5d} step; "
-            + f"propagated {time_fs:8.3f} [fs]; "
-            + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
-        )
-        logger.info(message)
+        if self.maxstep > 0:
+            niter_krylov_list = list(helper._Debug.niter_krylov.values())
+            niter_krylov_total = sum(niter_krylov_list)
+            ncall_krylov_total = len(niter_krylov_list)
+            message = (
+                f"End {self.maxstep - 1:5d} step; "
+                + f"propagated {time_fs:8.3f} [fs]; "
+                + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
+            )
+            logger.info(message)
         logger.info("End simulation and save wavefunction")
         self.save_wavefunction(wf, log=True)
         return (properties.energy, wf)
 
     def get_primitive_integrals(self) -> PrimInts:
         if const.doDVR:
-            logger.info("Set integral of DVR basis")
+            logger.debug("Set integral of DVR basis")
         else:
-            logger.info("Set integral of FBR basis")
+            logger.debug("Set integral of FBR basis")
         _debug = -time()
         if self.model.ints_prim_file is None:
             ints_prim = PrimInts(self.model)
@@ -451,9 +457,9 @@ class Simulator:
 
     def get_initial_wavefunction(self, ints_prim: PrimInts) -> WFunc:
         if const.doDVR:
-            logger.info("Set initial wave function (DVR basis)")
+            logger.debug("Set initial wave function (DVR basis)")
         else:
-            logger.info("Set initial wave function (FBR basis)")
+            logger.debug("Set initial wave function (FBR basis)")
         """setup initial w.f."""
         if const.doRestart:
             path = f"wf_{self.jobname}{const.loadfile_ext}.pkl"
@@ -465,7 +471,7 @@ class Simulator:
         else:
             if self.ci_type.lower() == "mps":
                 if const.verbose > 1:
-                    logger.info("Prepare MPS w.f.")
+                    logger.debug("Prepare MPS w.f.")
                 if self.do_init_proj_gs:
                     logger.debug("Initial SPF: projected from GS")
                     if const.use_mpo:
@@ -504,7 +510,7 @@ class Simulator:
                     raise NotImplementedError
 
                 if const.verbose > 1:
-                    logger.info("Prepare MCTDH w.f.")
+                    logger.debug("Prepare MCTDH w.f.")
                 if self.do_init_proj_gs:
                     logger.debug("Initial SPF: projected from GS")
                     wf = WFunc(

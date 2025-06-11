@@ -120,6 +120,7 @@ class Const:
         adaptive_dD: int = 10,
         adaptive_p_proj: float = 1.0e-04,
         adaptive_p_svd: float = 1.0e-07,
+        nonHermitian: bool = False,
     ):
         """
 
@@ -154,23 +155,19 @@ class Const:
                 The list is a list of tuples, each containing the start and end \
                 indices of a site range for parallel processing.
                 The indices are 0-based.
-
+            nonHermitian (bool) : Defaults to ``False``.
+                If ``True``, the calculation will be non-Hermitian (i,e. wavefunction is not normalized and SIL is not used).
 
         """
         if jobname is None:
             if apply_dipo:
-                self.jobname = "operate"
+                jobname = "operate"
             elif relax:
-                self.jobname = "relax"
+                jobname = "relax"
             else:
-                self.jobname = "propagate"
-        else:
-            self.jobname = jobname
-        set_main_logger(overwrite=True)
-        set_logger("autocorr")
-        set_logger("populations")
-        set_logger("expectations")
-        self.logger = getLogger("main").getChild(__name__)
+                jobname = "propagate"
+        setup_loggers(jobname, adaptive=adaptive)
+        self.jobname = jobname
         if verbose >= 3:
             self.logger.info(CBOLD + CVIOLET + pytdscf + CEND)
         if verbose >= 1:
@@ -200,6 +197,9 @@ class Const:
         self.dD = adaptive_dD
         self.p_proj = adaptive_p_proj
         self.p_svd = adaptive_p_svd
+        self.nonHermitian = nonHermitian
+        if nonHermitian:
+            logger.warning("Non-Hermitian calculation is experimental.")
         if adaptive:
             logger.warning("Adaptive calculation is experimental.")
         if self.use_mpo:

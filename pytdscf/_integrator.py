@@ -14,7 +14,7 @@ import scipy.linalg
 
 from pytdscf._contraction import SplitStack
 from pytdscf._helper import _Debug
-
+from pytdscf._const_cls import const
 
 @overload
 def expectation_Op(
@@ -296,7 +296,16 @@ def short_iterative_lanczos(
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
     psi = multiplyOp.stack(psi_states, extend=True)
-    if use_jax := isinstance(psi, jax.Array):
+    use_jax = isinstance(psi, jax.Array)
+    if const.nonHermitian:
+        if use_jax:
+            psi_norm = jnp.linalg.norm(psi)
+        else:
+            psi_norm = np.linalg.norm(psi)
+        psi /= psi_norm
+    else:
+        psi_norm = 1.0
+    if use_jax:
         psi_conj = jnp.conj(psi)
         cvecs = stack_to_cvecs(psi)
     else:
@@ -394,15 +403,20 @@ def short_iterative_lanczos(
                 psi_next = np.dot(eigvec_expLU, cvecs[:-1, :])
         if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
+            if const.nonHermitian:
+                psi_next *= psi_norm
             return multiplyOp.split(psi_next)
         elif ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if use_jax:
-                psi_next /= jnp.linalg.norm(psi_next)
+            if const.nonHermitian:
+                psi_next *= psi_norm
             else:
-                psi_next /= np.linalg.norm(psi_next)
+                if use_jax:
+                    psi_next /= jnp.linalg.norm(psi_next)
+                else:
+                    psi_next /= np.linalg.norm(psi_next)
             return multiplyOp.split(psi_next)
 
         if psi_next_sv is None:
@@ -414,11 +428,14 @@ def short_iterative_lanczos(
                 err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                # |C| should be 1.0
-                if use_jax:
-                    psi_next /= jnp.linalg.norm(psi_next)
+                if const.nonHermitian:
+                    psi_next *= psi_norm
                 else:
-                    psi_next /= np.linalg.norm(psi_next)
+                    # |C| should be 1.0
+                    if use_jax:
+                        psi_next /= jnp.linalg.norm(psi_next)
+                    else:
+                        psi_next /= np.linalg.norm(psi_next)
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
     raise ValueError(

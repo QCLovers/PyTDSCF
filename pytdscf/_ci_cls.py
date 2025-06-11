@@ -191,7 +191,6 @@ class CICoef(object):
              ints_spf_autocorr: <i_spf*|j_spf> = \sum_{k} spf_coef(i_spf,k_prim) * spf_coef(j_spf,k_prim)
         """
         ints_spf_autocorr = ints_spf["auto"]
-        # print(ints_spf_autocorr[0])
         nstate = self.nstate
         ndof = self.ndof
         sigmavec = self.alloc_zeros_like()
