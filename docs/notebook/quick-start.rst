@@ -16,6 +16,7 @@ Quick Start Examples
 .. _Example 11: TD_reduced_density_exciton.html
 .. _Example 12: singlet_fission.html
 .. _Example 13: donor-acceptor.html
+.. _Example 14: radicalpair.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -43,7 +44,7 @@ Quick Start Examples
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 13`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 13`_ | Propagation | mixed MPS-SM | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
+| `Example 14`_ | Propagation | mixed MPS-SM | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
