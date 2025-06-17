@@ -651,7 +651,7 @@ class MPSCoefMPO(MPSCoef):
                 # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
                 assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
                 op_l_ovlp = op_l_ovlp.shape[0]
-            if ints_site is not None and op_c_ovlp.is_identity:  # type: ignore
+            if ints_site is not None and op_c_ovlp.is_identity:
                 # np.testing.assert_allclose(op_c_ovlp, np.eye(*op_c_ovlp.shape)):
                 assert isinstance(op_c_ovlp, np.ndarray | jax.Array)
                 op_c_ovlp = op_c_ovlp.shape[0]

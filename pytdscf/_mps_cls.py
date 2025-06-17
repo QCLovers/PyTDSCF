@@ -1041,9 +1041,21 @@ class MPSCoef(ABC):
             )
 
         if not const.doRelax:
-            matPsi_states_new = _integrator.short_iterative_lanczos(
-                -1.0j * stepsize / 2, multiplyH, matPsi_states, const.thresh_exp
-            )
+            if const.nonHermitian:
+                # exp(iHt+Kt) simeq exp(iHt) exp(Kt)
+                matPsi_states_new = _integrator.short_iterative_lanczos(
+                    -1.0j * stepsize / 2,
+                    multiplyH,
+                    matPsi_states,
+                    const.thresh_exp,
+                )
+            else:
+                matPsi_states_new = _integrator.short_iterative_lanczos(
+                    -1.0j * stepsize / 2,
+                    multiplyH,
+                    matPsi_states,
+                    const.thresh_exp,
+                )
 
         elif const.doRelax == "improved":
             matPsi_states_new = _integrator.matrix_diagonalize_lanczos(

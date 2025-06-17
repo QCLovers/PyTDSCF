@@ -265,7 +265,7 @@ class SiteCoef:
                     logger.error(Q.shape)
                     logger.error(R.shape)
                     logger.error(matC.shape)
-                    logger.error(m_aux_sys, nspf, m_aux_env)
+                    logger.error(f"{m_aux_sys=}, {nspf=}, {m_aux_env=}")
                     raise
             coef = SiteCoef(data=matL, gauge="A", isite=self.isite)
         return (coef, sval)

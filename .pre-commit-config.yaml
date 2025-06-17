@@ -30,7 +30,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: cd tests/build && uv run pytest -n auto ..
+        entry: bash -c "cd tests/build && uv run pytest -n auto .."
         language: system
         pass_filenames: false
         files: "^(pytdscf/|tests/)"

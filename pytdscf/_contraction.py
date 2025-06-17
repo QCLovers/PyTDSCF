@@ -462,7 +462,7 @@ class SplitStack:
         self.tensor_shapes_in: tuple[int, ...] = psi_state_shape_in
         self._split_idx_in: list[int] = np.cumsum(
             [np.prod(self.tensor_shapes_in)] * nstate
-        ).tolist()[:-1]  # type: ignore
+        ).tolist()[:-1]
         if psi_state_shape_out is None:
             self.tensor_shapes_out: tuple[int, ...] = psi_state_shape_in
             self._split_idx_out = self._split_idx_in
@@ -470,7 +470,7 @@ class SplitStack:
             self.tensor_shapes_out = psi_state_shape_out
             self._split_idx_out = np.cumsum(
                 [np.prod(self.tensor_shapes_out)] * nstate
-            ).tolist()[:-1]  # type: ignore
+            ).tolist()[:-1]
         self.in_same_as_out = self.tensor_shapes_in == self.tensor_shapes_out
 =======
     def __init__(self, psi_states: list[np.ndarray] | list[jax.Array]):
