@@ -16,8 +16,7 @@ Quick Start Examples
 .. _Example 11: TD_reduced_density_exciton.html
 .. _Example 12: singlet_fission.html
 .. _Example 13: donor-acceptor.html
-.. _Example 14: radicalpair-sse.html
-.. _Example 15: radicalpair-liouville.html
+.. _Example 14: radicalpair-liouville.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -45,9 +44,7 @@ Quick Start Examples
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 13`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 14`_ | Propagation | Stochastic   | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
-+---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 15`_ | Propagation | Liouville    | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
+| `Example 14`_ | Propagation | Liouville    | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
@@ -76,7 +73,8 @@ Quick Start Examples
    TD_reduced_density_exciton.ipynb
    singlet_fission.ipynb
    donor-acceptor.ipynb
-   radicalpair-sse.ipynb
+   radicalpair-liouville.ipynb
+   singlet_fission_nprocs.md
 
 Indices and tables
 
