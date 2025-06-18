@@ -4,6 +4,7 @@ Shared constant parameters are defined here.
 
 import datetime
 import os
+from typing import Literal
 
 from loguru import logger
 
@@ -120,7 +121,8 @@ class Const:
         adaptive_dD: int = 10,
         adaptive_p_proj: float = 1.0e-04,
         adaptive_p_svd: float = 1.0e-07,
-        nonHermitian: bool = False,
+        space: Literal["hilbert", "liouville"] = "hilbert",
+        integrator: Literal["lanczos", "arnoldi"] = "lanczos",
     ):
         """
 
@@ -157,6 +159,10 @@ class Const:
                 The indices are 0-based.
             nonHermitian (bool) : Defaults to ``False``.
                 If ``True``, the calculation will be non-Hermitian (i,e. wavefunction is not normalized and SIL is not used).
+            integrator (Literal["lanczos", "arnoldi"]) : Defaults to ``"lanczos"``.
+                The integrator to use for the short iterative Lanczos method.
+                "lanczos" is the default and "arnoldi" is the alternative.
+                If Hamiltonian is represented by sum of Hermitian or skew-Hermitian parts, Lanczos is faster.
 
         """
         if jobname is None:
@@ -190,16 +196,25 @@ class Const:
 
         self.use_jax = use_jax
         const.thresh_exp = thresh_sil
+        if not standard_method:
+            logger.warning("Employing SPF is deprecated.")
         self.standard_method = standard_method
+        if not use_mpo:
+            logger.warning(
+                "Employing sum of product Hamiltonian is deprecated."
+            )
         self.use_mpo = use_mpo
         self.adaptive = adaptive
         self.Dmax = adaptive_Dmax
         self.dD = adaptive_dD
         self.p_proj = adaptive_p_proj
         self.p_svd = adaptive_p_svd
-        self.nonHermitian = nonHermitian
-        if nonHermitian:
-            logger.warning("Non-Hermitian calculation is experimental.")
+        self.integrator = integrator.lower()
+        if space.lower() not in ["hilbert", "liouville"]:
+            raise ValueError(
+                f"space must be 'hilbert' or 'liouville' but got {space}"
+            )
+        self.space = space.lower()
         if adaptive:
             logger.warning("Adaptive calculation is experimental.")
         if self.use_mpo:

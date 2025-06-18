@@ -1,5 +1,6 @@
 """Property handling module"""
 
+import math
 import os
 
 import netCDF4 as nc
@@ -173,9 +174,20 @@ class Properties:
                 modes = modes.union(set(key))
                 for idof in key:
                     if f"Q{idof}" not in f.dimensions:
-                        f.createDimension(
-                            f"Q{idof}", self.model.basinfo.get_ngrid(0, idof)
-                        )
+                        if const.space == "hilbert":
+                            f.createDimension(
+                                f"Q{idof}",
+                                self.model.basinfo.get_ngrid(0, idof),
+                            )
+                        elif const.space == "liouville":
+                            f.createDimension(
+                                f"Q{idof}",
+                                math.isqrt(
+                                    self.model.basinfo.get_ngrid(0, idof)
+                                ),
+                            )
+                        else:
+                            raise ValueError(f"Invalid space: {const.space}")
             f.createVariable("time", "f8", ("step",))
             for key in reduced_density[0]:
                 if len(key) > 3:

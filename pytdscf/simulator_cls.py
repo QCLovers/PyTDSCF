@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 import dill
 from loguru import logger as _logger
+from tqdm.auto import tqdm
 
 import pytdscf._helper as helper
 from pytdscf import units
@@ -63,7 +64,6 @@ class Simulator:
         proj_gs: bool = False,
         t2_trick: bool = True,
         verbose: int = 2,
-        nonHermitian: bool = False,
     ):
         if backend.lower() == "jax":
             self.use_jax = True
@@ -81,7 +81,6 @@ class Simulator:
         self.ci_type = ci_type
         self.do_init_proj_gs = proj_gs
         self.verbose = verbose
-        self.nonHermitian = nonHermitian
         if proj_gs and not hasattr(model, "primbas_gs"):
             raise ValueError(
                 "If proj_gs is True, one must be set attribute model.primbas_gs: List[PrimBas_HO]"
@@ -104,6 +103,7 @@ class Simulator:
         norm: bool = True,
         populations: bool = True,
         observables: bool = False,
+        integrator: Literal["lanczos", "arnoldi"] = "lanczos",
     ) -> tuple[float, WFunc]:
         """Relaxation
 
@@ -147,7 +147,8 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
             use_mpo=self.model.use_mpo,
-            nonHermitian=self.nonHermitian,
+            space=self.model.space,
+            integrator=integrator,
         )
         return self._execute(autocorr, energy, norm, populations, observables)
 
@@ -178,6 +179,7 @@ class Simulator:
         adaptive_dD: int = 5,
         adaptive_p_proj: float = 1.0e-04,
         adaptive_p_svd: float = 1.0e-07,
+        integrator: Literal["lanczos", "arnoldi"] = "lanczos",
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -241,7 +243,8 @@ class Simulator:
             adaptive_dD=adaptive_dD,
             adaptive_p_proj=adaptive_p_proj,
             adaptive_p_svd=adaptive_p_svd,
-            nonHermitian=self.nonHermitian,
+            space=self.model.space,
+            integrator=integrator,
         )
 
         return self._execute(
@@ -295,7 +298,6 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=verbose,
             use_mpo=self.model.use_mpo,
-            nonHermitian=self.nonHermitian,
         )
 
         return self._execute(
@@ -367,7 +369,11 @@ class Simulator:
         stepsize_guess = (
             1.0e-3 / units.au_in_fs
         )  # a.u. [typical values in MCTDH]
-        for istep in range(self.maxstep):
+        if const.mpi_rank == 0:
+            iterator = tqdm(range(self.maxstep))
+        else:
+            iterator = range(self.maxstep)
+        for istep in iterator:
             time_fs = properties.time * units.au_in_fs
             if istep % 100 == 1:
                 niter_krylov_list = list(helper._Debug.niter_krylov.values())

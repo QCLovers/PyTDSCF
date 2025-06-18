@@ -652,8 +652,6 @@ class TensorHamiltonian(HamiltonianMixin):
         nstate = len(potential)
         super().__init__(name, nstate, ndof)
         self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
-        if const.verbose > 2:
-            logger.info(f"Start tensor decomposition: type = {decompose_type}")
         for i, j in itertools.product(range(nstate), range(nstate)):
             operators: dict[
                 tuple[int | tuple[int, int], ...],

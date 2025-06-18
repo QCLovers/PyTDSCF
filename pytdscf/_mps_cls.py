@@ -1041,8 +1041,14 @@ class MPSCoef(ABC):
             )
 
         if not const.doRelax:
-            if const.nonHermitian:
-                # exp(iHt+Kt) simeq exp(iHt) exp(Kt)
+            if const.integrator == "arnoldi":
+                matPsi_states_new = _integrator.short_iterative_arnoldi(
+                    -1.0j * stepsize / 2,
+                    multiplyH,
+                    matPsi_states,
+                    const.thresh_exp,
+                )
+            elif const.integrator == "lanczos":
                 matPsi_states_new = _integrator.short_iterative_lanczos(
                     -1.0j * stepsize / 2,
                     multiplyH,
@@ -1050,12 +1056,7 @@ class MPSCoef(ABC):
                     const.thresh_exp,
                 )
             else:
-                matPsi_states_new = _integrator.short_iterative_lanczos(
-                    -1.0j * stepsize / 2,
-                    multiplyH,
-                    matPsi_states,
-                    const.thresh_exp,
-                )
+                raise ValueError(f"Invalid integrator: {const.integrator}")
 
         elif const.doRelax == "improved":
             matPsi_states_new = _integrator.matrix_diagonalize_lanczos(
@@ -1068,9 +1069,11 @@ class MPSCoef(ABC):
             matPsi_states_new = _integrator.short_iterative_lanczos(
                 -1.0 * stepsize / 2, multiplyH, matPsi_states, const.thresh_exp
             )
-            if not const.nonHermitian:
+            if const.space == "hilbert":
+                # In Hilbert space and Hamiltonian is Hermitian,
+                # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(matPsi_states_new)
-                matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
+                matPsi_states_new = [x / norm for x in matPsi_states_new]
 
         """update(over-write) matPsi(psite)"""
         for istate, superblock in enumerate(superblock_states):
@@ -1131,7 +1134,9 @@ class MPSCoef(ABC):
             svalues_states_new = _integrator.short_iterative_lanczos(
                 +1.0 * stepsize / 2, multiplyK, svalues_states, const.thresh_exp
             )
-            if not const.nonHermitian:
+            if const.space == "hilbert":
+                # In Hilbert space and Hamiltonian is Hermitian,
+                # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(svalues_states_new)
                 svalues_states_new = [x / norm for x in svalues_states_new]  # type: ignore
         return svalues_states_new
@@ -1185,6 +1190,9 @@ class MPSCoef(ABC):
         |ρ>[0, 2] = Tr_{1, 3, ..., f-1} |Ψ><Ψ|
 
         Contraction of tensor cores should be executed from right to left.
+
+        `remain_nleg` is given like (0, 0, 2, 2) for MPS with sites more than 4.
+        Since B block left of 4th site is orthogonalized, we can skip the contraction of B block left of 4th site.
 
         """
         assert self.is_psite_canonical(0)
@@ -1246,22 +1254,90 @@ class MPSCoef(ABC):
             assert isite == 0
             return density[0, 0, ...]
 
+    def get_partial_trace(
+        self, istate: int, remain_nleg: tuple[int, ...]
+    ) -> np.ndarray:
+        """
+        Get partial trace for Liouville space MPS.
+
+        Args:
+            istate: state index
+            remain_nleg: tuple indicating number of legs to keep for each site
+                        (0: trace out, 1: keep one leg, 2: keep both legs)
+
+        Returns:
+            Partial trace as reduced density matrix
+        """
+        # Find the rightmost site with 2 legs (sys_site)
+        center_site = None
+        assert const.space == "liouville"
+        for i in range(len(remain_nleg) - 1, -1, -1):
+            if remain_nleg[i] == 2:
+                center_site = i
+                break
+        if center_site is None:
+            raise ValueError("No site with 2 legs found in remain_nleg")
+        mps = [core.data for core in self.superblock_states[istate]]
+        if const.use_jax:
+            return np.array(
+                _get_partial_trace_jax(mps, remain_nleg, center_site)
+            )
+
+        def reshape_mat(mat) -> np.ndarray:
+            i, j, k = mat.shape
+            j_sqrt = math.isqrt(j)
+            return mat.reshape(i, j_sqrt, j_sqrt, k, order="C")
+
+        nsite = len(mps)
+        left_env = np.array([1.0 + 0.0j])
+        for isite in range(center_site):
+            data: np.ndarray = reshape_mat(mps[isite])
+            match remain_nleg[isite]:
+                case 0:
+                    subscript = "...i,ijjl->...l"
+                case 1:
+                    subscript = "...i,ijjl->...jl"
+                case 2:
+                    subscript = "...i,ijkj->...jkl"
+                case _:
+                    raise ValueError(
+                        f"Invalid number of legs: {remain_nleg[isite]}"
+                    )
+            left_env = np.einsum(subscript, left_env, data)
+
+        right_env = np.array([1.0 + 0.0j])
+        for isite in range(nsite - 1, center_site, -1):
+            data = reshape_mat(mps[isite])
+            right_env = np.einsum("ijjl,l->i", data, right_env)
+        data = reshape_mat(mps[center_site])
+        dm = np.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+        return dm
+
     def get_reduced_densities(
         self, remain_nleg: tuple[int, ...]
     ) -> list[np.ndarray]:
         reduced_densities = []
         nstate = len(self.superblock_states)
-        for istate in range(nstate):
-            _reduced_density = self._get_normalized_reduced_density(
-                istate, remain_nleg
+        if nstate > 1:
+            raise NotImplementedError(
+                "Reduced density matrix is not supported for direct product MPS."
             )
-            if isinstance(_reduced_density, jax.Array):
-                reduced_density = np.array(_reduced_density)
-            elif isinstance(_reduced_density, np.ndarray):
-                reduced_density = _reduced_density
-            else:
-                raise ValueError("The type of reduced_density is invalid.")
-            reduced_densities.append(reduced_density)
+        match const.space:
+            case "hilbert":
+                _reduced_density = self._get_normalized_reduced_density(
+                    0, remain_nleg
+                )
+            case "liouville":
+                _reduced_density = self.get_partial_trace(0, remain_nleg)
+            case _:
+                raise ValueError(f"Invalid space: {const.space}")
+        if isinstance(_reduced_density, jax.Array):
+            reduced_density = np.array(_reduced_density)
+        elif isinstance(_reduced_density, np.ndarray):
+            reduced_density = _reduced_density
+        else:
+            raise ValueError("The type of reduced_density is invalid.")
+        reduced_densities.append(reduced_density)
         return reduced_densities
 
     def get_CI_coef_state(
@@ -2001,7 +2077,7 @@ class LatticeInfo:
                 data = np.einsum("abc,cd->abd", matC, sval)
             superblock[isite - 1] = SiteCoef(data, gauge="C", isite=isite - 1)
 
-        if not const.nonHermitian:
+        if const.space == "hilbert":
             superblock[0] *= scale / np.linalg.norm(superblock[0].data)
         else:
             superblock[0] *= scale
@@ -2369,6 +2445,47 @@ def _get_normalized_reduced_density_jax(
         density = jnp.einsum(subscript, jnp.conj(core), core, density)
     assert isite == 0
     return density[0, 0, ...]
+
+
+@partial(jax.jit, static_argnames=("remain_nleg", "sys_site"))
+def _get_partial_trace_jax(
+    mps: list[jax.Array],
+    remain_nleg: tuple[int, ...],
+    sys_site: int,
+) -> jax.Array:
+    """
+    Get partial trace for Liouville space MPS.
+    """
+
+    def reshape_mat(mat: jax.Array) -> jax.Array:
+        i, j, k = mat.shape
+        j_sqrt = math.isqrt(j)
+        return mat.reshape(i, j_sqrt, j_sqrt, k)
+
+    nsite = len(mps)
+    left_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
+    for isite in range(sys_site):
+        data = reshape_mat(mps[isite])
+        match remain_nleg[isite]:
+            case 0:
+                subscript = "...i,ijjl->...l"
+            case 1:
+                subscript = "...i,ijjl->...jl"
+            case 2:
+                subscript = "...i,ijkj->...jkl"
+            case _:
+                raise ValueError(
+                    f"Invalid number of legs: {remain_nleg[isite]}"
+                )
+        left_env = jnp.einsum(subscript, left_env, data)
+
+    right_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
+    for isite in range(nsite - 1, sys_site, -1):
+        data = reshape_mat(mps[isite])
+        right_env = jnp.einsum("ijjl,l->i", data, right_env)
+    data = reshape_mat(mps[sys_site])
+    dm = jnp.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+    return dm
 
 
 @jax.jit

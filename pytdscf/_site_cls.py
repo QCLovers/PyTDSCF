@@ -4,8 +4,8 @@ Core tensor (site coefficient) class for MPS & MPO
 
 from __future__ import annotations
 
-# import math
 from functools import partial
+from math import isqrt
 from typing import Literal, overload
 
 import jax
@@ -383,17 +383,21 @@ class SiteCoef:
         data = np.zeros(shape, dtype="complex128")
         vibstate_array = np.array(vibstate, dtype="complex128")
         data[0, :, 0] = vibstate_array
-        if not const.nonHermitian:
-            data[0, :, 0] /= np.linalg.norm(vibstate_array)
+        match const.space:
+            case "hilbert":
+                # In Hilbert space, the norm of the wavefunction is 1.0
+                data[0, :, 0] /= np.linalg.norm(vibstate_array)
+            case "liouville":
+                # In Liouville space, the trace of density matrix is 1.0
+                trace = np.trace(
+                    vibstate_array.reshape(isqrt(ndim), isqrt(ndim))
+                )
+                data[0, :, 0] /= trace
 
         if const.use_jax:
             data = jnp.array(data, dtype=jnp.complex128)
 
-        obj = SiteCoef(data, "C", isite=isite)
-        if not const.nonHermitian:
-            return obj / obj.norm()
-        else:
-            return obj
+        return SiteCoef(data, "C", isite=isite)
 
 
 @partial(jax.jit, static_argnums=(1, 2, 3))

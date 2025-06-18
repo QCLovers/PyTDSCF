@@ -163,7 +163,7 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
     # short iterative lanczos should converge in a few steps
     hessen = np.zeros((ndim + 1, ndim + 1), dtype=complex)
     psi = multiplyOp.stack(psi_states)
-    if const.nonHermitian:
+    if const.space == "liouville":
         β0 = np.linalg.norm(psi).item()
         psi /= β0
     else:
@@ -174,9 +174,6 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
         trial_states = multiplyOp.split(cveclist[-1])
         sigvec_states = multiplyOp.dot(trial_states)
         sigvec = multiplyOp.stack(sigvec_states)
-        if const.nonHermitian and ldim == 0:
-            sigvec /= β0
-
         for icol, cvec in enumerate(cveclist):
             hessen[icol, ldim] = np.inner(np.conj(cvec), sigvec)
             sigvec -= cvec * hessen[icol, ldim]
@@ -198,7 +195,7 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
 
         if scipy.linalg.norm(sigvec) < 1e-15:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.nonHermitian:
+            if const.space == "liouville":
                 psi_next *= β0
             return multiplyOp.split(psi_next)
         elif ldim == 0:
@@ -207,7 +204,7 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                if const.nonHermitian:
+                if const.space == "liouville":
                     psi_next *= β0
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
@@ -322,7 +319,7 @@ def short_iterative_lanczos(
     beta = []  # semi-diagonal term
     v1 = multiplyOp.stack(psi_states, extend=True)
     use_jax = isinstance(v1, jax.Array)
-    if const.nonHermitian:
+    if const.space == "liouville":
         β0 = norm(v1)
         v1 /= β0
     else:
@@ -342,7 +339,7 @@ def short_iterative_lanczos(
             trial_states = multiplyOp.split(V[-1], truncate=True)
 
         v_l = H(trial_states)
-        if const.nonHermitian and ldim == 0:
+        if const.space == "liouville" and ldim == 0:
             v_l /= β0
 
         if use_jax:
@@ -414,14 +411,14 @@ def short_iterative_lanczos(
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
         if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.nonHermitian:
+            if const.space == "liouville":
                 psi_next *= β0
             return multiplyOp.split(psi_next)
         elif ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.nonHermitian:
+            if const.space == "liouville":
                 psi_next *= β0
             else:
                 psi_next /= norm(psi_next)
@@ -433,7 +430,7 @@ def short_iterative_lanczos(
             err = norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                if const.nonHermitian:
+                if const.space == "liouville":
                     psi_next *= β0
                 else:
                     # |C| should be 1.0
