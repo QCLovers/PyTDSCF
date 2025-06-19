@@ -210,17 +210,21 @@ class Const:
         self.p_proj = adaptive_p_proj
         self.p_svd = adaptive_p_svd
         self.integrator = integrator.lower()
+        self.space = space.lower()
+        if self.space == "liouville":  # or parallel_split_indices is not None:
+            self.conserve_norm = False
+        else:
+            self.conserve_norm = True
         if space.lower() not in ["hilbert", "liouville"]:
             raise ValueError(
                 f"space must be 'hilbert' or 'liouville' but got {space}"
             )
-        self.space = space.lower()
         if adaptive:
             logger.warning("Adaptive calculation is experimental.")
-        if self.use_mpo:
-            assert self.standard_method, (
-                "MPO is only available for standard method."
-            )
+        if self.use_mpo and not self.standard_method:
+            raise ValueError("MPO is only available for standard method.")
+        if self.use_jax and self.space == "liouville":
+            raise ValueError("jax is not supported for liouville space.")
         if parallel_split_indices is not None:
             assert len(parallel_split_indices) == self.mpi_size
             # self.regularize_site = True
@@ -236,6 +240,8 @@ class Const:
                         == parallel_split_indices[i + 1][0]
                     )
                 self.split_indices.append(parallel_split_indices[i][0])
+        if self.use_jax and parallel_split_indices is not None:
+            raise ValueError("jax is not supported for parallel calculation.")
 
 
 const = Const()

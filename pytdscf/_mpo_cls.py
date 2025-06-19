@@ -84,7 +84,7 @@ class MatrixProductOperators:
             tuple[int | tuple[int, int], ...],
             list[np.ndarray] | list[jax.Array],
         ],
-        backend: str = "jax",
+        backend: str,
     ):
         self.nsite = nsite
         self.operators = operators

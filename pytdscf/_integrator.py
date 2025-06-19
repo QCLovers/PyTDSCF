@@ -159,15 +159,19 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
                 (tau_{p-1}, j_p, tau_p) or (tau_{p-1}, tau_p).
 
     """
+    if const.use_jax:
+        raise NotImplementedError(
+            "Short Iterative Arnoldi is not implemented for JAX."
+        )
     ndim = min(sum([x.size for x in psi_states]), 20)
     # short iterative lanczos should converge in a few steps
     hessen = np.zeros((ndim + 1, ndim + 1), dtype=complex)
     psi = multiplyOp.stack(psi_states)
-    if const.space == "liouville":
+    if const.conserve_norm:
+        β0 = 1.0
+    else:
         β0 = np.linalg.norm(psi).item()
         psi /= β0
-    else:
-        β0 = 1.0
     cveclist = [psi]
     for ldim in range(ndim + 1):
         """Hessenberg matrix by Arnoldi algorithm"""
@@ -195,7 +199,7 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
 
         if scipy.linalg.norm(sigvec) < 1e-15:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.space == "liouville":
+            if not const.conserve_norm:
                 psi_next *= β0
             return multiplyOp.split(psi_next)
         elif ldim == 0:
@@ -319,11 +323,11 @@ def short_iterative_lanczos(
     beta = []  # semi-diagonal term
     v1 = multiplyOp.stack(psi_states, extend=True)
     use_jax = isinstance(v1, jax.Array)
-    if const.space == "liouville":
+    if const.conserve_norm:
+        β0 = 1.0
+    else:
         β0 = norm(v1)
         v1 /= β0
-    else:
-        β0 = 1.0
     if use_jax:
         v1_conj: np.ndarray | jax.Array = jnp.conj(v1)
         V = stack_to_cvecs(v1)
@@ -418,10 +422,10 @@ def short_iterative_lanczos(
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.space == "liouville":
-                psi_next *= β0
-            else:
+            if const.conserve_norm:
                 psi_next /= norm(psi_next)
+            else:
+                psi_next *= β0
             return multiplyOp.split(psi_next)
 
         if psi_next_sv is None:
@@ -430,11 +434,11 @@ def short_iterative_lanczos(
             err = norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                if const.space == "liouville":
-                    psi_next *= β0
-                else:
+                if const.conserve_norm:
                     # |C| should be 1.0
                     psi_next /= norm(psi_next)
+                else:
+                    psi_next *= β0
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
     raise ValueError(

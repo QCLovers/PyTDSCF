@@ -102,9 +102,12 @@ class WFunc:
         ints_spf = SPFInts(self.ints_prim, self.spf_coef)
         expectation = self.ci_coef.expectation(ints_spf, matOp)
         if const.mpi_rank == 0:
-            if abs(expectation.imag) > 1e-12:
+            if (
+                abs(np.angle(expectation)) > 1e-02
+                and abs(abs(np.angle(expectation)) - np.pi) > 1e-02
+            ):
                 logger.warning(
-                    f"expectation value {expectation} is not real, maybe operator is not Hermite"
+                    f"Expectation value {expectation} is not real, probably due to non-Hermitian operator or numerical error."
                 )
             return expectation.real
         else:

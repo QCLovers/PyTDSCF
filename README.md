@@ -3,38 +3,72 @@
 # PyTDSCF
 ![reduced_density_bath](https://github.com/user-attachments/assets/a0bf7f6c-0b43-48a5-8e2b-36bd5436fbde)
 
+PyTDSCF is a Python package for high-dimensional wave-packet dynamics simulations based on tensor train.
 
+## Features
 
+### Multiple MPO Types for Hamiltonian Representation
 
+You can use various types of Matrix Product Operators (MPO) as Hamiltonians:
 
-PyTDSCF is a package for high-dimensional wave-packet dynamics simulations based on tensor networks.
+- **[Symbolic MPO](https://qclovers.github.io/PyTDSCF/notebook/poly-MPO-H2O-relax.html)**
+   $$
+\sum_i \frac{\hat{Q}_i^2}{2} \Rightarrow\left[\begin{array}{ll}
+1 & \frac{\hat{Q}_1^2}{2}
+\end{array}\right]\left[\begin{array}{ll}
+1 & \frac{\hat{Q}_2^2}{2} \\
+0 & 1
+\end{array}\right] \ldots\left[\begin{array}{ll}
+1 & \frac{\hat{Q}_{k-1}^2}{2} \\
+0 & 1
+\end{array}\right]\left[\begin{array}{l}
+\frac{\hat{Q}_k^2}{2} \\
+1
+\end{array}\right]
+$$
 
-You can calculate
-- Wave packet relaxation
+- **[Grid-based MPO](https://qclovers.github.io/PyTDSCF/notebook/grid-based-MPO-H2CO.html)**
+   $$
+H_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}=W_{n_1}^{n_1^{\prime}} H_{n_2 \cdots n_k}^{n_2^{\prime} \cdots n_k^{\prime}}=\cdots=W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}
+$$
+- **[Neural network MPO](https://github.com/KenHino/Pompon)**
+  $$
+\underset{\{W\}}{\operatorname{argmin}} \sum_{\left\{n_i\right\}, E \in \mathcal{D}}\left|W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}-E_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}\right|
+$$
 
-  - Vibrational ground state
+### Flexible Basis Sets
 
-- Wave packet propagation
+Support for various basis types:
+- Boson states $|n\rangle$
+- DVR grid states $|x\rangle$
+- Spin states $|s\rangle$
+- Exciton states $|e\rangle$
+- ... (whatever)
 
-  - Populations
+### Simulation Capabilities
 
-  - Auto-correlation
+PyTDSCF enables large-dimensional system simulations for:
+- Vibrational ground state calculations
+- Autocorrelation functions
+- IR spectroscopy
+- Nonadiabatic population dynamics
+- Time-dependent expectation values
+- Non-Markovian open quantum dynamics
+- Reduced density matrix analysis
+- Liouville space dissipation
+- And more...
 
-  - Expectation values
+### Performance Features
 
-  - Reduced density
-
-- Spectroscopy
-
-- Electronic structure calculation interface for PES preparation
-
-PyTDSCF gives an option to use JAX as backend, which accelerates large tensornetwork calculation on a GPU.
-(For small calculations, NumPy on a CPU is sometimes faster.)
+- **GPU acceleration** through JAX for large-scale calculations
+- **Parallel execution** for ab initio potential energy surface calculations
 
 ## Documentation
-See [Here](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html) !!
+
+Comprehensive documentation is available [here](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html)!
 
 ## References
+
 - [Kurashige, Yuki. "Matrix product state formulation of the multiconfiguration time-dependent Hartree theory." The Journal of Chemical Physics 149.19 (2018): 194114.](https://aip.scitation.org/doi/abs/10.1063/1.5051498)
   - Time evolution algorithm of MPS
   - Population dynamics
@@ -46,60 +80,65 @@ See [Here](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html) !!
   - Grid-based MPO
   - DVR-MPS
   - nMR
-- [Beck, Michael H., et al. "The multiconfiguration time-dependent Hartree (MCTDH) method: a highly efficient algorithm for propagating wavepackets." Physics reports 324.1 (2000): 1-105.](https://www.sciencedirect.com/science/article/pii/S0370157399000472)
-  - MCTDH paper
-  - DVR is also written.
+- [Hino, Kentaro, and Yuki Kurashige. "Neural network matrix product operator: A multi-dimensionally integrable machine learning potential." Physical Review Research 7.2 (2025): 023217.](https://journals.aps.org/prresearch/abstract/10.1103/PhysRevResearch.7.023217)
+  - Neural network MPO
 
 ## Installation
 
-- The easiest way to install `pytdscf` is to use `pip`.
+### Recommended: Install from Source using `uv`
 
-    Prepare Python 3.10 or later and execute;
+We recommend installing `pytdscf` from source using [`uv`](https://docs.astral.sh/uv/):
 
-    ```bash
-    $ python -m venv pytdscf-env
-    $ source pytdscf-env/bin/activate
-    $ pip install git+https://github.com/QCLovers/PyTDSCF
-    ```
+```bash
+$ git clone https://github.com/QCLovers/PyTDSCF.git
+$ cd PyTDSCF
+$ uv version
+uv 0.5.4 (c62c83c37 2024-11-20)
+$ uv sync --all-extras
+```
 
-- We recommend install `pytdscf` from source using [`uv`](https://docs.astral.sh/uv/)
+This will install all dependencies including development tools.
+If you only need runtime dependencies, use `uv sync --no-dev`.
 
-    ```bash
-    $ git clone https://github.com/QCLovers/PyTDSCF.git
-    $ cd PyTDSCF
-    $ uv version
-    uv 0.5.4 (c62c83c37 2024-11-20)
-    $ uv sync --all-extras
-    ```
-    will install all dependencies including development tools.
-    If you need only the runtime dependencies, you can use `uv sync --no-dev`.
+You can then run `pytdscf` using:
 
-    Then, you can execute `pytdscf` by
+```bash
+$ uv run python xxx.py
+```
 
-    ```bash
-    $ uv run python xxx.py
-    ```
-    or
+Or activate the virtual environment:
 
-    ```bash
-    $ souce .venv/bin/activate
-    $ python
-    >>> import pytdscf
-    ```
+```bash
+$ source .venv/bin/activate
+$ python
+>>> import pytdscf
+```
 
-    For jupyter notebook tutorials, you can use
+For Jupyter notebook tutorials:
 
-    ```bash
-    $ uv run jupyter lab
-    ```
+```bash
+$ uv run jupyter lab
+```
 
-### For GPU users
+### Alternative: Install via pip
 
-`pytdscf` works both on CPU and GPU.
-If you treat large-scale batch or model, we recommend using GPU.
+The easiest way to install `pytdscf` is using `pip`:
+
+Prepare Python 3.10 or later and execute:
+
+```bash
+$ python -m venv pytdscf-env
+$ source pytdscf-env/bin/activate
+$ pip install git+https://github.com/QCLovers/PyTDSCF
+```
+
+### GPU Support
+
+`pytdscf` works on both CPU and GPU.
+For large-scale batch processing or complex models, we recommend using GPU.
 See also [JAX's GPU support](https://jax.readthedocs.io/en/latest/installation.html).
 
-1. Make sure the latest NVIDIA driver is installed.
+1. Ensure the latest NVIDIA driver is installed:
 
     ```bash
     $ /usr/local/cuda/bin/nvcc -V
@@ -110,7 +149,7 @@ See also [JAX's GPU support](https://jax.readthedocs.io/en/latest/installation.h
     Build cuda_12.5.r12.5/compiler.34177558_0
     ```
 
-2. Install GPU-supported JAX in your virtual envirionment.
+2. Install GPU-supported JAX in your virtual environment:
 
     ```bash
     $ uv pip install -U "jax[cuda12]"
@@ -118,26 +157,27 @@ See also [JAX's GPU support](https://jax.readthedocs.io/en/latest/installation.h
     'gpu'
     ```
 
-### Testing
+## Testing
 
 ```bash
 $ cd tests/build
 $ uv run pytest ..
 ```
 
+## Development
 
-### For developers
+We welcome feedback and pull requests. For developers, install pre-commit hooks including ruff formatting and linting, mypy type checking, pytest testing, and more:
 
-You should install pre-commit hooks including ruff formatting and linting, mypy type checking, pytest testing, and so on.
 ```bash
 $ uv run pre-commit install
 $ git add .
 $ uv run pre-commit
 ```
-Before push, you must fix problems!!
 
-Please feel free to give us feedback or pull requests.
+**Important**: Fix any issues before pushing!
 
-## How to run
-See quick-start example in [documentation](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html)
-or `test` directory.
+We welcome feedback and pull requests.
+
+## Getting Started
+
+See the quick-start example in our [documentation](https://qclovers.github.io/PyTDSCF/notebook/quick-start.html) or explore the `test` directory for examples.

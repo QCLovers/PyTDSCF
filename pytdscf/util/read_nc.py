@@ -7,10 +7,7 @@ def read_nc(filename: str, sites: list[tuple[int, int]]) -> dict:
         time_data = np.array(file.variables["time"][:])
         data["time"] = time_data
         for key in sites:
-            if len(key) == 1:
-                varname = f"rho_({key[0]})_0"
-            else:
-                varname = f"rho_({key[0]}, {key[1]})_0"
+            varname = f"rho_{key}_0"
             if varname in file.variables:
                 density_data_real = file.variables[varname][
                     :
@@ -19,7 +16,7 @@ def read_nc(filename: str, sites: list[tuple[int, int]]) -> dict:
                     :
                 ]["imag"]
             else:
-                raise ValueError(f"Density data for site {key} not found in {filename}")
+                raise ValueError(f"Density data for site {key} {varname=} not found in {filename}")
             data[key] = np.array(density_data_real) + 1.0j * np.array(
                 density_data_imag
             )

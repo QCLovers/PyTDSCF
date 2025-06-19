@@ -129,7 +129,7 @@ class Properties:
                 assert isinstance(self.wf.ci_coef, MPSCoefParallel)
                 densities = self.wf.ci_coef.get_reduced_densities(
                     base_tag, rd_key
-                )  # type: ignore
+                )
                 all_densities.append(densities)
 
         # Only rank 0 writes to file

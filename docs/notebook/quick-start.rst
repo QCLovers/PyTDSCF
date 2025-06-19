@@ -17,6 +17,7 @@ Quick Start Examples
 .. _Example 12: singlet_fission.html
 .. _Example 13: donor-acceptor.html
 .. _Example 14: radicalpair-liouville.html
+.. _Example 15: singlet_fission_nprocs.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -45,6 +46,8 @@ Quick Start Examples
 | `Example 13`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 14`_ | Propagation | Liouville    | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 15`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Real space parallelization     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 

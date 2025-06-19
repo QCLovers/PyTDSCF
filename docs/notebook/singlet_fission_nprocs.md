@@ -1,12 +1,21 @@
-# Real space parallelization
+# Example 15: Real space parallelization
 
-.. warning::
-   Real space parallelization is numerically unstable for some systems. We recommend to use serial simulation.
+```{warning}
+Real space parallelization is numerically unstable for some systems. We recommend to use serial simulation. The result is not always reproducible because we are under the construction of the code.
+```
 
 - This tutorial is based on the same system as the example 12.
 - Since real space parallelization requires MPI, this tutorial is based on the script `singlet_fission_nprocs.py` rather than Jupyter notebook.
 - For example, one can run the script with `export OMP_NUM_THREADS=2 && mpirun -np 4 uv run singlet_fission_nprocs.py`
 - JAX backend cannot be used for MPI.
+
+## 0. Environment
+
+```bash
+$ uv sync --extra mpi  # or simply install mpi4py manually
+$ export OMP_NUM_THREADS=2
+$ mpirun -np 4 uv run singlet_fission_nprocs.py
+```
 
 ## 1. Import modules
 
@@ -56,9 +65,11 @@ basinfo = BasInfo([basis])
 ndim = len(basis)
 print(ndim)
 sys_site = n_order
+backend = "numpy" # "jax" is not supported for MPI.
 
 
 if rank == 0:
+    # Hamiltonian prepared in example 12.
     pot_mpo = import_npz("singlet_fission_mpo.npz")
     potential = [
         [{tuple((k, k) for k in range(ndim)): TensorOperator(mpo=pot_mpo)}]
@@ -115,15 +126,15 @@ model.init_HartreeProduct = [init_boson * n_order + [[1.0, 0.0, 0.0]] + init_bos
 
 ```python
 nproc = size
-D=60
-proj=5
+D=30
+proj=7
 svd=6
 
 jobname = f"singlet_fission_{D}D-0{proj}proj-0{svd}svd-{nproc}cores"
 simulator = Simulator(jobname=jobname, model=model, backend=backend, verbose=2)
 simulator.propagate(
     maxstep=2000,
-    stepsize=0.1, # This value affects the accuracy of the simulation.
+    stepsize=0.2, # This value affects the accuracy of the simulation.
     reduced_density=(
         [(sys_site, sys_site)],
         10,

@@ -82,6 +82,12 @@ class MPSCoefParallel(MPSCoefMPO):
     def alloc_random(cls, model: Model) -> MPSCoefParallel:
         if MPI is None:
             raise ImportError("mpi4py is not installed")
+        if const.use_jax:
+            raise NotImplementedError("jax is not supported for parallel MPS")
+        if const.space == "liouville":
+            raise NotImplementedError(
+                "liouville space is not supported for parallel MPS"
+            )
         mps_coef = cls()
         supercls = super().alloc_random(model)
         for attr in [
@@ -299,9 +305,6 @@ class MPSCoefParallel(MPSCoefMPO):
             == self.joint_sigvec_not_pinv.shape
         )
         op_sys_previous = self.op_sys_sites[-1]
-        #     psi_R.data = np.linalg.lstsq(
-        #         self.joint_sigvec_not_pinv, psi_R.data.reshape((l, c * r))
-        #     )[0].reshape((l, c, r))
         # psi_L.data = multiply_sigvec_pinv(
         #     X=self.joint_sigvec_not_pinv,
         #     left_tensor=psi_L.data,
@@ -851,7 +854,7 @@ class MPSCoefParallel(MPSCoefMPO):
             )
             assert self.superblock_all_B[0].gauge == "Psi"
 
-    def ovlp(self, conj=True, lazy=True) -> complex | float | None:
+    def ovlp(self, conj=True, lazy=False) -> complex | float | None:
         rank = const.mpi_rank
         size = const.mpi_size
         mid_rank = size // 2
@@ -1031,13 +1034,14 @@ class MPSCoefParallel(MPSCoefMPO):
         # Only support single MPS for now.
         return [self.norm()]
 
+    @mpi_abort_on_exception
     def get_reduced_densities(
         self, base_tag: int, rd_key: tuple[int, ...]
     ) -> list[np.ndarray] | None:
         """
         When rd_key is  (3, 3, 4)
         and MPS is A1A2A3A4...A6
-        Contruct (A1A1†)(A2A2†)=1 and (B5B5†)(B6B6†)=1 in advance (no calculation needed)
+        Contract (A1A1†)(A2A2†)=1 and (B5B5†)(B6B6†)=1 in advance (no calculation needed)
         then, calculate (A3A3†)_ij(A4A4†)_kk
         """
         if const.use_jax:
@@ -1064,9 +1068,12 @@ class MPSCoefParallel(MPSCoefMPO):
                         const.bgn_site_rank, const.end_site_rank + 1
                     ):
                         opend_legs.append(counter[isite])
+        # needed_rank = [const.mpi_rank]
+        # opend_legs = [counter[isite] for isite in range(const.bgn_site_rank, const.end_site_rank + 1)]
         if const.mpi_rank != 0 and const.mpi_rank not in needed_rank:
             return None
         mid_rank = (len(needed_rank) - 1) // 2 + needed_rank[0]
+        # mid_rank = const.mpi_size // 2
         is_forward_group = (
             const.mpi_rank <= mid_rank and const.mpi_rank in needed_rank
         )
@@ -1085,6 +1092,7 @@ class MPSCoefParallel(MPSCoefMPO):
         block = None
         if is_forward_group:
             if const.mpi_rank == needed_rank[0]:
+                # if const.mpi_rank == 0:
                 block = None
             else:
                 block = comm.recv(source=const.mpi_rank - 1, tag=base_tag + 0)
@@ -1123,6 +1131,7 @@ class MPSCoefParallel(MPSCoefMPO):
                 comm.send(block, dest=const.mpi_rank + 1, tag=base_tag + 0)
         elif is_backward_group:
             if const.mpi_rank == needed_rank[-1]:
+                # if const.mpi_rank == const.mpi_size - 1:
                 block = None
             else:
                 block = comm.recv(source=const.mpi_rank + 1, tag=base_tag + 1)
@@ -1158,20 +1167,22 @@ class MPSCoefParallel(MPSCoefMPO):
             comm.send(block, dest=const.mpi_rank - 1, tag=base_tag + 1)
         if const.mpi_rank == mid_rank:
             left_block = block
-            assert isinstance(left_block, np.ndarray)
+            assert isinstance(left_block, np.ndarray), (
+                f"{left_block=} {const.mpi_rank=}"
+            )
             if const.mpi_rank == const.mpi_size - 1:
                 # No sigvecs
                 sigvec = np.eye(superblock[-1].data.shape[2], dtype=complex)
             else:
                 sigvec = self.joint_sigvec_not_pinv  # type: ignore
-            assert isinstance(sigvec, np.ndarray)
+            assert isinstance(sigvec, np.ndarray), f"{sigvec=}"
             if len(needed_rank) == 1:
                 right_block = np.eye(sigvec.shape[0], dtype=complex)
             else:
                 right_block = comm.recv(
                     source=const.mpi_rank + 1, tag=base_tag + 1
                 )
-                assert isinstance(right_block, np.ndarray)
+                assert isinstance(right_block, np.ndarray), f"{right_block=}"
             """
             |‾˙˙˙‾|‾a a‾l l‾|˙˙˙‾|
             |     |         |    |
@@ -1194,7 +1205,7 @@ class MPSCoefParallel(MPSCoefMPO):
                 return None
         if const.mpi_rank == 0:
             rd = comm.recv(source=mid_rank, tag=base_tag + 2)
-            assert isinstance(rd, np.ndarray)
+            assert isinstance(rd, np.ndarray), f"{rd=}"
             return [rd]
         else:
             return None
@@ -1292,6 +1303,7 @@ class MPSCoefParallel(MPSCoefMPO):
             return comm.recv(source=mid_rank - 1, tag=2)
         return None
 
+    @mpi_abort_on_exception
     def sync_world_canonicalize(self):
         return
         self._sync_world_canonicalizeB()  # [PsiBBx+][AAAx][BBB] -> [PsiBB][BBB][BBB]
@@ -1340,6 +1352,7 @@ class MPSCoefParallel(MPSCoefMPO):
         # wait all communication
         comm.barrier()
 
+    @mpi_abort_on_exception
     def _sync_world_canonicalizeB(self):
         # PsiBBBx+AAAAxBBBBx+AAAPsi -> PsiBBB1BBBB1BBBB1BBBB
         self._validate_initial_superblock_states()
@@ -1369,10 +1382,7 @@ class MPSCoefParallel(MPSCoefMPO):
             r_core.gauge = "Psi"
         canonicalize(superblock, orthogonal_center=0)
         assert superblock[0].gauge == "Psi"
-        if const.mpi_rank != 0:
-            superblock[0], joint_sigvec = superblock[0].gauge_trf("Psi2sigmaB")
-            comm.send(joint_sigvec, dest=const.mpi_rank - 1, tag=1)
-        else:
+        if const.mpi_rank == 0:
             l_core = superblock[0]
             norm = np.einsum(
                 "jk,jk->",
@@ -1380,6 +1390,9 @@ class MPSCoefParallel(MPSCoefMPO):
                 l_core.data[0, :, :],
             )
             l_core.data /= np.sqrt(norm)
+        else:
+            superblock[0], joint_sigvec = superblock[0].gauge_trf("Psi2sigmaB")
+            comm.send(joint_sigvec, dest=const.mpi_rank - 1, tag=1)
         self.superblock_all_B = superblock
         self.superblock_states = [[core.copy() for core in superblock]]
         self.op_sys_sites = None

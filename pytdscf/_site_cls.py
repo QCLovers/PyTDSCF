@@ -11,13 +11,16 @@ from typing import Literal, overload
 import jax
 import jax.numpy as jnp
 import numpy as np
+from loguru import logger as _logger
 
 from pytdscf._const_cls import const
 
-SQRT_EPSRHO = 1.0e-05
-TIKHONOV_LAMBDA = 1.0e-06
+logger = _logger.bind(name="main")
+rank_logger = _logger.bind(name="rank")
+
+SQRT_EPSRHO = 1.0e-04
+TIKHONOV_LAMBDA = 1.0e-08
 RCOND = 1.0e-14
-X_TILDE_THRESH = 1.0e-03
 
 
 class SiteCoef:
@@ -201,6 +204,9 @@ class SiteCoef:
             matC = np.array(self)
         """still experimental and this makes linalg.eigh(proj_dens) slow...)"""
         if regularize:
+            raise NotImplementedError(
+                "Regularization is not guaranteed to be correct."
+            )
             """regularize the site coefficients"""
             ldim, ndim, rdim = matC.shape
             # sqrt_epsrho = math.sqrt(const.epsrho)
@@ -259,9 +265,6 @@ class SiteCoef:
                 try:
                     matL = Q.reshape(m_aux_sys, nspf, -1)
                 except ValueError:
-                    from loguru import logger as _logger
-
-                    logger = _logger.bind(name="main")
                     logger.error(Q.shape)
                     logger.error(R.shape)
                     logger.error(matC.shape)
@@ -609,16 +612,16 @@ def multiply_sigvec_pinv(X, left_tensor=None, right_tensor=None):
     Returns:
         np.ndarray: Result of multiplication
     """
-    raise ValueError("Use eval_PsiXpinvPsi instead")
+    # raise ValueError("Use eval_PsiXpinvPsi instead")
     if (
         isinstance(X, jax.Array)
         or isinstance(left_tensor, jax.Array)
         or isinstance(right_tensor, jax.Array)
     ):
         raise NotImplementedError
-    # XTX_reg = X.T.conj() @ X + TIKHONOV_LAMBDA * np.eye(X.shape[0])
-    # X_pinv_reg = np.linalg.solve(XTX_reg, X.T.conj())
-    X_pinv_reg = np.linalg.pinv(X, rcond=RCOND)
+    XTX_reg = X.T.conj() @ X + TIKHONOV_LAMBDA * np.eye(X.shape[0])
+    X_pinv_reg = np.linalg.solve(XTX_reg, X.T.conj())
+    # X_pinv_reg = np.linalg.pinv(X, rcond=RCOND)
     match (left_tensor, right_tensor):
         case (None, None):
             return X_pinv_reg
@@ -657,7 +660,7 @@ def eval_PsiXpinvPsi(
     Psi_R: SiteCoef,
 ) -> tuple[SiteCoef, SiteCoef]:
     """
-    Evaluate Psi_L X^{+} Psi_R = AZX^{+}YB = AWB
+    Evaluate Psi_L X^{+} Psi_R = AZX^{+}YB = AWB = PsiB
     """
     if isinstance(X, jax.Array):
         raise NotImplementedError
@@ -670,11 +673,13 @@ def eval_PsiXpinvPsi(
 
     A, Z = Psi_L.gauge_trf(key="Psi2Asigma")
     B, Y = Psi_R.gauge_trf(key="Psi2sigmaB")
+    norm_Z = np.linalg.norm(Z)
+    norm_Y = np.linalg.norm(Y)
     if const.pytest_enabled:
-        assert np.linalg.norm(Z) - 1.0 < 1e-12, f"{np.linalg.norm(Z)=}"
-        assert np.linalg.norm(Y) - 1.0 < 1e-12, f"{np.linalg.norm(Y)=}"
-    Z /= np.linalg.norm(Z)
-    Y /= np.linalg.norm(Y)
+        assert norm_Z - 1.0 < 1e-12, f"{norm_Z=}"
+        assert norm_Y - 1.0 < 1e-12, f"{norm_Y=}"
+    Z /= norm_Z
+    Y /= norm_Y
     Q, R = qr_with_same_sign_diagonal(Q=A.data, R=Z, R_ref=X)
     A.data = Q
     Z = R
@@ -685,13 +690,17 @@ def eval_PsiXpinvPsi(
     dY = Y - X
     U, S, Vh = np.linalg.svd(X, full_matrices=False)
     Sinv = np.zeros_like(S)
-    Sinv[S > X_TILDE_THRESH] = 1 / S[S > X_TILDE_THRESH]
+    Sinv[S > SQRT_EPSRHO] = 1 / S[S > SQRT_EPSRHO]
     Sinv = np.diag(Sinv)
     Xpinv_tilde = Vh.T @ Sinv @ U.T
     W = X + dZ + dY + dZ @ Xpinv_tilde @ dY
-    if abs(np.linalg.norm(W) - 1.0) > 1e-02:
-        raise ValueError(f"Time step might be too large: {np.linalg.norm(W)=}")
-    W /= np.linalg.norm(W)
+    norm_W = np.linalg.norm(W)
+    if abs(norm_W - 1.0) > 1e-01:
+        rank_logger.warning(
+            f"Time step might be too large to keep norm of adjoint site |W|={norm_W:.3e}"
+        )
+        # raise ValueError(f"Time step might be too large: {norm_W=}")
+    W /= norm_W
     Psi_L = SiteCoef(A.data @ W, "Psi", Psi_L.isite)
     return Psi_L, B
 

@@ -180,6 +180,7 @@ class Simulator:
         adaptive_p_proj: float = 1.0e-04,
         adaptive_p_svd: float = 1.0e-07,
         integrator: Literal["lanczos", "arnoldi"] = "lanczos",
+        step_size_is_fs: bool = True,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -212,6 +213,7 @@ class Simulator:
                 you need to set like ``([(0, 0), ], 10)``.
             Δt (float, optional): Same as ``stepsize``
             thresh_sil (float): Convergence threshold of short iterative Lanczos. Defaults to 1.e-09.
+            step_size_is_fs (bool, optional): If ``True``, ``stepsize`` is in fs. Defaults to ``True``.
 
 
         Returns:
@@ -223,6 +225,8 @@ class Simulator:
             self.stepsize = Δt
         else:
             self.stepsize = stepsize
+        if not step_size_is_fs:
+            self.stepsize *= units.au_in_fs
         self.backup_interval = backup_interval
         const.set_runtype(
             jobname=self.jobname + "_prop",

@@ -532,6 +532,8 @@ class MPSCoef(ABC):
         Returns:
             complex or float : expectation value
         """
+        if const.space == "liouville":
+            return _exp_liouville(self.superblock_states, matOp)
         assert psite == 0, f"psite = {psite} is not supported"
         self.assert_psite_canonical(psite, numerical=const.pytest_enabled)
         superblock_states = self.superblock_states
@@ -908,9 +910,6 @@ class MPSCoef(ABC):
                     tensor_shapes_out=tensor_shapes_out,
                 )
             except Exception:
-                from loguru import logger as _logger
-
-                logger = _logger.bind(name="main")
                 logger.error(
                     f"{psite=} {to=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=}"
                 )
@@ -1069,7 +1068,7 @@ class MPSCoef(ABC):
             matPsi_states_new = _integrator.short_iterative_lanczos(
                 -1.0 * stepsize / 2, multiplyH, matPsi_states, const.thresh_exp
             )
-            if const.space == "hilbert":
+            if const.conserve_norm:
                 # In Hilbert space and Hamiltonian is Hermitian,
                 # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(matPsi_states_new)
@@ -1134,7 +1133,7 @@ class MPSCoef(ABC):
             svalues_states_new = _integrator.short_iterative_lanczos(
                 +1.0 * stepsize / 2, multiplyK, svalues_states, const.thresh_exp
             )
-            if const.space == "hilbert":
+            if const.conserve_norm:
                 # In Hilbert space and Hamiltonian is Hermitian,
                 # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(svalues_states_new)
@@ -1922,9 +1921,6 @@ class MPSCoef(ABC):
                 to=to,
             )
         except Exception as e:
-            from loguru import logger as _logger
-
-            logger = _logger.bind(name="main")
             logger.error(
                 f"{psite=}, {superblock_states_full[0][psite].data.shape=}"
             )
@@ -2112,10 +2108,6 @@ def get_C_sval_states_norm(
         norm = math.sqrt(
             np.sum([linalg.norm(x.ravel()) ** 2 for x in matPsi_or_sval_states])
         )
-    from loguru import logger as _logger
-
-    logger = _logger.bind(name="rank")
-    logger.debug(f"{norm=}")
     return norm
 
 
@@ -2806,3 +2798,76 @@ def is_max_rank(coef: SiteCoef, to: Literal["->", "<-"] = "->") -> bool:
         if L >= C * R or L >= const.Dmax:
             return True
     return False
+
+
+def _exp_liouville(
+    superblock_states: list[list[SiteCoef]], matOp: HamiltonianMixin
+) -> complex:
+    """
+
+    Calculate expectation value of operator in Liouville space.
+
+    Args:
+        superblock_states (list[list[SiteCoef]]): Superblock states
+        matOp (HamiltonianMixin): Operator
+
+    Returns:
+        complex: Expectation value
+
+
+     | | |
+     H-H-H
+     | | |
+     W-W-W
+     | | |
+    """
+    assert len(superblock_states) == 1, f"{len(superblock_states)=}"
+    assert isinstance(matOp, TensorHamiltonian), f"{type(matOp)=}"
+    assert const.mpi_rank == 0, f"{const.mpi_rank=}"
+    assert const.mpi_size == 1, f"{const.mpi_size=}"
+    assert const.space == "liouville", f"{const.space=}"
+    assert not const.use_jax, f"{const.use_jax=}"
+    assert const.use_mpo, f"{const.use_mpo=}"
+    mpos = matOp.mpo[0][0]
+    dm = []
+    nsite = len(superblock_states[0])
+    for core in superblock_states[0]:
+        i, j, k = core.data.shape
+        j_sqrt = math.isqrt(j)
+        dm.append(core.data.reshape(i, j_sqrt, j_sqrt, k))
+    from collections import Counter
+    from itertools import chain
+
+    exp_val = 0.0
+    for key, mpo in mpos.operators.items():  # type: ignore
+        left_tensor = np.ones((1, 1), dtype=np.complex128)
+        count = Counter(chain.from_iterable(key))  # type: ignore
+        j_core = 0
+        for isite in range(nsite):
+            match count[isite]:
+                case 2:
+                    """
+                         d-----
+                    -a a-|-f  |
+                    |    c    |
+                    |    c    |
+                    -b b-|-e  |
+                         d-----
+                    """
+                    subscript = "ab,bcde,adcf->fe"
+                    operand = (left_tensor, dm[isite], mpo[j_core])
+                    j_core += 1
+                case 1:
+                    subscript = "ab,bcce,acf->fe"
+                    operand = (left_tensor, dm[isite], mpo[j_core])
+                    j_core += 1
+                case 0:
+                    subscript = "ab,bcce->ae"
+                    operand = (left_tensor, dm[isite])  # type: ignore
+                case _:
+                    raise ValueError(f"{count[isite]=} is not valid")
+            left_tensor = np.einsum(subscript, *operand)
+        assert j_core == len(mpo), f"{j_core=}, {len(mpo)=}"
+        assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
+        exp_val += left_tensor[0, 0]
+    return exp_val.item()

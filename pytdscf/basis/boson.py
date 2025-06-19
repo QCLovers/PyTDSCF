@@ -25,19 +25,20 @@ class Boson:
         r"""
         Returns the creation matrix for the boson basis
 
-        b^\dagger |n> = sqrt(n+1) |n+1>
+        .. math::
+            b^\dagger |n> = \sqrt{n+1} |n+1>
 
         Example:
-        >>> boson = Boson(3)
-        >>> boson.get_creation_matrix()
-        array([[0., 0., 0.],
-               [1., 0., 0.],
-               [1.41421356, 0., 0.]])
-        >>> state = np.array([[1.0],
-                              [1.0],
-                              [0.0]])
-        >>> np.allclose(boson.get_creation_matrix() @ state, np.array([[0.0], [1.0], [math.sqrt(2)]]))
-        True
+           >>> boson = Boson(3)
+           >>> boson.get_creation_matrix()
+           array([[0., 0., 0.],
+                  [1., 0., 0.],
+                  [1.41421356, 0., 0.]])
+           >>> state = np.array([[1.0],
+                                 [1.0],
+                                 [0.0]])
+           >>> np.allclose(boson.get_creation_matrix() @ state, np.array([[0.0], [1.0], [math.sqrt(2)]]))
+           True
         """
         return self.get_annihilation_matrix(margin=margin).T
 
@@ -45,21 +46,22 @@ class Boson:
         r"""
         Returns the annihilation matrix for the boson basis
 
-        b |n> = sqrt(n) |n-1>
+        .. math::
+            b |n> = \sqrt{n} |n-1>
 
         Example:
-        >>> exciton = Boson(4)
-        >>> exciton.get_annihilation_matrix()
-        array([[0., 1., 0., 0.],
-               [0., 0., 1.41421356, 0.],
-               [0., 0., 0., 1.73205081],
-               [0., 0., 0., 0.]])
-        >>> state = np.array([[1.0],
-                              [1.0],
-                              [1.0],
-                              [0.0]])
-        >>> np.allclose(exciton.get_annihilation_matrix() @ state, np.array([[0.0], [1.0], [math.sqrt(2)], [math.sqrt(3)]]))
-        True
+           >>> exciton = Boson(4)
+           >>> exciton.get_annihilation_matrix()
+           array([[0., 1., 0., 0.],
+                  [0., 0., 1.41421356, 0.],
+                  [0., 0., 0., 1.73205081],
+                  [0., 0., 0., 0.]])
+           >>> state = np.array([[1.0],
+                                 [1.0],
+                                 [1.0],
+                                 [0.0]])
+           >>> np.allclose(exciton.get_annihilation_matrix() @ state, np.array([[0.0], [1.0], [math.sqrt(2)], [math.sqrt(3)]]))
+           True
         """
         # mat = np.zeros((self.nstate, self.nstate), dtype=np.float64)
         # for i in range(self.nstate - 1):
@@ -71,19 +73,20 @@ class Boson:
         r"""
         Returns the number matrix for the boson basis
 
-        b^\dagger b |n> = n |n>
+        .. math::
+            b^\dagger b |n> = n |n>
 
         Example:
-        >>> boson = Boson(3)
-        >>> boson.get_number_matrix()
-        array([[0., 0., 0.],
-               [0., 1., 0.],
-               [0., 0., 2.]])
-        >>> state = np.array([[1.0],
-                              [1.0],
-                              [0.0]])
-        >>> np.allclose(boson.get_number_matrix() @ state, np.array([[0.0], [1.0], [0.0]]))
-        True
+           >>> boson = Boson(3)
+           >>> boson.get_number_matrix()
+           array([[0., 0., 0.],
+                  [0., 1., 0.],
+                  [0., 0., 2.]])
+           >>> state = np.array([[1.0],
+                                 [1.0],
+                                 [0.0]])
+           >>> np.allclose(boson.get_number_matrix() @ state, np.array([[0.0], [1.0], [0.0]]))
+           True
         """
         mat = np.diag(np.arange(self.nstate))
         return mat
@@ -108,7 +111,8 @@ class Boson:
         r"""
         Returns the p matrix for the boson basis
 
-        p = 1/sqrt(2)i (b - b^\dagger) = i/sqrt(2) (b^\dagger - b)
+        .. math::
+            p = 1/\sqrt{2} i (b - b^\dagger) = i/\sqrt{2} (b^\dagger - b)
 
         """
         return (
@@ -125,7 +129,8 @@ class Boson:
         r"""
         Returns the p^2 matrix for the boson basis
 
-        p^2 = 1/2 (b^\dagger b + b b^\dagger + b^\dagger ^2 + b^2)
+        .. math::
+            p^2 = 1/2 (b^\dagger b + b b^\dagger + b^\dagger ^2 + b^2)
 
         """
         b = self.get_annihilation_matrix(margin=1)
@@ -137,7 +142,8 @@ class Boson:
         r"""
         Returns the p^2 matrix for the boson basis
 
-        p^2 = -1/2 (b^\dagger b + b b^\dagger - b^\dagger ^2 - b^2)
+        .. math::
+           p^2 = -1/2 (b^\dagger b + b b^\dagger - b^\dagger ^2 - b^2)
 
         """
         b = self.get_annihilation_matrix(margin=1)

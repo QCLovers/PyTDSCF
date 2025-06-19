@@ -94,15 +94,31 @@ for line in log_data_4np.strip().split("\n"):
 # Plot
 fig, ax1 = plt.subplots(figsize=(9, 7))
 
-ax1.plot(np.array(steps_1np) * 0.2 -3, np.array(times_1np), 'x-', lw=3, c='navy')
-ax1.plot(np.array(steps_4np) * 0.2 +3, np.array(times_4np), 'x-', lw=3, c='orange')
-ax1.bar(np.array(steps_1np) * 0.2 -3, np.array(times_1np), width=6, label="OMP_NUM_THREADS=48, # of processes=1", color='navy')
-ax1.bar(np.array(steps_4np) * 0.2 +3, np.array(times_4np), width=6, label="OMP_NUM_THREADS=12, # of processes=4", color='orange')
+ax1.plot(
+    np.array(steps_1np) * 0.2 - 3, np.array(times_1np), "x-", lw=3, c="navy"
+)
+ax1.plot(
+    np.array(steps_4np) * 0.2 + 3, np.array(times_4np), "x-", lw=3, c="orange"
+)
+ax1.bar(
+    np.array(steps_1np) * 0.2 - 3,
+    np.array(times_1np),
+    width=6,
+    label="OMP_NUM_THREADS=48, # of processes=1",
+    color="navy",
+)
+ax1.bar(
+    np.array(steps_4np) * 0.2 + 3,
+    np.array(times_4np),
+    width=6,
+    label="OMP_NUM_THREADS=12, # of processes=4",
+    color="orange",
+)
 ax1.set_xlabel("Propagated time [fs]")
 ax1.set_xticks(np.arange(0, 401, 40))
 ax1.set_yticks(np.arange(0, 6001, 600))
-ax1.set_ylabel("Elapsed Time [sec]") # , color='tab:blue')
-ax1.tick_params(axis='y') #, labelcolor='tab:blue')
+ax1.set_ylabel("Elapsed Time [sec]")  # , color='tab:blue')
+ax1.tick_params(axis="y")  # , labelcolor='tab:blue')
 
 # # Right axis (Krylov iteration)
 # ax2 = ax1.twinx()
@@ -115,7 +131,7 @@ ax1.legend(loc="upper left")
 
 plt.title("Propagated Time vs Elapsed Time with D=60")
 plt.legend()
-plt.grid(axis='y')
+plt.grid(axis="y")
 plt.xticks(rotation=45)
 plt.tight_layout()
 plt.savefig("propagated_time_vs_elapsed_time.pdf")
