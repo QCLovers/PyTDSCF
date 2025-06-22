@@ -21,7 +21,7 @@ dependencies = [
     "numpy>=2.1.2",
     "polars>=1.10.0",
     "scipy>=1.14.1",
-    "pympo>=0.1.6",
+    "pympo>=0.1.8",
     "tqdm>=4.67.1",
 ]
 
