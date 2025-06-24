@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
+    rev: v5.0.0
     hooks:
       - id: no-commit-to-branch
         args: [--branch, main]
@@ -30,7 +30,7 @@ repos:
 
       - id: pytest
         name: pytest
-        entry: cd tests/build && uv run pytest -n auto ..
+        entry: bash -c "cd tests/build && uv run pytest -n auto .."
         language: system
         pass_filenames: false
         files: "^(pytdscf/|tests/)"
