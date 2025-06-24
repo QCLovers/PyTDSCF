@@ -13,13 +13,13 @@ You can use various types of Matrix Product Operators (MPO) as Hamiltonians:
 
 
 - **[Symbolic MPO](https://qclovers.github.io/PyTDSCF/notebook/poly-MPO-H2O-relax.html)**
-![image](https://github.com/user-attachments/assets/f12e31cb-2922-4ecf-88f9-9f8f3c329403)
+  ![image](https://github.com/user-attachments/assets/b3c8e646-b5a2-4ff9-8c56-46cde369c76d)
 
 - **[Grid-based MPO](https://qclovers.github.io/PyTDSCF/notebook/grid-based-MPO-H2CO.html)**
-![image](https://github.com/user-attachments/assets/23e5123e-ce6b-4a15-8de8-a47618a07ae3)
+  ![image](https://github.com/user-attachments/assets/23e5123e-ce6b-4a15-8de8-a47618a07ae3)
 
 - **[Neural network MPO](https://github.com/KenHino/Pompon)**
-![image](https://github.com/user-attachments/assets/5a9de281-3829-4a5e-8913-936328d7f734)
+  ![image](https://github.com/user-attachments/assets/5a9de281-3829-4a5e-8913-936328d7f734)
 
 ### Flexible Basis Sets
 
