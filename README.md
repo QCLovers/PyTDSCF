@@ -11,30 +11,15 @@ PyTDSCF is a Python package for high-dimensional wave-packet dynamics simulation
 
 You can use various types of Matrix Product Operators (MPO) as Hamiltonians:
 
+
 - **[Symbolic MPO](https://qclovers.github.io/PyTDSCF/notebook/poly-MPO-H2O-relax.html)**
-   $$
-\sum_i \frac{\hat{Q}_i^2}{2} \Rightarrow\left[\begin{array}{ll}
-1 & \frac{\hat{Q}_1^2}{2}
-\end{array}\right]\left[\begin{array}{ll}
-1 & \frac{\hat{Q}_2^2}{2} \\
-0 & 1
-\end{array}\right] \ldots\left[\begin{array}{ll}
-1 & \frac{\hat{Q}_{k-1}^2}{2} \\
-0 & 1
-\end{array}\right]\left[\begin{array}{l}
-\frac{\hat{Q}_k^2}{2} \\
-1
-\end{array}\right]
-$$
+![image](https://github.com/user-attachments/assets/f12e31cb-2922-4ecf-88f9-9f8f3c329403)
 
 - **[Grid-based MPO](https://qclovers.github.io/PyTDSCF/notebook/grid-based-MPO-H2CO.html)**
-   $$
-H_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}=W_{n_1}^{n_1^{\prime}} H_{n_2 \cdots n_k}^{n_2^{\prime} \cdots n_k^{\prime}}=\cdots=W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}
-$$
+![image](https://github.com/user-attachments/assets/23e5123e-ce6b-4a15-8de8-a47618a07ae3)
+
 - **[Neural network MPO](https://github.com/KenHino/Pompon)**
-  $$
-\underset{\{W\}}{\operatorname{argmin}} \sum_{\left\{n_i\right\}, E \in \mathcal{D}}\left|W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}-E_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}\right|
-$$
+![image](https://github.com/user-attachments/assets/5a9de281-3829-4a5e-8913-936328d7f734)
 
 ### Flexible Basis Sets
 
