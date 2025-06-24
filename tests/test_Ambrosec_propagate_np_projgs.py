@@ -25,9 +25,13 @@ s1 = [
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 @pytest.mark.parametrize(
-    "coupleJ, bonddim, proj_gs", [[-0.04, 5, True], [0.0, 4, False]]
+    "coupleJ, bonddim, proj_gs, ener",
+    [
+        [-0.04, 5, True, 0.03950380914328852],
+        [0.0, 4, False, 0.010570469969995852],
+    ],
 )
-def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs):
+def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs, ener):
     # eneable debug logging
     logging.basicConfig(level=logging.DEBUG)
 
@@ -56,4 +60,5 @@ def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs):
 
     jobname = "Ambrosek_test_projGS"
     my_simulator = Simulator(jobname, model, proj_gs=proj_gs, backend="numpy")
-    my_simulator.propagate(maxstep=3, stepsize=0.05)
+    ener_calc, wf = my_simulator.propagate(maxstep=3, stepsize=0.05)
+    assert pytest.approx(ener_calc) == ener

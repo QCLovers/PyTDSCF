@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from discvar import HarmonicOscillator as HO
 
+from pytdscf._const_cls import const
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator
 from pytdscf.hamiltonian_cls import TensorHamiltonian
@@ -162,7 +163,7 @@ def test_exiciton_propagate_jax(backend="jax"):
     operators = {"hamiltonian": hamiltonian}
 
     model = Model(basinfo, operators)
-    model.m_aux_max = 6
+    model.m_aux_max = 2
     model.init_HartreeProduct = [
         [ho.get_unitary()[0].tolist() for ho in prim_info[:3]]
         + [np.array([0.0, 1.0]).tolist()]
@@ -170,8 +171,12 @@ def test_exiciton_propagate_jax(backend="jax"):
     # Starts from the S1 state
 
     jobname = "LVC_Exciton_test"
+    const.regularize_site = False
     simulator = Simulator(jobname, model, backend=backend)
-    simulator.propagate(stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1))
+    ener_calc, wf = simulator.propagate(
+        stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1)
+    )
+    assert pytest.approx(ener_calc) == 0.010000180312707298
 
 
 if __name__ == "__main__":

@@ -5,19 +5,19 @@ The operator modules consists Hamiltonian.
 import itertools
 import math
 import random
-from logging import getLogger
 from typing import Literal
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from loguru import logger as _logger
 
 from pytdscf import units
 from pytdscf._const_cls import const
-from pytdscf._mpo_cls import MatrixProductOperators
+from pytdscf._mpo_cls import MatrixProductOperators, OperatorCore
 from pytdscf.dvr_operator_cls import TensorOperator
 
-logger = getLogger("main").getChild(__name__)
+logger = _logger.bind(name="main")
 
 
 class TermProductForm:
@@ -615,6 +615,8 @@ class TensorHamiltonian(HamiltonianMixin):
 
     """
 
+    mpo: list[list[MatrixProductOperators | None]]
+
     def __init__(
         self,
         ndof: int,
@@ -642,11 +644,14 @@ class TensorHamiltonian(HamiltonianMixin):
             rate (Optional[float], optional): SVD-MPO contribution rate. Defaults to None.
             bond_dimension (Optional[List[int] or int], optional): SVD-MPO bond dimension. Defaults to None.
         """
+        if const.mpi_rank != 0:
+            nstate = 1
+            super().__init__(name, nstate, ndof)
+            self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
+            return
         nstate = len(potential)
         super().__init__(name, nstate, ndof)
         self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
-        if const.verbose > 2:
-            logger.info(f"Start tensor decomposition: type = {decompose_type}")
         for i, j in itertools.product(range(nstate), range(nstate)):
             operators: dict[
                 tuple[int | tuple[int, int], ...],
@@ -730,6 +735,53 @@ class TensorHamiltonian(HamiltonianMixin):
             self.mpo[i][j] = MatrixProductOperators(
                 nsite=ndof, operators=operators, backend=backend
             )
+
+    def distribute_mpo_cores(self):
+        import copy
+
+        import mpi4py
+
+        comm = mpi4py.MPI.COMM_WORLD
+
+        if const.mpi_rank == 0:
+            self.mpo_all = copy.deepcopy(self.mpo)
+            send_data_all = []
+            split_indices = const.split_indices
+            for k in range(comm.size):
+                send_data_k: dict[
+                    tuple[int, int], list[list[OperatorCore]] | None
+                ] = {}
+                for i, j in itertools.product(
+                    range(self.nstate), range(self.nstate)
+                ):
+                    mpo_ij = self.mpo[i][j]
+                    if isinstance(mpo_ij, MatrixProductOperators):
+                        if k < len(split_indices) - 1:
+                            calc_point = mpo_ij.calc_point[
+                                split_indices[k] : split_indices[k + 1] + 1
+                            ]  # for adaptive calculation, terminate site should be shared.
+                        else:
+                            calc_point = mpo_ij.calc_point[split_indices[k] :]
+                        send_data_k[(i, j)] = calc_point
+                    else:
+                        send_data_k[(i, j)] = None
+                send_data_all.append(send_data_k)
+        else:
+            send_data_all = None
+
+        recv_data = comm.scatter(send_data_all, root=0)
+        for i, j in itertools.product(range(self.nstate), range(self.nstate)):
+            if recv_data[(i, j)] is not None:
+                nsite = const.end_site_rank - const.bgn_site_rank + 1
+                if const.mpi_rank != const.mpi_size - 1:
+                    nsite += 1
+                mpo_ij = MatrixProductOperators(
+                    nsite=nsite,
+                    operators={},
+                    backend="jax" if const.use_jax else "numpy",
+                )
+                mpo_ij.calc_point = recv_data[(i, j)]
+                self.mpo[i][j] = mpo_ij
 
 
 def read_potential_nMR(

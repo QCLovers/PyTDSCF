@@ -4,17 +4,14 @@ Shared constant parameters are defined here.
 
 import datetime
 import os
-from logging import (
-    DEBUG,
-    INFO,
-    FileHandler,
-    Formatter,
-    StreamHandler,
-    getLogger,
-)
+from typing import Literal
+
+from loguru import logger
 
 from pytdscf import units
+from pytdscf._logger import setup_loggers
 
+logger = logger.bind(name="main")
 CBOLD = "\33[1m"
 CVIOLET = "\33[35m"
 
@@ -118,6 +115,14 @@ class Const:
         thresh_sil: float = 1.0e-09,
         verbose: int = 2,
         use_mpo: bool = True,
+        parallel_split_indices: list[tuple[int, int]] | None = None,
+        adaptive: bool = False,
+        adaptive_Dmax: int = 100,
+        adaptive_dD: int = 10,
+        adaptive_p_proj: float = 1.0e-04,
+        adaptive_p_svd: float = 1.0e-07,
+        space: Literal["hilbert", "liouville"] = "hilbert",
+        integrator: Literal["lanczos", "arnoldi"] = "lanczos",
     ):
         """
 
@@ -145,22 +150,30 @@ class Const:
             verbose (int) : Defaults to 4. 4=noisy for debug and development, \
                 3=normal, 2=least calculation output, 1=only logging and warnig
             use_mpo (bool) : Defaults to ``True``.
+            adaptive (bool) : Defaults to ``False``.
+            parallel_split_indices (list[tuple[int, int]]) : Defaults to ``None``.
+                If not ``None``, the calculation will be parallelized \
+                by splitting the sites into multiple parts.
+                The list is a list of tuples, each containing the start and end \
+                indices of a site range for parallel processing.
+                The indices are 0-based.
+            nonHermitian (bool) : Defaults to ``False``.
+                If ``True``, the calculation will be non-Hermitian (i,e. wavefunction is not normalized and SIL is not used).
+            integrator (Literal["lanczos", "arnoldi"]) : Defaults to ``"lanczos"``.
+                The integrator to use for the short iterative Lanczos method.
+                "lanczos" is the default and "arnoldi" is the alternative.
+                If Hamiltonian is represented by sum of Hermitian or skew-Hermitian parts, Lanczos is faster.
 
         """
         if jobname is None:
             if apply_dipo:
-                self.jobname = "operate"
+                jobname = "operate"
             elif relax:
-                self.jobname = "relax"
+                jobname = "relax"
             else:
-                self.jobname = "propagate"
-        else:
-            self.jobname = jobname
-        set_main_logger(overwrite=True)
-        set_logger("autocorr")
-        set_logger("populations")
-        set_logger("expectations")
-        self.logger = getLogger("main").getChild(__name__)
+                jobname = "propagate"
+        setup_loggers(jobname, adaptive=adaptive)
+        self.jobname = jobname
         if verbose >= 3:
             self.logger.info(CBOLD + CVIOLET + pytdscf + CEND)
         if verbose >= 1:
@@ -183,12 +196,52 @@ class Const:
 
         self.use_jax = use_jax
         const.thresh_exp = thresh_sil
+        if not standard_method:
+            logger.warning("Employing SPF is deprecated.")
         self.standard_method = standard_method
-        self.use_mpo = use_mpo
-        if self.use_mpo:
-            assert self.standard_method, (
-                "MPO is only available for standard method."
+        if not use_mpo:
+            logger.warning(
+                "Employing sum of product Hamiltonian is deprecated."
             )
+        self.use_mpo = use_mpo
+        self.adaptive = adaptive
+        self.Dmax = adaptive_Dmax
+        self.dD = adaptive_dD
+        self.p_proj = adaptive_p_proj
+        self.p_svd = adaptive_p_svd
+        self.integrator = integrator.lower()
+        self.space = space.lower()
+        if self.space == "liouville":  # or parallel_split_indices is not None:
+            self.conserve_norm = False
+        else:
+            self.conserve_norm = True
+        if space.lower() not in ["hilbert", "liouville"]:
+            raise ValueError(
+                f"space must be 'hilbert' or 'liouville' but got {space}"
+            )
+        if adaptive:
+            logger.warning("Adaptive calculation is experimental.")
+        if self.use_mpo and not self.standard_method:
+            raise ValueError("MPO is only available for standard method.")
+        if self.use_jax and self.space == "liouville":
+            raise ValueError("jax is not supported for liouville space.")
+        if parallel_split_indices is not None:
+            assert len(parallel_split_indices) == self.mpi_size
+            # self.regularize_site = True
+            self.bgn_site_rank = parallel_split_indices[self.mpi_rank][0]
+            self.end_site_rank = parallel_split_indices[self.mpi_rank][-1]
+            self.split_indices = []
+            for i in range(len(parallel_split_indices)):
+                if i == 0:
+                    assert parallel_split_indices[i][0] == 0
+                if i < len(parallel_split_indices) - 1:
+                    assert (
+                        parallel_split_indices[i][-1] + 1
+                        == parallel_split_indices[i + 1][0]
+                    )
+                self.split_indices.append(parallel_split_indices[i][0])
+        if self.use_jax and parallel_split_indices is not None:
+            raise ValueError("jax is not supported for parallel calculation.")
 
 
 const = Const()
@@ -197,12 +250,23 @@ const.verbose = 4
 const.mass = 1.0  # [m_e]
 
 const.epsrho = 1.0e-8  # default
+# const.regularize_site = False
 const.tol_CMF = 1.0e-14
 const.max_stepsize = 0.010 / units.au_in_fs  # [au]
 const.tol_RK45 = 1.0e-8  # default
-const.mpi_rank = 0
-const.mpi_size = 1
+const.load_balance_interval = 100
+const.pytest_enabled = "PYTEST_CURRENT_TEST" in os.environ
+try:
+    from mpi4py import MPI
 
+    const.mpi_rank = MPI.COMM_WORLD.Get_rank()
+    const.mpi_size = MPI.COMM_WORLD.Get_size()
+    const.mpi_comm = MPI.COMM_WORLD
+except Exception as e:
+    logger.warning(f"MPI command detected but mpi4py import failed with {e}")
+    const.mpi_rank = 0
+    const.mpi_size = 1
+    const.mpi_comm = None
 
 def set_main_logger(overwrite: bool = True):
     """Set logger"""
@@ -253,3 +317,4 @@ def set_logger(name: str):
             break
 
     logger.addHandler(file_handler)
+>>>>>>> a7c773f (update radicalpy)

@@ -20,9 +20,13 @@ prim_info = [s0, s1]
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
 @pytest.mark.parametrize(
-    "coupleJ, bonddim, proj_gs", [[-0.04, 5, True], [0.0, 4, False]]
+    "coupleJ, bonddim, proj_gs, ener",
+    [
+        [-0.04, 5, True, 0.013669005758718421],
+        [0.0, 4, False, 0.013669005758738601],
+    ],
 )
-def test_LVC_propagate_np(coupleJ, bonddim, proj_gs):
+def test_LVC_propagate_np(coupleJ, bonddim, proj_gs, ener):
     deltaE = 0.007
 
     basinfo = BasInfo(prim_info)
@@ -47,8 +51,9 @@ def test_LVC_propagate_np(coupleJ, bonddim, proj_gs):
 
     jobname = "LVC_test"
     simulator = Simulator(jobname, model, proj_gs=proj_gs, backend="numpy")
-    simulator.propagate(maxstep=3, stepsize=0.05)
+    ener_calc, wf = simulator.propagate(maxstep=3, stepsize=0.05)
+    assert pytest.approx(ener_calc) == ener
 
 
 if __name__ == "__main__":
-    test_LVC_propagate_np(-0.04, 5, True)
+    test_LVC_propagate_np(-0.04, 5, True, 0.013669005758718421)

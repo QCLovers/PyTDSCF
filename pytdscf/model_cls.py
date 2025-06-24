@@ -5,10 +5,11 @@ The model class for the Time-Dependent Schrodinger Equation (TDSE) calculation.
 from __future__ import annotations
 
 import copy
-from logging import getLogger
+from typing import Literal
 
 import discvar
 from discvar.abc import DVRPrimitivesMixin
+from loguru import logger
 
 import pytdscf
 from pytdscf._const_cls import const
@@ -17,8 +18,6 @@ from pytdscf.hamiltonian_cls import (
     PolynomialHamiltonian,
     TensorHamiltonian,
 )
-
-logger = getLogger("main").getChild(__name__)
 
 
 class Model:
@@ -61,6 +60,7 @@ class Model:
         operators: dict[str, HamiltonianMixin],
         *,
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
+        space: Literal["hilbert", "liouville"] = "hilbert",
     ):
         self.basinfo = basinfo
         self.hamiltonian = operators.pop("hamiltonian")
@@ -72,6 +72,11 @@ class Model:
             )
         self.nstate = self.hamiltonian.nstate
         self.use_mpo = isinstance(self.hamiltonian, TensorHamiltonian)
+        if space.lower() not in ["hilbert", "liouville"]:
+            raise ValueError(
+                f"space must be 'hilbert' or 'liouville' but got {space}"
+            )
+        self.space: Literal["hilbert", "liouville"] = space.lower()  # type: ignore
 
     def get_nstate(self) -> int:
         """

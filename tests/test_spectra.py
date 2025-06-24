@@ -1,5 +1,6 @@
 import os
 
+import numpy as np
 import pytest
 
 import pytdscf
@@ -12,6 +13,8 @@ def test_spectra():
     )
     pytdscf.spectra.plot_autocorr(time, autocorr, gui=False)
     freq, intensity = pytdscf.spectra.ifft_autocorr(time, autocorr)
+    assert pytest.approx(max(intensity)) == 28860.651565826236
+    assert pytest.approx(freq[np.argmax(intensity)]) == 2684.0796620397296
     pytdscf.spectra.plot_spectrum(
         freq,
         intensity,

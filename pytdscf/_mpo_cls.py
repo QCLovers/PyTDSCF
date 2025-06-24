@@ -5,13 +5,13 @@ Matrix Product Operator (MPO) class
 from __future__ import annotations
 
 import itertools
-from logging import getLogger
 from typing import Annotated
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg
+from loguru import logger
 from numpy.typing import NDArray
 from scipy.linalg import LinAlgError
 from scipy.sparse import csr_matrix, lil_matrix
@@ -21,7 +21,7 @@ import pytdscf
 from pytdscf._const_cls import const
 from pytdscf._helper import get_tensornetwork_diagram_MPO
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 CoreMxNxM = Annotated[NDArray[np.float64], "shape=(M_{p-1}, N_{p}, M_{p})"]
 CoreMxNxNxM = Annotated[
@@ -75,6 +75,8 @@ class MatrixProductOperators:
         calc_point (List[List[OperatorCore]]) : [p] is the list of calculation need tensor core.
     """
 
+    calc_point: list[list[OperatorCore]]
+
     def __init__(
         self,
         nsite: int,
@@ -82,7 +84,7 @@ class MatrixProductOperators:
             tuple[int | tuple[int, int], ...],
             list[np.ndarray] | list[jax.Array],
         ],
-        backend: str = "jax",
+        backend: str,
     ):
         self.nsite = nsite
         self.operators = operators
@@ -135,9 +137,10 @@ class MatrixProductOperators:
                 self.calc_point[ind].append(
                     OperatorCore(
                         parent_key=parent_key,
-                        original_key=original_key,  # type: ignore
+                        original_key=original_key,
                         psite=ind,
                         data=core,
+                        backend=self.backend,
                     )
                 )
             for ind in range(min(parent_key) + 1, max(parent_key)):
@@ -145,9 +148,10 @@ class MatrixProductOperators:
                     self.calc_point[ind].append(
                         OperatorCore(
                             parent_key=parent_key,
-                            original_key=original_key,  # type: ignore
+                            original_key=original_key,
                             psite=ind,
                             data=1,
+                            backend=self.backend,
                         )
                     )
 
@@ -171,10 +175,10 @@ class OperatorCore:
     def __init__(
         self,
         parent_key: list[int],
-        original_key: tuple[int, ... | tuple[int, ...]],  # type: ignore
+        original_key: tuple[int | tuple[int, int], ...],
         psite: int,
         data: jax.Array | np.ndarray | int,
-        backend: str = "jax",
+        backend,
     ):
         self.key = original_key
         self.psite = psite

@@ -16,35 +16,38 @@ Quick Start Examples
 .. _Example 11: TD_reduced_density_exciton.html
 .. _Example 12: singlet_fission.html
 .. _Example 13: donor-acceptor.html
-.. _Example 14: radicalpair.html
+.. _Example 14: radicalpair-liouville.html
+.. _Example 15: singlet_fission_nprocs.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 |               | Run Type    | Wavefunction | Potential  | Basis            | Backend    | misc.                          |
 +===============+=============+==============+============+==================+============+================================+
-| `Example 1`_  | Relaxation  | MPS-SM       | Polynomial | HO-DVR           | Numpy      | H2O molecule                   |
+| `Example 1`_  | Relaxation  | MPS          | Polynomial | HO-DVR           | Numpy      | H2O molecule                   |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 2`_  | Operation   | MPS-SM       | Polynomial | HO-DVR           | Numpy      | Restart from `Example 1`_      |
+| `Example 2`_  | Operation   | MPS          | Polynomial | HO-DVR           | Numpy      | Restart from `Example 1`_      |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 3`_  | Propagation | MPS-SM       | Polynomial | HO-DVR           | Numpy      | Restart from `Example 2`_      |
+| `Example 3`_  | Propagation | MPS          | Polynomial | HO-DVR           | Numpy      | Restart from `Example 2`_      |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 5`_  | Propagation | MPS-SM       | Polynomial | HO-FBR           | Numpy      | Linear vibronic coupling model |
+| `Example 5`_  | Propagation | MPS          | Polynomial | HO-FBR           | Numpy      | Linear vibronic coupling model |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 6`_  | Propagation | MPS-SM       | HDMR func  | HO-DVR           | JAX        | Henon-Heiles Hamiltonian       |
+| `Example 6`_  | Propagation | MPS          | HDMR func  | HO-DVR           | Numpy      | Henon-Heiles Hamiltonian       |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 7`_  | Propagation | MPS-SM       | HDMR func  | Sine-DVR         | JAX        | Henon-Heiles Hamiltonian       |
+| `Example 7`_  | Propagation | MPS          | HDMR func  | Sine-DVR         | Numpy      | Henon-Heiles Hamiltonian       |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 9`_  | Relaxation  | MPS-SM       | HDMR grid  | HO-DVR           | JAX        | Restart from `Example 8`_      |
+| `Example 9`_  | Relaxation  | MPS          | HDMR grid  | HO-DVR           | JAX        | Restart from `Example 8`_      |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 10`_ | Propagation | MPS-SM       | HDMR func  | Sine,Exp-DVR     | JAX        | periodic boundary condition    |
+| `Example 10`_ | Propagation | MPS          | HDMR func  | Sine,Exp-DVR     | JAX        | periodic boundary condition    |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 11`_ | Propagation | MPS-SM       | Symbolic   | Exciton+Sine+Exp | JAX        | Same model as `Example 10`_    |
+| `Example 11`_ | Propagation | MPS          | Symbolic   | Exciton+Sine+Exp | JAX        | Same model as `Example 10`_    |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 12`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Singlet fission + 183-D bath   |
+| `Example 12`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Singlet fission + 183-D bath   |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 13`_ | Propagation | MPS-SM       | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
+| `Example 13`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Donor-Acceptor + 99-D bath     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-| `Example 14`_ | Propagation | mixed MPS-SM | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
+| `Example 14`_ | Propagation | Liouville    | Symbolic   | Spin             | Numpy      | Electron and nuclear spins     |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
+| `Example 15`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Real space parallelization     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 
@@ -73,7 +76,8 @@ Quick Start Examples
    TD_reduced_density_exciton.ipynb
    singlet_fission.ipynb
    donor-acceptor.ipynb
-   radicalpair.ipynb
+   radicalpair-liouville.ipynb
+   singlet_fission_nprocs.md
 
 Indices and tables
 

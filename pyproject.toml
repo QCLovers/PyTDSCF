@@ -1,6 +1,6 @@
 [project]
 name = "pytdscf"
-version = "1.0.5"
+version = "1.1.0"
 description = "Quantum dynamics simulator with tensor networks"
 authors = [
     { name = "Kentaro Hino", email = "hino@theoc.kuchem.kyoto-u.ac.jp" },
@@ -11,16 +11,18 @@ requires-python = ">=3.10"
 dependencies = [
     "ase>=3.23.0",
     "dill>=0.3.9",
-    "discvar @ git+https://github.com/QCLovers/Discvar",
+    "discvar>=0.0.2",
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
+    "loguru>=0.7.3",
     "matplotlib>=3.9.2",
     "mpmath>=1.3.0",
     "netcdf4>=1.7.2",
     "numpy>=2.1.2",
     "polars>=1.10.0",
     "scipy>=1.14.1",
-    "pympo>=0.1.1",
+    "pympo>=0.1.8",
+    "tqdm>=4.67.1",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +32,13 @@ docs = [
     "myst-parser>=4.0.0",
     "nbsphinx>=0.9.5",
     "pandoc>=2.4",
+]
+mpi = [
+    "mpi4py>=4.0.1",
+    "pytest-mpi>=0.6",
+]
+radicalpy = [
+    "radicalpy>=0.8.1",
 ]
 
 [build-system]
@@ -45,24 +54,20 @@ build-dir = "build/{wheel_tag}"
 
 [tool.uv]
 dev-dependencies = [
+    "ipywidgets>=8.1.7",
     "jupyterlab>=4.2.5",
     "mypy>=1.13.0",
     "pre-commit>=4.0.1",
     "pybind11>=2.13.6",
     "pytest>=8.3.3",
     "pytest-xdist>=3.6.1",
+    "pytest-timeout>=2.3.1",
     "ruff>=0.7.0",
-    "ase>=3.23.0",
-    "netcdf4>=1.7.2",
-    "tqdm>=4.67.1",
 ]
 
 [tool.uv.sources]
 pympo = { git = "https://github.com/KenHino/PyMPO.git" }
-
-
-# [tool.uv.sources]
-# discvar = { git = "https://github.com/QCLovers/Discvar.git" }
+discvar = { git = "https://github.com/KenHino/Discvar.git" }
 
 [tool.hatch.metadata]
 allow-direct-references = true

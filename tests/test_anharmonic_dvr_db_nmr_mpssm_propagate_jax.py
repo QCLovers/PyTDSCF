@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 
-@pytest.mark.filterwarnings("ignore:DeprecationWarning")
 def test_anharmonic_dvr_func_nmr_mpssm_propagate_jax():
     # from pytdscf.basis import HarmonicOscillator
     from discvar import HarmonicOscillator
@@ -60,7 +59,10 @@ def test_anharmonic_dvr_func_nmr_mpssm_propagate_jax():
 
     jobname = "anharmonic_dvr_nMR"
     simulator = Simulator(jobname, model, backend="jax")
-    simulator.propagate(stepsize=0.1, maxstep=3)
+    ener_calc, wf = simulator.propagate(
+        stepsize=0.1, maxstep=10, autocorr=True, autocorr_per_step=1
+    )
+    assert pytest.approx(ener_calc) == 0.010549182771706139
 
 
 if __name__ == "__main__":

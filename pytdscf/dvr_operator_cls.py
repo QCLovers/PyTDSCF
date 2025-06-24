@@ -8,13 +8,13 @@ import os
 import pickle
 from collections import Counter
 from itertools import combinations, product
-from logging import getLogger
 from typing import Callable
 
 import numpy as np
 import polars as pl
 import scipy.linalg
 from discvar.abc import DVRPrimitivesMixin
+from loguru import logger
 
 from pytdscf import units
 from pytdscf._helper import from_dbkey, to_dbkey
@@ -24,7 +24,10 @@ try:
     from ase.db import connect
     from ase.units import Hartree
 except ImportError:
-    print("Failed to import ase. You cannot use database.")
+    from loguru import logger as _logger
+
+    logger = _logger.bind(name="main")
+    logger.warning("Failed to import ase. You cannot use database.")
 
 
 def deepcopy(item):
@@ -32,7 +35,8 @@ def deepcopy(item):
     return _pickle.loads(_pickle.dumps(item, -1))
 
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
+
 debye_in_ase = units.au_in_angstrom / units.au_in_debye
 
 
@@ -1179,36 +1183,48 @@ def construct_kinetic_operator(
         for i, (dvr_prim, coef) in enumerate(
             zip(dvr_prims, coefs, strict=True)
         ):
-            if i == 0:
-                # [[-1/2 * d^2/dQ^2, 1]]
+            if len(dvr_prims) == 1:
+                # 1-dimensional case
                 matrix = np.zeros(
-                    (1, dvr_prim.ngrid, dvr_prim.ngrid, 2), dtype=np.complex128
+                    (1, dvr_prim.ngrid, dvr_prim.ngrid, 1), dtype=np.complex128
                 )
                 matrix[0, :, :, 0] = (
                     -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
                 )
-                matrix[0, :, :, 1] = np.eye(dvr_prim.ngrid)
-            elif i == ndof - 1:
-                # [[1              ],
-                #  [-1/2 * d^2/dQ^2]]
-                matrix = np.zeros(
-                    (2, dvr_prim.ngrid, dvr_prim.ngrid, 1), dtype=np.complex128
-                )
-                matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
-                matrix[1, :, :, 0] = (
-                    -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
-                )
             else:
-                # [[1,               0],
-                #  [-1/2 * d^2/dQ^2, 1]]
-                matrix = np.zeros(
-                    (2, dvr_prim.ngrid, dvr_prim.ngrid, 2), dtype=np.complex128
-                )
-                matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
-                matrix[1, :, :, 0] = (
-                    -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
-                )
-                matrix[1, :, :, 1] = np.eye(dvr_prim.ngrid)
+                if i == 0:
+                    # [[-1/2 * d^2/dQ^2, 1]]
+                    matrix = np.zeros(
+                        (1, dvr_prim.ngrid, dvr_prim.ngrid, 2),
+                        dtype=np.complex128,
+                    )
+                    matrix[0, :, :, 0] = (
+                        -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+                    )
+                    matrix[0, :, :, 1] = np.eye(dvr_prim.ngrid)
+                elif i == ndof - 1:
+                    # [[1              ],
+                    #  [-1/2 * d^2/dQ^2]]
+                    matrix = np.zeros(
+                        (2, dvr_prim.ngrid, dvr_prim.ngrid, 1),
+                        dtype=np.complex128,
+                    )
+                    matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
+                    matrix[1, :, :, 0] = (
+                        -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+                    )
+                else:
+                    # [[1,               0],
+                    #  [-1/2 * d^2/dQ^2, 1]]
+                    matrix = np.zeros(
+                        (2, dvr_prim.ngrid, dvr_prim.ngrid, 2),
+                        dtype=np.complex128,
+                    )
+                    matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
+                    matrix[1, :, :, 0] = (
+                        -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+                    )
+                    matrix[1, :, :, 1] = np.eye(dvr_prim.ngrid)
             mpo.append(matrix)
         kinetic_operators[operator_key] = TensorOperator(mpo=mpo)
     elif forms.lower() == "sop":
