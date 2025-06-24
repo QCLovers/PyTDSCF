@@ -281,7 +281,7 @@ def progressbar(it, prefix="", size=40, out=sys.stdout):
         x = int(size * j / count)
 
         print(
-            f'{prefix}[{u"█" * x}{"." * (size - x)}] {j}/{count}',
+            f"{prefix}[{'█' * x}{'.' * (size - x)}] {j}/{count}",
             end="\r",
             file=out,
             flush=True,
@@ -443,3 +443,26 @@ def from_dbkey(key) -> tuple[int, ...]:
 
     """
     return tuple(map(int, key[1:].split()))
+
+
+def rank0_only(func):
+    """Decorator to run a function only on MPI rank 0
+
+    Args:
+        func: Function to be decorated
+
+    Returns:
+        Wrapped function that only executes on rank 0
+    """
+    from functools import wraps
+
+    from pytdscf._const_cls import const
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if const.mpi_rank == 0:
+            return func(*args, **kwargs)
+        else:
+            return None
+
+    return wrapper

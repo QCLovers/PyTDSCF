@@ -7,24 +7,28 @@ This module consists of Simulator class.
 import os
 import pickle
 from copy import deepcopy
-from logging import getLogger
 from time import time
 from typing import Any, Literal
 
 import dill
+from loguru import logger as _logger
+from tqdm.auto import tqdm
 
 import pytdscf._helper as helper
 from pytdscf import units
 from pytdscf._const_cls import const
+from pytdscf._mps_cls import MPSCoef
 from pytdscf._mps_mpo import MPSCoefMPO
+from pytdscf._mps_parallel import MPSCoefParallel
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef
 from pytdscf.basis._primints_cls import PrimInts
+from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
 from pytdscf.properties import Properties
 from pytdscf.wavefunction import WFunc
 
-logger = getLogger("main").getChild(__name__)
+logger = _logger.bind(name="main")
 
 
 class Simulator:
@@ -99,6 +103,7 @@ class Simulator:
         norm: bool = True,
         populations: bool = True,
         observables: bool = False,
+        integrator: Literal["lanczos", "arnoldi"] = "lanczos",
     ) -> tuple[float, WFunc]:
         """Relaxation
 
@@ -142,6 +147,8 @@ class Simulator:
             standard_method=self.model.basinfo.is_standard_method,
             verbose=self.verbose,
             use_mpo=self.model.use_mpo,
+            space=self.model.space,
+            integrator=integrator,
         )
         return self._execute(autocorr, energy, norm, populations, observables)
 
@@ -166,6 +173,14 @@ class Simulator:
         energy_per_step: int = 1,
         norm_per_step: int = 1,
         populations_per_step: int = 1,
+        parallel_split_indices: list[tuple[int, int]] | None = None,
+        adaptive: bool = False,
+        adaptive_Dmax: int = 20,
+        adaptive_dD: int = 5,
+        adaptive_p_proj: float = 1.0e-04,
+        adaptive_p_svd: float = 1.0e-07,
+        integrator: Literal["lanczos", "arnoldi"] = "lanczos",
+        step_size_is_fs: bool = True,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -198,6 +213,7 @@ class Simulator:
                 you need to set like ``([(0, 0), ], 10)``.
             Δt (float, optional): Same as ``stepsize``
             thresh_sil (float): Convergence threshold of short iterative Lanczos. Defaults to 1.e-09.
+            step_size_is_fs (bool, optional): If ``True``, ``stepsize`` is in fs. Defaults to ``True``.
 
 
         Returns:
@@ -209,6 +225,8 @@ class Simulator:
             self.stepsize = Δt
         else:
             self.stepsize = stepsize
+        if not step_size_is_fs:
+            self.stepsize *= units.au_in_fs
         self.backup_interval = backup_interval
         const.set_runtype(
             jobname=self.jobname + "_prop",
@@ -223,6 +241,14 @@ class Simulator:
             verbose=self.verbose,
             thresh_sil=thresh_sil,
             use_mpo=self.model.use_mpo,
+            parallel_split_indices=parallel_split_indices,
+            adaptive=adaptive,
+            adaptive_Dmax=adaptive_Dmax,
+            adaptive_dD=adaptive_dD,
+            adaptive_p_proj=adaptive_p_proj,
+            adaptive_p_svd=adaptive_p_svd,
+            space=self.model.space,
+            integrator=integrator,
         )
 
         return self._execute(
@@ -318,6 +344,13 @@ class Simulator:
             return (norm, wf)
 
         self.save_wavefunction(wf, log=True)
+        if const.mpi_size > 1:
+            # Distribute MPO cores to all ranks
+            assert isinstance(self.model.hamiltonian, TensorHamiltonian)
+            self.model.hamiltonian.distribute_mpo_cores()
+            for op in self.model.observables.values():
+                assert isinstance(op, TensorHamiltonian)
+                op.distribute_mpo_cores()
         if self.t2_trick:
             properties = Properties(
                 wf,
@@ -340,7 +373,11 @@ class Simulator:
         stepsize_guess = (
             1.0e-3 / units.au_in_fs
         )  # a.u. [typical values in MCTDH]
-        for istep in range(self.maxstep):
+        if const.mpi_rank == 0:
+            iterator = tqdm(range(self.maxstep))
+        else:
+            iterator = range(self.maxstep)
+        for istep in iterator:
             time_fs = properties.time * units.au_in_fs
             if istep % 100 == 1:
                 niter_krylov_list = list(helper._Debug.niter_krylov.values())
@@ -357,11 +394,11 @@ class Simulator:
                 logger.info(f"Saved wavefunction {time_fs:8.3f} [fs]")
                 self.save_wavefunction(wf)
             properties.get_properties(
-                autocorr,
-                energy,
-                norm,
-                populations,
-                observables,
+                autocorr=autocorr,
+                energy=energy,
+                norm=norm,
+                populations=populations,
+                observables=observables,
                 autocorr_per_step=autocorr_per_step,
                 energy_per_step=energy_per_step,
                 norm_per_step=norm_per_step,
@@ -377,8 +414,8 @@ class Simulator:
             helper._ElpTime.steps -= time()
             if const.standard_method:
                 stepsize_actual = self.stepsize / units.au_in_fs
-                spf_occ = wf.propagate_SM(
-                    self.model.hamiltonian, stepsize_actual, calc_spf_occ=False
+                _ = wf.propagate_SM(
+                    self.model.hamiltonian, stepsize_actual, istep
                 )
             else:
                 if const.doDVR:
@@ -388,26 +425,25 @@ class Simulator:
                 )
             helper._ElpTime.steps += time()
             properties.update(stepsize_actual)
-            if properties.time * units.au_in_fs > 2000.0:
-                break
-        niter_krylov_list = list(helper._Debug.niter_krylov.values())
-        niter_krylov_total = sum(niter_krylov_list)
-        ncall_krylov_total = len(niter_krylov_list)
-        message = (
-            f"End {self.maxstep - 1:5d} step; "
-            + f"propagated {time_fs:8.3f} [fs]; "
-            + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
-        )
-        logger.info(message)
+        if self.maxstep > 0:
+            niter_krylov_list = list(helper._Debug.niter_krylov.values())
+            niter_krylov_total = sum(niter_krylov_list)
+            ncall_krylov_total = len(niter_krylov_list)
+            message = (
+                f"End {self.maxstep - 1:5d} step; "
+                + f"propagated {time_fs:8.3f} [fs]; "
+                + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
+            )
+            logger.info(message)
         logger.info("End simulation and save wavefunction")
         self.save_wavefunction(wf, log=True)
         return (properties.energy, wf)
 
     def get_primitive_integrals(self) -> PrimInts:
         if const.doDVR:
-            logger.info("Set integral of DVR basis")
+            logger.debug("Set integral of DVR basis")
         else:
-            logger.info("Set integral of FBR basis")
+            logger.debug("Set integral of FBR basis")
         _debug = -time()
         if self.model.ints_prim_file is None:
             ints_prim = PrimInts(self.model)
@@ -431,9 +467,9 @@ class Simulator:
 
     def get_initial_wavefunction(self, ints_prim: PrimInts) -> WFunc:
         if const.doDVR:
-            logger.info("Set initial wave function (DVR basis)")
+            logger.debug("Set initial wave function (DVR basis)")
         else:
-            logger.info("Set initial wave function (FBR basis)")
+            logger.debug("Set initial wave function (FBR basis)")
         """setup initial w.f."""
         if const.doRestart:
             path = f"wf_{self.jobname}{const.loadfile_ext}.pkl"
@@ -445,7 +481,7 @@ class Simulator:
         else:
             if self.ci_type.lower() == "mps":
                 if const.verbose > 1:
-                    logger.info("Prepare MPS w.f.")
+                    logger.debug("Prepare MPS w.f.")
                 if self.do_init_proj_gs:
                     logger.debug("Initial SPF: projected from GS")
                     if const.use_mpo:
@@ -458,18 +494,22 @@ class Simulator:
                         )
                 else:
                     logger.debug("Initial SPF: uniform (all 1.0)")
+                    spf_coef = SPFCoef.alloc_eye(self.model)
                     if const.use_mpo:
-                        wf = WFunc(
-                            MPSCoefMPO.alloc_random(self.model),
-                            SPFCoef.alloc_eye(self.model),
-                            ints_prim,
-                        )
+                        if const.mpi_size > 1:
+                            _mps_coef_cls: type[MPSCoef] = MPSCoefParallel
+                        else:
+                            _mps_coef_cls = MPSCoefMPO
                     else:
-                        wf = WFunc(
-                            MPSCoefSoP.alloc_random(self.model),
-                            SPFCoef.alloc_eye(self.model),
-                            ints_prim,
-                        )
+                        if const.mpi_size > 1:
+                            raise NotImplementedError
+                        else:
+                            _mps_coef_cls = MPSCoefSoP
+                    wf = WFunc(
+                        _mps_coef_cls.alloc_random(self.model),
+                        spf_coef,
+                        ints_prim,
+                    )
             elif self.ci_type.lower() in [
                 "mctdh",
                 "ci",
@@ -480,7 +520,7 @@ class Simulator:
                     raise NotImplementedError
 
                 if const.verbose > 1:
-                    logger.info("Prepare MCTDH w.f.")
+                    logger.debug("Prepare MCTDH w.f.")
                 if self.do_init_proj_gs:
                     logger.debug("Initial SPF: projected from GS")
                     wf = WFunc(
@@ -508,8 +548,15 @@ class Simulator:
         return wf
 
     def save_wavefunction(self, wf: WFunc, log: bool = False):
-        path = f"wf_{self.jobname}{const.savefile_ext}.pkl"
-        with open(path, "wb") as save_f:
-            dill.dump(wf, save_f)
-        if log:
-            logger.info(f"Wave function is saved in {path}")
+        if const.mpi_size > 1:
+            assert isinstance(wf.ci_coef, MPSCoefParallel)
+            ci_coef = wf.ci_coef.to_MPSCoefMPO()
+            if const.mpi_rank == 0:
+                assert isinstance(ci_coef, MPSCoefMPO)
+                wf = WFunc(ci_coef, wf.spf_coef, wf.ints_prim)
+        if const.mpi_rank == 0:
+            path = f"wf_{self.jobname}{const.savefile_ext}.pkl"
+            with open(path, "wb") as save_f:
+                dill.dump(wf, save_f)
+            if log:
+                logger.info(f"Wave function is saved in {path}")

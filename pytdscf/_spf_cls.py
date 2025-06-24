@@ -8,18 +8,17 @@ from __future__ import annotations
 import copy
 import itertools
 import math
-from logging import getLogger
 
 import numpy as np
 import scipy.linalg
-import scipy.misc
+from loguru import logger
 
 import pytdscf._ode_cls as ode_cls
 from pytdscf._const_cls import const
 from pytdscf.basis._primints_cls import PrimInts, ovi_HO_FBR_matrix
 from pytdscf.model_cls import Model
 
-logger = getLogger("main").getChild(__name__)
+logger = logger.bind(name="main")
 
 
 def check_orthogonal_spf(spf_coef):
@@ -678,9 +677,9 @@ class SPFCoef:
                 coef_ex = np.eye(nspf, nprim, dtype=np.complex128)
 
                 """define GS phonon w.f."""
-                assert hasattr(
-                    basinfo, "primbas_gs"
-                ), 'you need to set "primbas_gs" to prepare projected initial wavefunction as a attribute of Model'
+                assert hasattr(basinfo, "primbas_gs"), (
+                    'you need to set "primbas_gs" to prepare projected initial wavefunction as a attribute of Model'
+                )
                 nspf_gs = 1
                 pbas_gs = basinfo.primbas_gs[idof]
                 nprim_gs = pbas_gs.nprim

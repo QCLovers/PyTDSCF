@@ -1,20 +1,21 @@
 """Property handling module"""
 
+import math
 import os
-from logging import getLogger
 
 import netCDF4 as nc
 import numpy as np
+from loguru import logger as _logger
 
 import pytdscf._helper as helper
 from pytdscf import units
 from pytdscf._const_cls import const
 from pytdscf._mps_cls import MPSCoef
+from pytdscf._mps_parallel import MPSCoefParallel
+from pytdscf.model_cls import Model
+from pytdscf.wavefunction import WFunc
 
-logger = getLogger("main").getChild(__name__)
-auto_logger = getLogger("autocorr")
-pop_logger = getLogger("populations")
-exp_logger = getLogger("expectations")
+logger = _logger.bind(name="main")
 
 
 class Properties:
@@ -22,6 +23,7 @@ class Properties:
 
     Attributes:
         wf (WFunc): wave function
+        model (Model): model
         time (float): time in atomic units
         t2_trick (bool): whether to use so-called T/2 trick
         autocorr (complex): auto-correlation function
@@ -32,8 +34,8 @@ class Properties:
 
     def __init__(
         self,
-        wf,
-        model,
+        wf: WFunc,
+        model: Model,
         time=0.0,
         t2_trick=True,
         wf_init=None,
@@ -46,9 +48,13 @@ class Properties:
         self.nc_row = 0
         self.t2_trick = t2_trick
 
-        self.autocorr = None
-        self.energy = None
-        self.norm = None
+        self.autocorr: complex | None = None
+        self.energy: float | None = None
+        self.norm: float | None = None
+        self.auto_logger = _logger.bind(name="autocorr")
+        self.pop_logger = _logger.bind(name="populations")
+        self.exp_logger = _logger.bind(name="expectations")
+        self.bonddim_logger = _logger.bind(name="bonddim")
         self.pops = None
         self.expectations = {}
         self.wf_zero = wf_init
@@ -80,16 +86,19 @@ class Properties:
 
     def get_properties(
         self,
+        *,
         autocorr=True,
         energy=True,
         norm=True,
         populations=True,
         observables=True,
+        bonddim=True,
         autocorr_per_step=1,
         energy_per_step=1,
         norm_per_step=1,
         populations_per_step=1,
         observables_per_step=1,
+        bonddim_per_step=1,
     ):
         if autocorr and self.nstep % autocorr_per_step == 0:
             self._get_autocorr()
@@ -104,25 +113,43 @@ class Properties:
         if self.remain_legs is not None:
             if self.nstep % self.rd_step == 0:
                 self._export_reduced_density()
+        if bonddim and self.nstep % bonddim_per_step == 0 and const.adaptive:
+            self._get_bonddim()
 
     def _export_reduced_density(self):
-        assert isinstance(self.nc_file, str)
+        # Get reduced densities using all ranks
+        all_densities = []
         assert isinstance(self.remain_legs, list)
-        complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
-        with nc.Dataset(self.nc_file, "a") as f:
-            # Maybe we should keep files open while the simulation is running.
-            f.variables["time"][self.nc_row] = self.time * units.au_in_fs
-            for remain_leg, key in zip(
-                self.remain_legs, self.rd_keys, strict=True
-            ):
+        if const.mpi_size == 1:
+            for remain_leg in self.remain_legs:
                 densities = self.wf.get_reduced_densities(remain_leg)
-                for istate in range(self.model.nstate):
-                    data = np.empty(densities[istate].shape, complex128)
-                    data["real"] = densities[istate].real
-                    data["imag"] = densities[istate].imag
-                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
-        self.nc_row += 1
+                all_densities.append(densities)
+        else:
+            for base_tag, rd_key in enumerate(self.rd_keys):
+                assert isinstance(self.wf.ci_coef, MPSCoefParallel)
+                densities = self.wf.ci_coef.get_reduced_densities(
+                    base_tag, rd_key
+                )
+                all_densities.append(densities)
 
+        # Only rank 0 writes to file
+        if const.mpi_rank == 0:
+            assert isinstance(self.nc_file, str)
+            complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
+            with nc.Dataset(self.nc_file, "a") as f:
+                # Maybe we should keep files open while the simulation is running.
+                f.variables["time"][self.nc_row] = self.time * units.au_in_fs
+                for densities, key in zip(
+                    all_densities, self.rd_keys, strict=True
+                ):
+                    for istate in range(self.model.nstate):
+                        data = np.empty(densities[istate].shape, complex128)
+                        data["real"] = densities[istate].real
+                        data["imag"] = densities[istate].imag
+                        f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
+            self.nc_row += 1
+
+    @helper.rank0_only
     def _create_nc_file(
         self, reduced_density: tuple[list[tuple[int, ...]], int]
     ) -> str:
@@ -141,15 +168,26 @@ class Properties:
             modes = set()
             for key in reduced_density[0]:
                 # key must be ascending order.
-                assert key == tuple(
-                    sorted(key)
-                ), f"Reduced density key {key} must be ascending order"
+                assert key == tuple(sorted(key)), (
+                    f"Reduced density key {key} must be ascending order"
+                )
                 modes = modes.union(set(key))
                 for idof in key:
                     if f"Q{idof}" not in f.dimensions:
-                        f.createDimension(
-                            f"Q{idof}", self.model.basinfo.get_ngrid(0, idof)
-                        )
+                        if const.space == "hilbert":
+                            f.createDimension(
+                                f"Q{idof}",
+                                self.model.basinfo.get_ngrid(0, idof),
+                            )
+                        elif const.space == "liouville":
+                            f.createDimension(
+                                f"Q{idof}",
+                                math.isqrt(
+                                    self.model.basinfo.get_ngrid(0, idof)
+                                ),
+                            )
+                        else:
+                            raise ValueError(f"Invalid space: {const.space}")
             f.createVariable("time", "f8", ("step",))
             for key in reduced_density[0]:
                 if len(key) > 3:
@@ -165,13 +203,21 @@ class Properties:
 
     def _get_autocorr(self):
         if self.t2_trick:
-            if const.standard_method and isinstance(self.wf.ci_coef, MPSCoef):
+            if (
+                const.standard_method
+                and isinstance(self.wf.ci_coef, MPSCoef)
+                and const.mpi_size == 1
+            ):
                 self.autocorr = self.wf._ints_wf_ovlp_mpssm(
                     self.wf.ci_coef, conj=False
                 )
             else:
                 self.autocorr = self.wf.autocorr()
         else:
+            if const.mpi_size > 1:
+                raise NotImplementedError(
+                    "MPI is not implemented in the non-T/2 trick"
+                )
             if const.doDVR:
                 if const.standard_method:
                     self.autocorr = self.wf_zero._ints_wf_ovlp_mpo(
@@ -197,16 +243,18 @@ class Properties:
 
     def _get_observables(self):
         for obs_key, matOp in self.model.observables.items():
-            # if type(matOp) is not PolynomialHamiltonian:
-            #     raise NotImplementedError(
-            #         f'matOp {type(matOp)} is not implemented in Properties._get_observables')
             self.expectations[obs_key] = self.wf.expectation(matOp)
+
+    def _get_bonddim(self):
+        self.bonddim = self.wf.bonddim()
 
     def export_properties(
         self,
+        *,
         autocorr_per_step=1,
         populations_per_step=1,
         observables_per_step=1,
+        bonddim_per_step=1,
     ):
         if self.nstep % autocorr_per_step == 0:
             self._export_autocorr()
@@ -214,27 +262,31 @@ class Properties:
             self._export_populations()
         if self.nstep % observables_per_step == 0:
             self._export_expectations()
+        if const.adaptive and self.nstep % bonddim_per_step == 0:
+            self._export_bonddim()
         self._export_properties()
 
+    @helper.rank0_only
     def _export_autocorr(self):
         if self.autocorr is None:
             return
         if self.time == 0.0:
-            auto_logger.debug("# time [fs]\t auto-correlation")
+            self.auto_logger.debug("# time [fs]\t auto-correlation")
         if self.t2_trick:
             time_fs = self.time * units.au_in_fs * 2
         else:
             time_fs = self.time * units.au_in_fs
-        auto_logger.debug(
+        self.auto_logger.debug(
             f"{time_fs:6.9f}\t"
             + f"{self.autocorr.real: 6.9f}{self.autocorr.imag:+6.9f}j"
         )
 
+    @helper.rank0_only
     def _export_populations(self):
         if self.pops is None:
             return
         if self.time == 0.0:
-            pop_logger.debug(
+            self.pop_logger.debug(
                 "# time [fs]\t"
                 + "\t".join(
                     [
@@ -247,13 +299,14 @@ class Properties:
         for pop in self.pops:
             pop_msg += f"{pop:6.9f}\t"
         pop_msg.rstrip("\t")
-        pop_logger.debug(pop_msg)
+        self.pop_logger.debug(pop_msg)
 
+    @helper.rank0_only
     def _export_expectations(self):
         if self.expectations == {}:
             return
         if self.time == 0.0:
-            exp_logger.debug(
+            self.exp_logger.debug(
                 "# time [fs]\t"
                 + "\t".join(
                     [
@@ -266,8 +319,24 @@ class Properties:
         for exp in self.expectations.values():
             exp_msg += f"{exp:6.9f}\t"
         exp_msg.rstrip("\t")
-        exp_logger.debug(exp_msg)
+        self.exp_logger.debug(exp_msg)
 
+    @helper.rank0_only
+    def _export_bonddim(self):
+        if self.bonddim is None:
+            return
+        if self.time == 0.0:
+            self.bonddim_logger.debug(
+                "# time [fs]\t"
+                + "\t".join(f"{i}" for i in range(len(self.bonddim)))
+            )
+        bonddim_msg = f"{self.time * units.au_in_fs:6.9f}\t"
+        for bonddim in self.bonddim:
+            bonddim_msg += f"{bonddim}\t"
+        bonddim_msg.rstrip("\t")
+        self.bonddim_logger.debug(bonddim_msg)
+
+    @helper.rank0_only
     def _export_properties(self):
         time_fs = self.time * units.au_in_fs
         norm = self.norm
@@ -276,7 +345,10 @@ class Properties:
         autocorr = self.autocorr
 
         if norm is not None:
-            if abs(norm - 1.0) > 1.0e-06:
+            threshold = (
+                1.0e-02 if const.adaptive or const.mpi_size > 1 else 1e-06
+            )
+            if abs(norm - 1.0) > threshold:
                 logger.warning(
                     f"Wave Function norm is not 1.0, but {norm} when {time_fs} fs"
                 )
@@ -327,8 +399,7 @@ class Properties:
         self.time += delta_t
         self.nstep += 1
         if const.doTDHamil:
-            if const.doDVR:
-                raise NotImplementedError
+            raise NotImplementedError
             self.model.hamiltonian = self.model.build_td_hamiltonian(
                 time_fs=self.time * units.au_in_fs
             )

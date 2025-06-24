@@ -4,6 +4,14 @@ pytdscf.util package
 Submodules
 ----------
 
+pytdscf.util.anim\_density\_matrix module
+-----------------------------------------
+
+.. automodule:: pytdscf.util.anim_density_matrix
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 pytdscf.util.gout2dipole module
 -------------------------------
 

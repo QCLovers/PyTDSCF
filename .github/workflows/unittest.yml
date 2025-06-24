@@ -6,6 +6,7 @@ on:
       - 'pyproject.toml'
       - 'pytdscf/**'
       - 'tests/**'
+      - '.github/workflows/unittest.yml'
 
 jobs:
   build:
@@ -13,10 +14,14 @@ jobs:
     steps:
     - name: checkout
       uses: actions/checkout@v4
+    # - name: mpiuse
+    #   uses: mpi4py/setup-mpi@v1
     - name: uv-install
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
+    - name: install-mpi
+      run: sudo apt update && sudo apt install libopenmpi-dev
     - name: pytdscf-dev-install
-      run: uv sync
+      run: uv sync --extra mpi
     - name: pytest
       continue-on-error: true
       id: pytest
@@ -24,3 +29,12 @@ jobs:
     - name: pytest rerun failed
       if: ${{ steps.pytest.outcome == 'failure'}}
       run: uv run pytest --lf --showlocals --tb=long --log-level=DEBUG
+    - name: pytest-mpi
+      continue-on-error: true
+      id: pytest-mpi
+      timeout-minutes: 0.5
+      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi* # tests/test_mpi_exiciton_propagate.py
+    - name: pytest-mpi rerun failed
+      timeout-minutes: 0.5
+      if: ${{ steps.pytest-mpi.outcome == 'failure'}}
+      run: mpiexec -n 2 --oversubscribe uv run pytest tests/test_mpi* --lf --showlocals --tb=long --log-level=DEBUG

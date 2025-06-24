@@ -25,7 +25,8 @@ def test_harmonic_fbr_sm_propagate_numpy():
     simulator = Simulator(
         jobname, model, ci_type="standard-method", backend="numpy"
     )
-    simulator.propagate(maxstep=1)
+    ener_calc, wf = simulator.propagate(maxstep=1)
+    assert pytest.approx(ener_calc) == 0.007973586692598029
 
 
 if __name__ == "__main__":

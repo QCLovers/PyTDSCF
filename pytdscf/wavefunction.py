@@ -1,22 +1,34 @@
 """Wave function handling module"""
 
 from copy import deepcopy
-from logging import getLogger
+from itertools import chain
 from time import time
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+from loguru import logger
 
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
-from pytdscf._mps_cls import MPSCoef
+from pytdscf._mps_cls import MPSCoef, _ovlp_single_state_jax
+from pytdscf._mps_mpo import MPSCoefMPO
+from pytdscf._mps_parallel import MPSCoefParallel
 from pytdscf._mps_sop import MPSCoefSoP
 from pytdscf._spf_cls import SPFCoef, SPFInts
 from pytdscf.basis._primints_cls import PrimInts
-from pytdscf.hamiltonian_cls import HamiltonianMixin, PolynomialHamiltonian
+from pytdscf.hamiltonian_cls import (
+    HamiltonianMixin,
+    PolynomialHamiltonian,
+    TensorHamiltonian,
+)
 
-logger = getLogger("main").getChild(__name__)
+try:
+    from mpi4py import MPI
+except Exception:
+    MPI = None  # type: ignore
+
+logger = logger.bind(name="main")
 
 
 class WFunc:
@@ -38,7 +50,7 @@ class WFunc:
 
     """
 
-    ints_spf: SPFInts | None = None
+    ints_spf: SPFInts | None
 
     def __init__(
         self, ci_coef: MPSCoef, spf_coef: SPFCoef, ints_prim: PrimInts
@@ -46,6 +58,7 @@ class WFunc:
         self.ci_coef = ci_coef
         self.spf_coef = spf_coef
         self.ints_prim = ints_prim
+        self.ints_spf = None
         if hasattr(self.ci_coef, "ints_site"):
             self.ci_coef.ints_site = None
         if hasattr(self.ci_coef, "op_sys_sites"):
@@ -74,7 +87,7 @@ class WFunc:
             )
         return self.ci_coef.get_reduced_densities(remain_nleg)
 
-    def expectation(self, matOp):
+    def expectation(self, matOp: HamiltonianMixin):
         """
 
         get expectation value of operator
@@ -88,11 +101,17 @@ class WFunc:
         """
         ints_spf = SPFInts(self.ints_prim, self.spf_coef)
         expectation = self.ci_coef.expectation(ints_spf, matOp)
-        if abs(expectation.imag) > 1e-12:
-            logger.warning(
-                f"expectation value {expectation} is not real, maybe operator is not Hermite"
-            )
-        return expectation.real
+        if const.mpi_rank == 0:
+            if (
+                abs(np.angle(expectation)) > 1e-02
+                and abs(abs(np.angle(expectation)) - np.pi) > 1e-02
+            ):
+                logger.warning(
+                    f"Expectation value {expectation} is not real, probably due to non-Hermitian operator or numerical error."
+                )
+            return expectation.real
+        else:
+            return None
 
     def norm(self):
         """
@@ -129,13 +148,38 @@ class WFunc:
         """
         return self.ci_coef.pop_states()
 
-    def propagate(self, matH, stepsize: float):
+    def bonddim(self) -> list[int] | None:
+        """
+
+        get bond dimension of WF
+
+        Returns:
+            List[int] : bond dimension of WF
+        """
+        assert isinstance(self.ci_coef, MPSCoef)
+        mps = self.ci_coef
+        if const.mpi_size == 1:
+            bonddim = [site.shape[2] for site in mps.superblock_states[0][:-1]]
+        else:
+            bonddim_rank = [site.shape[2] for site in mps.superblock_states[0]]
+            comm = MPI.COMM_WORLD
+            bonddim_all: list[list[int]] = comm.gather(bonddim_rank, root=0)  # type: ignore
+            if comm.rank == 0:
+                bonddim = []
+                for rank in chain(*bonddim_all):
+                    bonddim.append(rank)
+                bonddim.pop()
+            else:
+                bonddim = None
+        return bonddim
+
+    def propagate(self, matH: HamiltonianMixin, stepsize: float):
         """
 
         propagate WF with VMF
 
         Args:
-            matH (hamiltonian_cls.PolynomialHamiltonian) : TD-PolynomialHamiltonian
+            matH (hamiltonian_cls.HamiltonianMixin) : Hamiltonian
             stepsize (float) : the width of time step [a.u.]
 
         Returns:
@@ -194,12 +238,12 @@ class WFunc:
             ket: np.ndarray | jax.Array
             bra: np.ndarray | jax.Array
             if const.use_jax:
-                block = jnp.ones((1, 1), dtype=jnp.complex128)
-                for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):
-                    bra = jnp.conj(site_bra.data) if conj else site_bra.data
-                    ket = site_ket.data
-                    block = jnp.einsum("abc,ibk,ai->ck", bra, ket, block)
-                ovlp += complex(block[0, 0])
+                bra_data = [
+                    jnp.conj(site_bra.data) if conj else site_bra.data
+                    for site_bra in ci_bra
+                ]
+                ket_data = [site_ket.data for site_ket in ci_ket]
+                ovlp += complex(_ovlp_single_state_jax(bra_data, ket_data))
             else:
                 block = np.ones((1, 1), dtype=complex)
                 for site_bra, site_ket in zip(ci_bra, ci_ket, strict=True):
@@ -310,7 +354,7 @@ class WFunc:
         self,
         matH: HamiltonianMixin,
         stepsize: float,
-        calc_spf_occ: bool = False,
+        istep: int,
     ):
         """
 
@@ -329,9 +373,9 @@ class WFunc:
         """
         assert const.standard_method
 
-        nstate = matH.nstate
-
-        if const.doTDHamil or (not const.doTDHamil and self.ints_spf is None):
+        if isinstance(self.ci_coef, MPSCoefMPO):
+            pass
+        elif const.doTDHamil or (not const.doTDHamil and self.ints_spf is None):
             if const.verbose == 4:
                 helper._ElpTime.itrf -= time()
             self.ints_spf = SPFInts(self.ints_prim, self.spf_coef)
@@ -340,33 +384,28 @@ class WFunc:
 
         if const.verbose == 4:
             helper._ElpTime.ci -= time()
-        self.ci_coef.propagate(stepsize, self.ints_spf, matH)
+        if isinstance(self.ci_coef, MPSCoefParallel):
+            assert isinstance(matH, TensorHamiltonian)
+            self.ci_coef.propagate(
+                stepsize,
+                None,
+                matH,
+                load_balance=(istep - 1) % const.load_balance_interval == 0,
+            )
+        else:
+            self.ci_coef.propagate(stepsize, self.ints_spf, matH)
         if const.verbose == 4:
             helper._ElpTime.ci += time()
-
-        if calc_spf_occ:
-            if const.verbose == 4:
-                helper._ElpTime.mfop -= time()
-            """Must Improve mfop"""
-            self.mfop_spf = self.ci_coef.construct_mfop(self.ints_spf, matH)
-            if const.verbose == 4:
-                helper._ElpTime.mfop += time()
-            spf_occ = [
-                self.mfop_spf["rho"][(istate, istate)]
-                for istate in range(nstate)
-            ]
-        else:
-            spf_occ = None
-
+        spf_occ = None
         return spf_occ
 
-    def propagate_CMF(self, matH, stepsize_guess):
+    def propagate_CMF(self, matH: HamiltonianMixin, stepsize_guess: float):
         """
 
-        propagate WF with CMF
+        propagate WF with CMF (Constant Mean Field)
 
         Args:
-            matH (hamiltonian_cls.PolynomialHamiltonian) : TD-PolynomialHamiltonian
+            matH (hamiltonian_cls.HamiltonianMixin) : Hamiltonian
             stepsize_guess (float) : the width of time step [a.u.]
 
         Returns:

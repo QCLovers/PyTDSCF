@@ -26,30 +26,30 @@ class Exciton:
             self.names = [f"S{i}" for i in range(nstate)]
         else:
             self.names = names
-        assert (
-            len(self.names) == nstate
-        ), f"len(names)={len(names)} != nstate={nstate}"
-        assert all(
-            isinstance(name, str) for name in self.names
-        ), "names must be list of str"
+        assert len(self.names) == nstate, (
+            f"len(names)={len(names)} != nstate={nstate}"
+        )
+        assert all(isinstance(name, str) for name in self.names), (
+            "names must be list of str"
+        )
 
     def get_creation_matrix(self) -> NDArray[np.float64]:
         """
         Returns the creation matrix for the exciton basis
 
         Example:
-        >>> exciton = Exciton(2)
-        >>> exciton.get_creation_matrix()
-        array([[0., 0.],
-               [1., 0.]])
-        >>> state = np.array([[1.0],
-                              [0.0]])
-        >>> np.allclose(exciton.get_creation_matrix() @ state, np.array([[0.0], [1.0]]))
-        True
-        >>> state = np.array([[0.0],
-                              [1.0]])
-        >>> np.allclose(exciton.get_creation_matrix() @ state, np.array([[0.0], [0.0]]))
-        True
+           >>> exciton = Exciton(2)
+           >>> exciton.get_creation_matrix()
+           array([[0., 0.],
+                  [1., 0.]])
+           >>> state = np.array([[1.0],
+                                 [0.0]])
+           >>> np.allclose(exciton.get_creation_matrix() @ state, np.array([[0.0], [1.0]]))
+           True
+           >>> state = np.array([[0.0],
+                                 [1.0]])
+           >>> np.allclose(exciton.get_creation_matrix() @ state, np.array([[0.0], [0.0]]))
+           True
         """
         return self.get_annihilation_matrix().T
 
@@ -58,17 +58,17 @@ class Exciton:
         Returns the annihilation matrix for the exciton basis
 
         Example:
-        >>> exciton = Exciton(2)
-        >>> exciton.get_annihilation_matrix()
-        array([[0., 1.],
-               [0., 0.]])
-        >>> state = np.array([[1.0],
-                              [0.0]])
-        >>> np.allclose(exciton.get_annihilation_matrix() @ state, np.array([[0.0], [0.0]]))
-        True
-        >>> state = np.array([[0.0],
-                              [1.0]])
-        >>> np.allclose(exciton.get_annihilation_matrix() @ state, np.array([[1.0], [0.0]]))
+           >>> exciton = Exciton(2)
+           >>> exciton.get_annihilation_matrix()
+           array([[0., 1.],
+                  [0., 0.]])
+           >>> state = np.array([[1.0],
+                                 [0.0]])
+           >>> np.allclose(exciton.get_annihilation_matrix() @ state, np.array([[0.0], [0.0]]))
+           True
+           >>> state = np.array([[0.0],
+                                 [1.0]])
+           >>> np.allclose(exciton.get_annihilation_matrix() @ state, np.array([[1.0], [0.0]]))
         """
         mat = np.zeros((self.nstate, self.nstate), dtype=np.float64)
         for i in range(self.nstate - 1):

@@ -1,3 +1,5 @@
+population.png
+*npz
 __pycache__/
 *.pyc
 *~
@@ -14,6 +16,7 @@ __pycache__/
 *.pdf
 *.log
 *.svg
+!docs/pic/*svg
 *.log
 *.dat
 *.parquet

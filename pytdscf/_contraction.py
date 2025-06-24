@@ -5,24 +5,54 @@ Tensor Contraction Module is separated from module to achieve acceleration
 from __future__ import annotations
 
 import itertools
+from functools import lru_cache
 from time import time
+from typing import Annotated, Any, Callable, overload
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg as linalg
-from opt_einsum import contract
+from opt_einsum import contract, contract_expression
 
 import pytdscf
 from pytdscf._const_cls import const
 from pytdscf._mpo_cls import OperatorCore
 from pytdscf._site_cls import SiteCoef
 
+_op_keys = Annotated[
+    str | tuple[int | tuple[int, int], ...],
+    "str | tuple[int | tuple[int, int], ...]",
+]
 
-def is_unitmat_op(op_block_single: int | np.ndarray | jax.Array) -> bool:
+_block_type = Annotated[
+    np.ndarray | jax.Array | int, "np.ndarray | jax.Array | int"
+]
+
+_core_type = Annotated[
+    np.ndarray | jax.Array | int | OperatorCore,
+    "np.ndarray | jax.Array | int | OperatorCore",
+]
+
+
+def get_expr(contraction: str, shapes: tuple[tuple[int, ...], ...]) -> Callable:
+    if len(shapes) > 3:
+        return contract_expression(contraction, *shapes)
+    else:
+        return _get_expr_cached(contraction, shapes)
+
+
+@lru_cache(maxsize=256)  # up to 256 different contractions
+def _get_expr_cached(
+    contraction: str, shapes: tuple[tuple[int, ...], ...]
+) -> Callable:
+    return contract_expression(contraction, *shapes)
+
+
+def is_unitmat_op(op_block_single: _block_type) -> bool:
     """Whether op_l or op_c or op_r is identity or not.
     Args:
-        op_block_single (int or numpy.ndarray) : op_l, op_c, op_r
+        op_block_single (_block_type) : op_l, op_c, op_r
     Returns:
         bool : Whether op_l or op_c or op_r is identity or not
     """
@@ -30,13 +60,13 @@ def is_unitmat_op(op_block_single: int | np.ndarray | jax.Array) -> bool:
 
 
 def contract_with_site_concat(mat_bra, mat_ket, op_LorR_concat, op_site_concat):
-    if mat_bra.gauge == "L":
+    if mat_bra.gauge == "A":
         contraction = "xmn,mri,xrs,nsj->xij"
-    elif mat_bra.gauge == "R":
+    elif mat_bra.gauge == "B":
         contraction = "xmn,irm,xrs,jsn->xij"
     else:
         raise AssertionError(
-            f"mat_bra.gauge is neither L nor R, but {mat_bra.gauge}"
+            f"mat_bra.gauge is neither A nor B, but {mat_bra.gauge}"
         )
     if const.use_jax:
         coef_bra = jnp.conj(mat_bra.data)
@@ -57,17 +87,17 @@ def contract_with_site_concat(mat_bra, mat_ket, op_LorR_concat, op_site_concat):
 def contract_with_site(
     mat_bra: SiteCoef,
     mat_ket: SiteCoef,
-    op_LorR: int | np.ndarray | jax.Array,
-    op_site: int | np.ndarray | jax.Array,
+    op_LorR: _block_type,
+    op_site: _block_type,
 ) -> np.ndarray | jax.Array:
     r"""Contraction between p-site bra, p-site ket, p-site operator and side-block
 
     Args:
         mat_bra (SiteCoef): :math:`\left(L^{\tau_{p-1}^\prime\tau_{p}^\prime}_{j_p^\prime}\right)^\ast` or similar R
         mat_ket (SiteCoef): :math:`L_{\tau_{p-1}\tau_{p}}^{j_p}` or similar R
-        op_LorR (int | np.ndarray | jax.Array) : pre-calculated block operator :math:`E_{\tau_{p-1}}^{\tau_{p-1}^\prime}` \
+        op_LorR (_block_type) : pre-calculated block operator :math:`E_{\tau_{p-1}}^{\tau_{p-1}^\prime}` \
             or similar p+1 index
-        op_site (int | np.ndarray | jax.Array) : p-site operator :math:`O_{j_p}^{j_p^\prime}`
+        op_site (_block_type) : p-site operator :math:`O_{j_p}^{j_p^\prime}`
 
     Returns:
         np.ndarray | jax.Array : contracted system block :math:`E_{\tau_{p}}^{\tau_{p}^\prime}`
@@ -77,13 +107,13 @@ def contract_with_site(
               np.einsum('mn,mri->nri',op_LorR,coef_bra),\
               np.einsum('rs,nsj->nrj',op_site,coef_ket))
     """
-    if mat_bra.gauge == "L":
+    if mat_bra.gauge == "A":
         contraction = "mri,nsj,rs,mn->ij"
-    elif mat_bra.gauge == "R":
+    elif mat_bra.gauge == "B":
         contraction = "irm,jsn,rs,mn->ij"
     else:
         raise AssertionError(
-            f"mat_bra.gauge is neither L nor R, but {mat_bra.gauge}"
+            f"mat_bra.gauge is neither A nor B, but {mat_bra.gauge}"
         )
     coef_bra: np.ndarray | jax.Array
     coef_ket: np.ndarray | jax.Array
@@ -94,13 +124,11 @@ def contract_with_site(
         coef_bra = np.conj(mat_bra)
         coef_ket = np.array(mat_ket)
     operator = [coef_bra, coef_ket]
-    # if is_unitmat_op(op_site):
     if isinstance(op_site, int):
         contraction = contraction.replace(",rs", "")
         contraction = contraction.replace("r", "s")
     else:
         operator.append(op_site)
-    # if is_unitmat_op(op_LorR):
     if isinstance(op_LorR, int):
         contraction = contraction.replace(",mn", "")
         contraction = contraction.replace("m", "n")
@@ -110,25 +138,27 @@ def contract_with_site(
     if const.use_jax:
         op_next = jnp.einsum(contraction, *operator)
     else:
-        op_next = contract(contraction, *operator)
+        expr = get_expr(contraction, tuple(op.shape for op in operator))
+        op_next = expr(*operator)
+        # op_next = contract(contraction, *operator)
     return op_next
 
 
 def contract_with_site_mpo(
     mat_bra: SiteCoef,
     mat_ket: SiteCoef,
-    op_LorR: int | np.ndarray | jax.Array,
-    op_site: OperatorCore | int,
+    op_LorR: _block_type,
+    op_site: _core_type,
 ) -> np.ndarray | jax.Array:
     r"""Contraction between p-site bra, p-site ket, p-site operator and side-block
 
     Args:
         mat_bra (SiteCoef): :math:`\left(L^{\tau_{p-1}^\prime\tau_{p}^\prime}_{j_p^\prime}\right)^\ast` or similar R
         mat_ket (SiteCoef): :math:`L_{\tau_{p-1}\tau_{p}}^{j_p}` or similar R
-        op_LorR (int | np.ndarray | jax.Array) : pre-calculated block operator \
+        op_LorR (_block_type) : pre-calculated block operator \
             :math:`[O^{[:p-1]}_{\rm sys}]\substack{\tau_{p-1}^\prime \\ \beta_{p-1} \\ \tau_{p-1}}` \
             or similar p+1 index
-        op_site (int | np.ndarray | jax.Array) : p-site operator
+        op_site (_block_type) : p-site operator
             :math:`W\substack{j_p^\prime \\ \beta_{p-1}\beta_{p}\\ j_p}`
 
     Returns:
@@ -145,101 +175,241 @@ def contract_with_site_mpo(
        [O^{[p+1:]}_{\rm sys}]\substack{\tau_{p}^\prime \\ \beta_{p} \\ \tau_{p}}
 
     """
-    """
-    op_next = np.einsum('nri,nrj->ij',\
-              np.einsum('mn,mri->nri',op_LorR,coef_bra),\
-              np.einsum('rs,nsj->nrj',op_site,coef_ket))
-
-    Tensor network contraction diagram
-
-    When sweep ===>,
-
-     -m m-|-i
-     |    r
-     |    r
-     -p p-|-q
-     |    s
-     |    s
-     -n n-|-j
-
-    When sweep <===,
-
-    i-|-m m-
-      r    |
-      r    |
-    p-|-q q-
-      s    |
-      s    |
-    j-|-n n-
-
-    """
-    if mat_bra.gauge == "L":
-        contraction = "mri,nsj,prsq,mpn->iqj"
-    elif mat_bra.gauge == "R":
-        contraction = "irm,jsn,prsq,mqn->ipj"
+    # Status of op_site
+    # 1. op_site is int -> means identity
+    # 2. op_site is np.ndarray | jax.Array -> means one-site operator
+    # 3. op_site is OperatorCore -> means W
+    if isinstance(op_site, int):
+        op_site_mode = 1
+    elif isinstance(op_site, np.ndarray | jax.Array):
+        assert len(op_site.shape) == 2, f"op_site.shape = {op_site.shape}"
+        op_site_mode = 2
+    elif isinstance(op_site, OperatorCore):
+        op_site_mode = 3
     else:
-        raise AssertionError(
-            f"mat_bra.gauge is neither L nor R, but {mat_bra.gauge}"
-        )
+        raise AssertionError(f"Invalid op_site type: {type(op_site)}")
 
-    coef_bra: np.ndarray | jax.Array
-    coef_ket: np.ndarray | jax.Array
+    if isinstance(op_LorR, int):
+        op_LorR_mode = 1
+    elif isinstance(op_LorR, np.ndarray | jax.Array):
+        assert len(op_LorR.shape) == 3, f"op_LorR.shape = {op_LorR.shape}"
+        op_LorR_mode = 2
+    else:
+        raise AssertionError(f"Invalid op_LorR type: {type(op_LorR)}")
+
     if const.use_jax:
-        coef_bra = jnp.conj(mat_bra.data)
-        coef_ket = mat_ket.data
+        coef_bra: jax.Array | np.ndarray = jnp.conj(mat_bra.data)
+        coef_ket: jax.Array | np.ndarray = mat_ket.data
     else:
         coef_bra = np.conj(mat_bra)
         coef_ket = np.array(mat_ket)
 
     operator: list[jax.Array] | list[np.ndarray] = [coef_bra, coef_ket]  # type: ignore
-    if isinstance(op_site, int):
-        contraction = (
-            contraction.replace(",prsq", "").replace("r", "s").replace("p", "q")
-        )
-    else:
-        assert isinstance(op_site, OperatorCore), f"op_site = {op_site}"
-        data = op_site.data
-        assert isinstance(data, np.ndarray | jax.Array)
-        if op_site.only_diag:
-            contraction = contraction.replace("prsq", "psq").replace("r", "s")
-        else:
-            assert len(data.shape) == 4, f"op_site.data.shape = {data.shape}"
-        operator.append(data)  # type: ignore
-    # if is_unitmat_op(op_LorR):
-    if isinstance(op_LorR, int):
-        if mat_bra.gauge == "L":
-            contraction = contraction.replace(",mpn", "").replace("m", "n")
-        else:
-            contraction = contraction.replace(",mqn", "").replace("m", "n")
-    else:
-        assert isinstance(op_LorR, np.ndarray | jax.Array)
-        operator.append(op_LorR)  # type: ignore
+    match (mat_bra.gauge, op_site_mode, op_LorR_mode):
+        case ("A", 1, 1):
+            # n-|-i
+            # | s
+            # | s
+            # n-|-j
+            contraction = "nsi,nsj->ij"
+        case ("A", 1, 2):
+            # m m-|-i
+            # |   s
+            # p-  |
+            # |   s
+            # n n-|-j
+            contraction = "msi,nsj,mpn->ipj"
+            assert isinstance(op_LorR, np.ndarray | jax.Array)
+            operator.append(op_LorR)  # type: ignore
+        case ("A", 2, 1):
+            # m-|-i
+            # | r
+            # | r
+            # | |
+            # | s
+            # | s
+            # m-|-j
+            contraction = "mri,msj,rs->ij"
+            assert isinstance(op_site, np.ndarray | jax.Array)
+            operator.append(op_site)  # type: ignore
+        case ("A", 2, 2):
+            # m m-|-i
+            # |   r
+            # |   r
+            # |-p |
+            # |   s
+            # |   s
+            # n n-|-j
+            contraction = "mri,nsj,mpn,rs->ipj"
+            assert isinstance(op_LorR, np.ndarray | jax.Array)
+            assert isinstance(op_site, np.ndarray | jax.Array)
+            operator.extend([op_LorR, op_site])  # type: ignore
+        case ("A", 3, 1):
+            assert isinstance(op_site, OperatorCore)
+            data = op_site.data
+            assert isinstance(data, np.ndarray | jax.Array)
+            assert data.shape[0] == 1, f"op_site.data.shape = {data.shape}"
+            if op_site.only_diag:
+                # m-|-i
+                # | r
+                # | r
+                # | | \
+                # | r 1--q
+                # m-|-j
+                contraction = "mri,mrj,rq->iqj"
+                operator.append(data[0, :, :])  # type: ignore
+            else:
+                # m--|-i
+                # |  r
+                # |  r
+                # |1-|-q
+                # |  s
+                # |  s
+                # m--|-j
+                contraction = "mri,msj,rsq->iqj"
+                operator.append(data[0, :, :, :])  # type: ignore
+        case ("A", 3, 2):
+            assert isinstance(op_site, OperatorCore)
+            data = op_site.data
+            assert isinstance(data, np.ndarray | jax.Array)
+            if op_site.only_diag:
+                # m m-|-i
+                # |   r
+                # |   r
+                # |   | \
+                # p-----p--q
+                # |   r
+                # n n-|-j
+                contraction = "mri,nrj,mpn,prq->iqj"
+            else:
+                # m m-|-i
+                # |   r
+                # |   r
+                # p p-|-q
+                # |   s
+                # |   s
+                # n n-|-j
+                contraction = "mri,nsj,mpn,prsq->iqj"
+            assert isinstance(op_LorR, np.ndarray | jax.Array)
+            operator.extend([op_LorR, data])  # type: ignore
+        case ("B", 1, 1):
+            # i-|-n
+            #   s |
+            #   s |
+            # j-|-n
+            contraction = "isn,jsn->ij"
+        case ("B", 1, 2):
+            # i-|-m m
+            #   s   |
+            #   |  -q
+            #   s   |
+            # j-|-n n
+            contraction = "ism,jsn,mqn->iqj"
+            assert isinstance(op_LorR, np.ndarray | jax.Array)
+            operator.append(op_LorR)  # type: ignore
+        case ("B", 2, 1):
+            # i-|-m
+            #   r |
+            #   r |
+            #   | |
+            #   s |
+            #   s |
+            # j-|-m
+            contraction = "irm,jsm,rs->ij"
+            assert isinstance(op_site, np.ndarray | jax.Array)
+            operator.append(op_site)  # type: ignore
+        case ("B", 2, 2):
+            # i-|-m m
+            #   r   |
+            #   r   |
+            #   | q-|
+            #   s   |
+            #   s   |
+            # j-|-n n
+            contraction = "irm,jsn,mqn,rs->iqj"
+            assert isinstance(op_LorR, np.ndarray | jax.Array)
+            assert isinstance(op_site, np.ndarray | jax.Array)
+            operator.extend([op_LorR, op_site])  # type: ignore
+        case ("B", 3, 1):
+            assert isinstance(op_site, OperatorCore)
+            data = op_site.data
+            assert isinstance(data, np.ndarray | jax.Array)
+            assert data.shape[-1] == 1, f"op_site.data.shape = {data.shape}"
+            if op_site.only_diag:
+                #   i-|-m
+                #     r |
+                #     r |
+                #   / | |
+                # p--1r |
+                #   j-|-m
+                contraction = "irm,jrm,pr->ipj"
+                operator.append(data[:, :, 0])  # type: ignore
+            else:
+                # i-|--m
+                #   r  |
+                #   r  |
+                # p-|-1|
+                #   s  |
+                #   s  |
+                # j-|--m
+                contraction = "irm,jsm,prs->ipj"
+                operator.append(data[:, :, :, 0])  # type: ignore
+        case ("B", 3, 2):
+            assert isinstance(op_site, OperatorCore)
+            data = op_site.data
+            assert isinstance(data, np.ndarray | jax.Array)
+            if op_site.only_diag:
+                #   i-|-m m
+                #     r   |
+                #     r   |
+                #    /|   |
+                # p--q----q
+                #     r   |
+                #   j-|-n n
+                contraction = "irm,jrn,mqn,prq->ipj"
+            else:
+                # i-|-m m
+                #   r   |
+                #   r   |
+                # p-|-q q
+                #   s   |
+                #   s   |
+                # j-|-n n
+                contraction = "irm,jsn,mqn,prsq->ipj"
+            assert isinstance(op_LorR, np.ndarray | jax.Array)
+            operator.extend([op_LorR, data])  # type: ignore
+        case _:
+            raise ValueError(
+                f"{mat_bra.gauge=}, {op_site_mode=}, {op_LorR_mode=}"
+            )
     if const.use_jax:
         op_next = jnp.einsum(contraction, *operator)
     else:
-        op_next = contract(contraction, *operator)
+        expr = get_expr(contraction, tuple(op.shape for op in operator))
+        op_next = expr(*operator)
+        # op_next = contract(contraction, *operator)
+    if len(op_next.shape) == 2:
+        op_next = op_next[:, None, :]
     return op_next
 
 
-def mfop_site(matC_bra, matC_ket, op_left, op_right):
+def mfop_site(matPsi_bra, matPsi_ket, op_left, op_right):
     """
-    mfop_site = np.einsum('imr,inr->mn',np.conj(matC_bra),\
+    mfop_site = np.einsum('imr,inr->mn',np.conj(matPsi_bra),\
                 np.einsum('ij,jnr->inr',op_left,\
-                np.einsum('rs,jns->jnr',op_right,matC_ket)))
+                np.einsum('rs,jns->jnr',op_right,matPsi_ket)))
     """
-    assert matC_bra.gauge == "C"
-    assert matC_ket.gauge == "C"
+    assert matPsi_bra.gauge == "Psi"
+    assert matPsi_ket.gauge == "Psi"
 
-    # if is_unitmat_op(op_right):
     if isinstance(op_right, int):
-        dum_jnr = matC_ket.data
+        dum_jnr = matPsi_ket.data
     else:
         if const.use_jax:
-            dum_jnr = jnp.einsum("rs,jns->jnr", op_right, matC_ket.data)
+            dum_jnr = jnp.einsum("rs,jns->jnr", op_right, matPsi_ket.data)
         else:
-            dum_jnr = np.einsum("rs,jns->jnr", op_right, matC_ket)
+            dum_jnr = np.einsum("rs,jns->jnr", op_right, matPsi_ket)
 
-    # if is_unitmat_op(op_left):
     if isinstance(op_left, int):
         dum_inr = dum_jnr
     else:
@@ -249,48 +419,75 @@ def mfop_site(matC_bra, matC_ket, op_left, op_right):
             dum_inr = np.einsum("ij,jnr->inr", op_left, dum_jnr)
 
     if const.use_jax:
-        mfop_site = jnp.einsum("imr,inr->mn", jnp.conj(matC_bra.data), dum_inr)
+        mfop_site = jnp.einsum(
+            "imr,inr->mn", jnp.conj(matPsi_bra.data), dum_inr
+        )
     else:
-        mfop_site = np.einsum("imr,inr->mn", np.conj(matC_bra), dum_inr)
+        mfop_site = np.einsum("imr,inr->mn", np.conj(matPsi_bra), dum_inr)
     return mfop_site
 
 
-def mfop_site_concat(matC_bra, matC_ket, op_left_concat, op_right_concat):
-    assert matC_bra.gauge == "C"
-    assert matC_ket.gauge == "C"
+def mfop_site_concat(matPsi_bra, matPsi_ket, op_left_concat, op_right_concat):
+    assert matPsi_bra.gauge == "Psi"
+    assert matPsi_ket.gauge == "Psi"
     subscripts = "imr,kij,krs,jns->mn"
     if const.use_jax:
         mfop_site_concat = jnp.einsum(
             subscripts,
-            jnp.conj(matC_bra.data),
+            jnp.conj(matPsi_bra.data),
             op_left_concat,
             op_right_concat,
-            matC_ket.data,
+            matPsi_ket.data,
         )
     else:
         mfop_site_concat = contract(
             subscripts,
-            np.conj(matC_bra),
+            np.conj(matPsi_bra),
             op_left_concat,
             op_right_concat,
-            matC_ket,
+            matPsi_ket,
         )
     return mfop_site_concat
 
 
 class SplitStack:
+<<<<<<< HEAD
+    def __init__(
+        self,
+        psi_state_shape_in: tuple[int, ...],
+        psi_state_shape_out: tuple[int, ...] | None = None,
+        nstate: int = 1,
+    ):
+        self.nstate: int = nstate
+        self.tensor_shapes_in: tuple[int, ...] = psi_state_shape_in
+        self._split_idx_in: list[int] = np.cumsum(
+            [np.prod(self.tensor_shapes_in)] * nstate
+        ).tolist()[:-1]
+        if psi_state_shape_out is None:
+            self.tensor_shapes_out: tuple[int, ...] = psi_state_shape_in
+            self._split_idx_out = self._split_idx_in
+        else:
+            self.tensor_shapes_out = psi_state_shape_out
+            self._split_idx_out = np.cumsum(
+                [np.prod(self.tensor_shapes_out)] * nstate
+            ).tolist()[:-1]
+        self.in_same_as_out = self.tensor_shapes_in == self.tensor_shapes_out
+=======
     def __init__(self, psi_states: list[np.ndarray] | list[jax.Array]):
         self._split_idx: list[int] = np.cumsum(
             [x.size for x in psi_states]
-        ).tolist()[:-1]  # type: ignore
+        ).tolist()[:-1]
         # if const.use_jax:
         #     self._split_idx = jnp.array(self._split_idx)
         self.matC_sval_shapes: list[tuple[int, ...]] = [
             x.shape for x in psi_states
         ]
+>>>>>>> a7c773f (update radicalpy)
 
     def stack(
-        self, psi_states: list[np.ndarray] | list[jax.Array]
+        self,
+        psi_states: list[np.ndarray] | list[jax.Array],
+        extend: bool = False,
     ) -> np.ndarray | jax.Array:
         """stack MPS p-site coef for each electronic states 1 dimensional
 
@@ -304,14 +501,42 @@ class SplitStack:
 
         """
         if const.use_jax:
-            # psi = jnp.hstack([x.flatten() for x in psi_states])
+            if extend and not self.in_same_as_out:
+                raise NotImplementedError("extend is not implemented")
+                # TODO: implement extend with JIT
             return _stack(psi_states)
         else:
-            psi = np.hstack([x.flatten() for x in psi_states])
+            if extend and not self.in_same_as_out:
+                if len(psi_states[0].shape) == 3:
+                    l, c, r = psi_states[0].shape  # noqa: E741
+                    L, C, R = self.tensor_shapes_out
+                    assert L >= l and C >= c and R >= r, (
+                        f"{L=}, {C=}, {R=}, {l=}, {c=}, {r=}"
+                    )
+                    psi_states = [
+                        np.pad(
+                            x,
+                            (
+                                (0, L - l),
+                                (0, C - c),
+                                (0, R - r),
+                            ),
+                        )
+                        for i, x in enumerate(psi_states)
+                    ]
+                elif len(psi_states[0].shape) == 2:
+                    l, r = psi_states[0].shape  # noqa: E741
+                    L, R = self.tensor_shapes_out
+                    assert L >= l and R >= r, f"{L=}, {R=}, {l=}, {r=}"
+                    psi_states = [
+                        np.pad(x, ((0, L - l), (0, R - r))) for x in psi_states
+                    ]
+            # psi = np.hstack([x.flatten() for x in psi_states])
+            psi = np.hstack([x.ravel() for x in psi_states])
         return psi
 
     def split(
-        self, psi: np.ndarray | jax.Array
+        self, psi: np.ndarray | jax.Array, truncate: bool = False
     ) -> list[np.ndarray] | list[jax.Array]:
         """split MPS p-site coef for each electronic states from 1 dimensional to 3-rank tensor
 
@@ -331,14 +556,29 @@ class SplitStack:
         if const.use_jax:
             # Splitting is difficult to be jit-compiled because of the variable length
             psi_states = [
-                jnp.reshape(x, self.matC_sval_shapes[i])
-                for i, x in enumerate(jnp.split(psi, self._split_idx))
+                jnp.reshape(x, self.tensor_shapes_out)
+                for x in jnp.split(psi, self._split_idx_out)
             ]
         else:
             psi_states = [
-                x.reshape(self.matC_sval_shapes[i])
-                for i, x in enumerate(np.split(psi, self._split_idx))
+                x.reshape(self.tensor_shapes_out)
+                for x in np.split(psi, self._split_idx_out)
             ]
+        if truncate and not self.in_same_as_out:
+            if len(self.tensor_shapes_in) == 3:
+                psi_states = [
+                    x[
+                        : self.tensor_shapes_in[0],
+                        : self.tensor_shapes_in[1],
+                        : self.tensor_shapes_in[2],
+                    ]
+                    for x in psi_states
+                ]  # type: ignore
+            else:
+                psi_states = [
+                    x[: self.tensor_shapes_in[0], : self.tensor_shapes_in[1]]
+                    for x in psi_states
+                ]  # type: ignore
         return psi_states
 
 
@@ -356,21 +596,24 @@ class multiplyH_MPS_direct(SplitStack):
         op_lcr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
-                        np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ],
         psi_states: list[np.ndarray] | list[jax.Array],
-        matH_cas=None,
+        hamiltonian: pytdscf.hamiltonian_cls.HamiltonianMixin | None = None,
+        tensor_shapes_out: tuple[int, ...] | None = None,
     ):
-        self.matH_cas = matH_cas
+        self.matH_cas = hamiltonian
         self.op_lcr_states = op_lcr_states
-        super().__init__(psi_states)
+        super().__init__(
+            psi_states[0].shape, tensor_shapes_out, len(psi_states)
+        )
 
     # @profile
     def _op_lcr_dot(self, _op_l, _op_c, _op_r, _trial):
@@ -391,19 +634,16 @@ class multiplyH_MPS_direct(SplitStack):
         if const.use_jax:
             contraction = "bjs,ab,ij,rs->air"
             operator = [_trial]
-            # if is_unitmat_op(_op_l):
             if isinstance(_op_l, int):
                 contraction = contraction.replace(",ab", "")
                 contraction = contraction.replace("a", "b")
             else:
                 operator.append(_op_l)
-            # if is_unitmat_op(_op_c):
             if isinstance(_op_c, int):
                 contraction = contraction.replace(",ij", "")
                 contraction = contraction.replace("i", "j")
             else:
                 operator.append(_op_c)
-            # if is_unitmat_op(_op_r):
             if isinstance(_op_r, int):
                 contraction = contraction.replace(",rs", "")
                 contraction = contraction.replace("r", "s")
@@ -412,7 +652,6 @@ class multiplyH_MPS_direct(SplitStack):
             return jnp.einsum(contraction, *operator)
         else:
             # Numpy can be accelerated by BLAS ZGEMM due to the hermitian property of the operator
-            # if is_unitmat_op(_op_l):
             if isinstance(_op_l, int):
                 dum_l_cr = _trial.reshape(_trial.shape[0], -1)
                 sig_shape_0 = _trial.shape[0]
@@ -422,7 +661,6 @@ class multiplyH_MPS_direct(SplitStack):
                 )
                 sig_shape_0 = _op_l.shape[0]
 
-            # if is_unitmat_op(_op_c):
             if isinstance(_op_c, int):
                 dum_c_rl = dum_l_cr.T.reshape(_trial.shape[1], -1)
                 sig_shape_1 = _trial.shape[1]
@@ -432,7 +670,6 @@ class multiplyH_MPS_direct(SplitStack):
                 )
                 sig_shape_1 = _op_c.shape[0]
 
-            # if is_unitmat_op(_op_r):
             if isinstance(_op_r, int):
                 dum_r_lc = dum_c_rl.T.reshape(_trial.shape[2], -1)
                 sig_shape_2 = _trial.shape[2]
@@ -446,13 +683,10 @@ class multiplyH_MPS_direct(SplitStack):
     # @profile
     def dot(self, trial_states):
         """Only supported sum op products form"""
-        if const.use_jax:
-            sigvec_states = get_zeros_sigvec_states(trial_states)
-        else:
-            sigvec_states = [
-                np.zeros_like(trial, dtype=np.complex128)
-                for trial in trial_states
-            ]
+        sigvec_states = [None for _ in trial_states]
+        assert isinstance(
+            self.matH_cas, pytdscf.hamiltonian_cls.PolynomialHamiltonian
+        )
         for i, j in itertools.product(
             range(len(self.matH_cas.coupleJ)), repeat=2
         ):
@@ -473,7 +707,10 @@ class multiplyH_MPS_direct(SplitStack):
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if sigvec_states[i] is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        sigvec_states[i] += sigvec_add
             if self.matH_cas.onesite:
                 op_l_onesite, op_c_onesite, op_r_onesite = op_lcr["onesite"]
                 sigvec_add1 = self._op_lcr_dot(
@@ -488,7 +725,14 @@ class multiplyH_MPS_direct(SplitStack):
                 if const.use_jax:
                     sigvecs_add.extend([sigvec_add1, sigvec_add2, sigvec_add3])
                 else:
-                    sigvec_states[i] += sigvec_add1 + sigvec_add2 + sigvec_add3
+                    if sigvec_states[i] is None:
+                        sigvec_states[i] = (
+                            sigvec_add1 + sigvec_add2 + sigvec_add3
+                        )
+                    else:
+                        sigvec_states[i] += (
+                            sigvec_add1 + sigvec_add2 + sigvec_add3
+                        )
             if i == j and self.matH_cas.general:
                 if "enable_summed_op" in const.keys:
                     op_l_general_sum, op_c_ovlp, op_r_ovlp = op_lcr[
@@ -506,7 +750,10 @@ class multiplyH_MPS_direct(SplitStack):
                     if const.use_jax:
                         sigvecs_add.extend([sigvec_add1, sigvec_add2])
                     else:
-                        sigvec_states[i] += sigvec_add1 + sigvec_add2
+                        if sigvec_states[i] is None:
+                            sigvec_states[i] = sigvec_add1 + sigvec_add2
+                        else:
+                            sigvec_states[i] += sigvec_add1 + sigvec_add2
                 (
                     op_l_general_concat,
                     op_c_general_concat,
@@ -532,7 +779,10 @@ class multiplyH_MPS_direct(SplitStack):
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if sigvec_states[i] is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        sigvec_states[i] += sigvec_add
             if const.use_jax:
                 sigvec_states[i] = add_to_sigvec_states(
                     sigvec_states[i], sigvecs_add
@@ -575,23 +825,25 @@ class multiplyK_MPS_direct(SplitStack):
         op_lr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ],
-        matH_cas: pytdscf.hamiltonian_cls.HamiltonianMixin,
-        psi_states,
+        psi_states: list[np.ndarray] | list[jax.Array],
+        hamiltonian: pytdscf.hamiltonian_cls.HamiltonianMixin,
+        tensor_shapes_out: tuple[int, ...] | None = None,
     ):
-        self.matH_cas = matH_cas
+        self.matH_cas = hamiltonian
         self.op_lr_states = op_lr_states
-        super().__init__(psi_states)
+        super().__init__(
+            psi_states[0].shape, tensor_shapes_out, len(psi_states)
+        )
 
     def _op_lr_dot(self, _op_l, _op_r, _trial):
-        # match (is_unitmat_op(_op_l), is_unitmat_op(_op_r)):
         match (isinstance(_op_l, int), isinstance(_op_r, int)):
             case (True, True):
                 return _trial
@@ -612,13 +864,7 @@ class multiplyK_MPS_direct(SplitStack):
     # @profile
     def dot(self, trial_states):
         """Only supported sum op products form"""
-        if const.use_jax:
-            sigvec_states = get_zeros_sigvec_states(trial_states)
-        else:
-            sigvec_states = [
-                np.zeros_like(trial, dtype=np.complex128)
-                for trial in trial_states
-            ]
+        sigvec_states = [None for _ in trial_states]
         for i, j in itertools.product(
             range(len(self.matH_cas.coupleJ)), repeat=2
         ):
@@ -638,7 +884,10 @@ class multiplyK_MPS_direct(SplitStack):
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if sigvec_states[i] is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        sigvec_states[i] += sigvec_add
 
             if self.matH_cas.onesite:
                 op_l_onesite, op_r_onesite = op_lr["onesite"]
@@ -651,7 +900,10 @@ class multiplyK_MPS_direct(SplitStack):
                 if const.use_jax:
                     sigvecs_add.extend([sigvec_add1, sigvec_add2])
                 else:
-                    sigvec_states[i] += sigvec_add1 + sigvec_add2
+                    if sigvec_states[i] is None:
+                        sigvec_states[i] = sigvec_add1 + sigvec_add2
+                    else:
+                        sigvec_states[i] += sigvec_add1 + sigvec_add2
 
             if i == j and self.matH_cas.general:
                 if "enable_summed_op" in const.keys:
@@ -666,7 +918,10 @@ class multiplyK_MPS_direct(SplitStack):
                     if const.use_jax:
                         sigvecs_add.extend([sigvec_add1, sigvec_add2])
                     else:
-                        sigvec_states[i] += sigvec_add1 + sigvec_add2
+                        if sigvec_states[i] is None:
+                            sigvec_states[i] = sigvec_add1 + sigvec_add2
+                        else:
+                            sigvec_states[i] += sigvec_add1 + sigvec_add2
 
                 op_l_general_concat, op_r_general_concat = op_lr[
                     "general_concat"
@@ -689,7 +944,10 @@ class multiplyK_MPS_direct(SplitStack):
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if sigvec_states[i] is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        sigvec_states[i] += sigvec_add
             if const.use_jax:
                 sigvec_states[i] = add_to_sigvec_states(
                     sigvec_states[i], sigvecs_add
@@ -711,22 +969,47 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         op_lcr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ],
         psi_states: list[np.ndarray] | list[jax.Array],
-        hamiltonian=None,
+        hamiltonian: pytdscf.hamiltonian_cls.TensorHamiltonian,
+        tensor_shapes_out: tuple[int, ...] | None = None,
     ):
-        super().__init__(op_lcr_states, psi_states, matH_cas=hamiltonian)  # type: ignore
+        super().__init__(
+            op_lcr_states,
+            psi_states,
+            hamiltonian=hamiltonian,
+            tensor_shapes_out=tensor_shapes_out,
+        )
+        self._op_lcr_dot_cached = {}
 
     # @profile
-    def _op_lcr_dot(self, _op_l, _op_c, _op_r, _trial):
+    @overload
+    def _op_lcr_dot(
+        self,
+        _op_l: int | np.ndarray,
+        _op_c: int | np.ndarray,
+        _op_r: int | np.ndarray,
+        _trial: np.ndarray,
+        key: Any | None = None,
+    ) -> np.ndarray: ...
+    @overload
+    def _op_lcr_dot(
+        self,
+        _op_l: int | jax.Array,
+        _op_c: int | jax.Array,
+        _op_r: int | jax.Array,
+        _trial: jax.Array,
+        key: Any | None = None,
+    ) -> jax.Array: ...
+    def _op_lcr_dot(self, _op_l, _op_c, _op_r, _trial, key: Any | None = None):
         """Operator and LCR MPS Multiplication"""
         """
         Tensor contraction diagram:
@@ -738,60 +1021,145 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
         | |    j    | |
         | |-b-|T|-s-| |
         """
-        contraction = "bjs,acb,cijt,rts->air"
+        if (
+            not const.use_jax
+            and key is not None
+            and key in self._op_lcr_dot_cached
+        ):
+            return self._op_lcr_dot_cached[key](_trial)
         operator = [_trial]
-        # if is_unitmat_op(_op_l):
         if isinstance(_op_l, int):
-            contraction = contraction.replace(",acb", "").replace("a", "b")
+            op_l_mode = 1
+        elif len(_op_l.shape) == 2:
+            op_l_mode = 2
+        elif len(_op_l.shape) == 3:
+            op_l_mode = 3
         else:
-            operator.append(_op_l)
-            if len(_op_l.shape) == 2:
-                """one-site operator such as ovlp, q^2"""
-                contraction = contraction.replace("acb", "ab")
-        # if is_unitmat_op(_op_c):
+            raise ValueError(f"Invalid operator shape: {_op_l.shape}")
         if isinstance(_op_c, int):
-            # When _op_c is diagonal 1-rank tensor, such as identity matrix.
-            contraction = (
-                contraction.replace(",cijt", "")
-                .replace("i", "j")
-                .replace("c", "t")
-            )
+            op_c_mode = 1
         elif len(_op_c.shape) == 2:
-            # When _op_c is non-diagonal 2-rank tensor, such as ovlp, q^2
-            contraction = contraction.replace("cijt", "ij")
-            operator.append(_op_c)
+            op_c_mode = 2
         elif _op_c.only_diag:
-            # When _op_c is diagonal 3-rank tensor.
-            contraction = contraction.replace("cijt", "cjt").replace("i", "j")
-            operator.append(_op_c.data)
+            op_c_mode = 3
         else:
-            # When _op_c is non-diagonal 4-rank tensor.
-            operator.append(_op_c.data)
-        # if is_unitmat_op(_op_r):
+            op_c_mode = 4
         if isinstance(_op_r, int):
-            contraction = contraction.replace(",rts", "").replace("r", "s")
+            op_r_mode = 1
+        elif len(_op_r.shape) == 2:
+            op_r_mode = 2
+        elif len(_op_r.shape) == 3:
+            op_r_mode = 3
         else:
-            if len(_op_r.shape) == 2:
-                """one-site operator such as ovlp, q^2"""
-                contraction = contraction.replace("rts", "rs")
+            raise ValueError(f"Invalid operator shape: {_op_r.shape}")
+        if op_l_mode > 1:
+            operator.append(_op_l)
+        if op_c_mode > 1:
+            operator.append(_op_c.data)
+        if op_r_mode > 1:
             operator.append(_op_r)
+        match (op_l_mode, op_c_mode, op_r_mode):
+            case (1, 1, 1):
+                return _trial
+            case (1, 1, 2):
+                contraction = "bjs,rs->bjr"
+            case (1, 1, 3):
+                contraction = "bjs,rts->bjr"
+            case (1, 2, 1):
+                contraction = "bjs,ij->bis"
+            case (1, 2, 2):
+                contraction = "bjs,ij,rs->bir"
+            case (1, 2, 3):
+                contraction = "bjs,ij,rts->bir"
+            case (1, 3, 1):
+                contraction = "bjs,cjt->bjs"
+            case (1, 3, 2):
+                contraction = "bjs,cjt,rs->bjr"
+            case (1, 3, 3):
+                contraction = "bjs,cjt,rts->bjr"
+            case (1, 4, 1):
+                contraction = "bjs,cijt->bis"
+            case (1, 4, 2):
+                contraction = "bjs,cijt,rs->bir"
+            case (1, 4, 3):
+                contraction = "bjs,cijt,rts->bir"
+            case (2, 1, 1):
+                contraction = "bjs,ab->ajs"
+            case (2, 1, 2):
+                contraction = "bjs,ab,rs->ajr"
+            case (2, 1, 3):
+                contraction = "bjs,ab,rts->ajr"
+            case (2, 2, 1):
+                contraction = "bjs,ab,ij->ais"
+            case (2, 2, 2):
+                contraction = "bjs,ab,ij,rs->air"
+            case (2, 2, 3):
+                contraction = "bjs,ab,ij,rts->air"
+            case (2, 3, 1):
+                contraction = "bjs,ab,cjt->ajs"
+            case (2, 3, 2):
+                contraction = "bjs,ab,cjt,rs->ajr"
+            case (2, 3, 3):
+                contraction = "bjs,ab,cjt,rts->ajr"
+            case (2, 4, 1):
+                contraction = "bjs,ab,cijt->ais"
+            case (2, 4, 2):
+                contraction = "bjs,ab,cijt,rs->air"
+            case (2, 4, 3):
+                contraction = "bjs,ab,cijt,rts->air"
+            case (3, 1, 1):
+                contraction = "bjs,acb->ajs"
+            case (3, 1, 2):
+                contraction = "bjs,acb,rs->ajr"
+            case (3, 1, 3):
+                contraction = "bjs,acb,rts->ajr"
+            case (3, 2, 1):
+                contraction = "bjs,acb,ij->ais"
+            case (3, 2, 2):
+                contraction = "bjs,acb,ij,rs->air"
+            case (3, 2, 3):
+                contraction = "bjs,acb,ij,rts->air"
+            case (3, 3, 1):
+                contraction = "bjs,acb,cjt->ajs"
+            case (3, 3, 2):
+                contraction = "bjs,acb,cjt,rs->ajr"
+            case (3, 3, 3):
+                contraction = "bjs,acb,cjt,rts->ajr"
+            case (3, 4, 1):
+                contraction = "bjs,acb,cijt->ais"
+            case (3, 4, 2):
+                contraction = "bjs,acb,cijt,rs->air"
+            case (3, 4, 3):
+                contraction = "bjs,acb,cijt,rts->air"
         if const.use_jax:
             sig_lcr = jnp.einsum(contraction, *operator)
         else:
+            if key is not None:
+                expr = contract_expression(
+                    contraction,
+                    _trial.shape,
+                    *operator[1:],
+                    constants=list(range(1, len(operator))),
+                )
+                self._op_lcr_dot_cached[key] = expr
+                return expr(_trial)
             sig_lcr = contract(contraction, *operator)
             # Numpy might be accelerated by BLAS ZGEMM due to the hermitian property of the operator
         return sig_lcr
 
-    # @profile
-    def dot(self, trial_states) -> list[np.ndarray] | list[jax.Array]:
+    @overload
+    def dot(self, trial_states: list[np.ndarray]) -> list[np.ndarray]: ...
+    @overload
+    def dot(self, trial_states: list[jax.Array]) -> list[jax.Array]: ...
+    def dot(
+        self, trial_states: list[np.ndarray] | list[jax.Array]
+    ) -> list[np.ndarray] | list[jax.Array]:
         """Only supported MPO"""
-        if const.use_jax:
-            sigvec_states = get_zeros_sigvec_states(trial_states)
-        else:
-            sigvec_states = [
-                np.zeros_like(trial, dtype=np.complex128)
-                for trial in trial_states
-            ]
+        sigvec_states: list[np.ndarray] | list[jax.Array]
+        sigvec_states = [None for _ in trial_states]  # type: ignore
+        assert isinstance(
+            self.matH_cas, pytdscf.hamiltonian_cls.TensorHamiltonian
+        )
         for i, j in itertools.product(
             range(len(self.matH_cas.coupleJ)), repeat=2
         ):
@@ -803,22 +1171,41 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
 
             if (coupleJ := self.matH_cas.coupleJ[i][j]) != 0.0:
                 sigvec_add = (
-                    self._op_lcr_dot(*op_lcr["ovlp"], trial_states[j]) * coupleJ
+                    self._op_lcr_dot(
+                        *op_lcr["ovlp"],  # type: ignore
+                        trial_states[j],  # type: ignore
+                        key="ovlp",
+                    )
+                    * coupleJ
                 )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if (sigvec_states_i := sigvec_states[i]) is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
 
             for key, (op_l, op_c, op_r) in op_lcr.items():
                 if key == "ovlp":
                     # Already calculated in the above with coupleJ.
                     continue
-                sigvec_add = self._op_lcr_dot(op_l, op_c, op_r, trial_states[j])
+                sigvec_add = self._op_lcr_dot(
+                    op_l,  # type: ignore
+                    op_c,  # type: ignore
+                    op_r,  # type: ignore
+                    trial_states[j],  # type: ignore
+                    key=key,
+                )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if (sigvec_states_i := sigvec_states[i]) is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
             if const.use_jax:
                 sigvec_states[i] = add_to_sigvec_states(
                     sigvec_states[i], sigvecs_add
@@ -843,24 +1230,43 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         op_lr_states: list[
             list[
                 dict[
-                    str,
+                    _op_keys,
                     tuple[
-                        int | np.ndarray | jax.Array,
-                        int | np.ndarray | jax.Array,
+                        _block_type,
+                        _block_type,
                     ],
                 ]
             ]
         ],
-        hamiltonian: pytdscf.hamiltonian_cls.TensorHamiltonian,
         psi_states: list[np.ndarray] | list[jax.Array],
+        hamiltonian: pytdscf.hamiltonian_cls.TensorHamiltonian,
+        tensor_shapes_out: tuple[int, ...] | None = None,
     ):
         super().__init__(
             op_lr_states=op_lr_states,
             psi_states=psi_states,
-            matH_cas=hamiltonian,
+            hamiltonian=hamiltonian,
+            tensor_shapes_out=tensor_shapes_out,
         )
+        self._op_lr_dot_cached = {}
 
-    def _op_lr_dot(self, _op_l, _op_r, _trial):
+    @overload
+    def _op_lr_dot(
+        self,
+        _op_l: int | np.ndarray,
+        _op_r: int | np.ndarray,
+        _trial: np.ndarray,
+        key: Any | None = None,
+    ) -> np.ndarray: ...
+    @overload
+    def _op_lr_dot(
+        self,
+        _op_l: int | jax.Array,
+        _op_r: int | jax.Array,
+        _trial: jax.Array,
+        key: Any | None = None,
+    ) -> jax.Array: ...
+    def _op_lr_dot(self, _op_l, _op_r, _trial, key: Any | None = None):
         """
 
         -a     r-
@@ -870,11 +1276,13 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         -b b-s s-
 
         """
+        if (
+            not const.use_jax
+            and key is not None
+            and key in self._op_lr_dot_cached
+        ):
+            return self._op_lr_dot_cached[key](_trial)
 
-        # match (
-        #     is_unitmat_op(_op_l),
-        #     is_unitmat_op(_op_r),
-        # ):
         match (isinstance(_op_l, int), isinstance(_op_r, int)):
             case (True, True):
                 return _trial
@@ -904,16 +1312,26 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         if const.use_jax:
             return jnp.einsum(contraction, *operator)
         else:
+            if key is not None:
+                expr = contract_expression(
+                    contraction,
+                    _trial.shape,
+                    *operator[1:],
+                    constants=list(range(1, len(operator))),
+                )
+                self._op_lr_dot_cached[key] = expr
+                return expr(_trial)
             return contract(contraction, *operator)
 
-    def dot(self, trial_states):
-        if const.use_jax:
-            sigvec_states = get_zeros_sigvec_states(trial_states)
-        else:
-            sigvec_states = [
-                np.zeros_like(trial, dtype=np.complex128)
-                for trial in trial_states
-            ]
+    @overload
+    def dot(self, trial_states: list[np.ndarray]) -> list[np.ndarray]: ...
+    @overload
+    def dot(self, trial_states: list[jax.Array]) -> list[jax.Array]: ...
+    def dot(
+        self, trial_states: list[np.ndarray] | list[jax.Array]
+    ) -> list[np.ndarray] | list[jax.Array]:
+        sigvec_states: list[np.ndarray] | list[jax.Array]
+        sigvec_states = [None for _ in trial_states]  # type: ignore
         for i, j in itertools.product(
             range(len(self.matH_cas.coupleJ)), repeat=2
         ):
@@ -924,21 +1342,35 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
                 continue
             if (coupleJ := self.matH_cas.coupleJ[i][j]) != 0.0:
                 sigvec_add = (
-                    self._op_lr_dot(*op_lr["ovlp"], trial_states[j]) * coupleJ
+                    self._op_lr_dot(*op_lr["ovlp"], trial_states[j], key="ovlp")  # type: ignore
+                    * coupleJ
                 )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if (sigvec_states_i := sigvec_states[i]) is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
             for key, (op_l, op_r) in op_lr.items():
                 if key == "ovlp":
                     # Already calculated in the above with coupleJ.
                     continue
-                sigvec_add = self._op_lr_dot(op_l, op_r, trial_states[j])
+                sigvec_add = self._op_lr_dot(
+                    op_l,  # type: ignore
+                    op_r,  # type: ignore
+                    trial_states[j],  # type: ignore
+                    key=key,
+                )
                 if const.use_jax:
                     sigvecs_add.append(sigvec_add)
                 else:
-                    sigvec_states[i] += sigvec_add
+                    if (sigvec_states_i := sigvec_states[i]) is None:
+                        sigvec_states[i] = sigvec_add
+                    else:
+                        assert isinstance(sigvec_states_i, np.ndarray)
+                        sigvec_states_i += sigvec_add
             if const.use_jax:
                 sigvec_states[i] = add_to_sigvec_states(
                     sigvec_states[i], sigvecs_add
@@ -965,6 +1397,10 @@ def _stack(psi_states: list[jax.Array]) -> jax.Array:
 def add_to_sigvec_states(
     sigvec_istate: jax.Array, sigvecs_add: list[jax.Array]
 ) -> jax.Array:
-    for sigvec_add in sigvecs_add:
+    if sigvec_istate is None:
+        sigvec_istate = sigvecs_add[0]
+    else:
+        sigvec_istate += sigvecs_add[0]
+    for sigvec_add in sigvecs_add[1:]:
         sigvec_istate += sigvec_add
     return sigvec_istate
