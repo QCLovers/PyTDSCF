@@ -95,7 +95,8 @@ class Const:
     def __setattr__(self, name, value):
         if name not in ["verbose", "jobname"] and name in self.__dict__:
             if self.__dict__[name] != value:
-                self.logger.warning(f"rebind const {name}")
+                logger.warning(f"rebind const {name}")
+        logger.debug(f"Param defined: {name} = {value}")
         self.__dict__[name] = value
 
     def set_runtype(
@@ -175,10 +176,10 @@ class Const:
         setup_loggers(jobname, adaptive=adaptive)
         self.jobname = jobname
         if verbose >= 3:
-            self.logger.info(CBOLD + CVIOLET + pytdscf + CEND)
+            logger.info(CBOLD + CVIOLET + pytdscf + CEND)
         if verbose >= 1:
-            self.logger.info(f"START TIME: {datetime.datetime.now()}")
-            self.logger.info(f"Log file is ./{self.jobname}/main.log")
+            logger.debug(f"START TIME: {datetime.datetime.now()}")
+            logger.info(f"Log file is ./{self.jobname}/main.log")
 
         self.verbose = verbose
         self.doRestart = restart
@@ -267,54 +268,3 @@ except Exception as e:
     const.mpi_rank = 0
     const.mpi_size = 1
     const.mpi_comm = None
-
-def set_main_logger(overwrite: bool = True):
-    """Set logger"""
-    logger = getLogger("main")
-    logger.setLevel(DEBUG)
-    if hasattr(const, "jobname"):
-        if not os.path.exists(f"./{const.jobname}"):
-            os.makedirs(f"./{const.jobname}")
-        filename = f"{const.jobname}/main.log"
-    else:
-        filename = "pytdscf.log"
-    if overwrite:
-        # First definition allows overwrite logfile
-        file_handler = FileHandler(filename, "w")
-    else:
-        file_handler = FileHandler(filename)
-    file_handler.setLevel(DEBUG)
-    formatter = Formatter("%(asctime)s - %(levelname)s:%(name)s - %(message)s")
-    stream_handler = StreamHandler()
-    stream_handler.setLevel(INFO)
-    # change INFO to DEBUG if you want all messages to console.
-    stream_handler.setFormatter(formatter)
-
-    while logger.hasHandlers():
-        if len(logger.handlers) > 0:
-            logger.removeHandler(logger.handlers[0])
-        else:
-            break
-
-    logger.addHandler(file_handler)
-    logger.addHandler(stream_handler)
-
-
-def set_logger(name: str):
-    """Set logging file"""
-    logger = getLogger(name)
-    logger.setLevel(DEBUG)
-    if not os.path.exists(f"./{const.jobname}"):
-        os.makedirs(f"./{const.jobname}")
-    filename = f"{const.jobname}/{name}.dat"
-    file_handler = FileHandler(filename, "w")
-    file_handler.setLevel(DEBUG)
-
-    while logger.hasHandlers():
-        if len(logger.handlers) > 0:
-            logger.removeHandler(logger.handlers[0])
-        else:
-            break
-
-    logger.addHandler(file_handler)
->>>>>>> a7c773f (update radicalpy)

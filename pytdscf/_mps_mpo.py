@@ -907,39 +907,6 @@ class MPSCoefMPO(MPSCoef):
                     psite=psite,
                 )
 
-                if "summed" in op_l:
-                    op_lr[istate_bra][istate_ket]["summ_l"] = (
-                        op_l["summed"],
-                        op_r_ovlp,
-                    )
-                if "summed" in op_r:
-                    op_lr[istate_bra][istate_ket]["summ_r"] = (
-                        op_l_ovlp,
-                        op_r["summed"],
-                    )
-                for key in op_sys[statepair].keys():
-                    if key in ["summed", "ovlp"]:
-                        # Already included in 'summed' or 'ovlp' above
-                        continue
-                    op_r_key = op_r[key] if key in op_r else op_r_ovlp
-                    op_l_key = op_l[key] if key in op_l else op_l_ovlp
-                    assert key in op_r, (
-                        f"Right side key {key} should be included \
-                        in summed at {psite}-site"
-                    )
-                    assert key in op_l, (
-                        f"Left side key {key} should be included \
-                        in summed at {psite}-site"
-                    )
-                    if op_lr[istate_bra][istate_ket] is None:
-                        op_lr[istate_bra][istate_ket] = {
-                            key: (op_l_key, op_r_key)
-                        }
-                    else:
-                        op_lr[istate_bra][istate_ket][key] = (
-                            op_l_key,
-                            op_r_key,
-                        )
         return op_lr
 
     def grid_pop(self, J: tuple[int, ...], istate=0) -> float:

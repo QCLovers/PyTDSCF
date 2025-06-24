@@ -415,6 +415,7 @@ class MPSCoef(ABC):
     def assert_psite_canonical(self, psite: int, numerical: bool = False):
         assert self.is_psite_canonical(psite, numerical), (
             "wrong gauge status. It's assumed to be A..A(p-1)Psi(p)B(p+1)..B in superblock"
+        )
 
     def apply_dipole(self, ints_spf: SPFInts, ci_coef_init, matO) -> float:
         if (not const.standard_method) or (
@@ -1062,7 +1063,7 @@ class MPSCoef(ABC):
                 multiplyH, matPsi_states
             )
             norm = get_C_sval_states_norm(matPsi_states_new)
-            matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
+            matPsi_states_new = [x / norm for x in matPsi_states_new]
 
         else:
             matPsi_states_new = _integrator.short_iterative_lanczos(

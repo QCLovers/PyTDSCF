@@ -451,7 +451,6 @@ def mfop_site_concat(matPsi_bra, matPsi_ket, op_left_concat, op_right_concat):
 
 
 class SplitStack:
-<<<<<<< HEAD
     def __init__(
         self,
         psi_state_shape_in: tuple[int, ...],
@@ -472,17 +471,6 @@ class SplitStack:
                 [np.prod(self.tensor_shapes_out)] * nstate
             ).tolist()[:-1]
         self.in_same_as_out = self.tensor_shapes_in == self.tensor_shapes_out
-=======
-    def __init__(self, psi_states: list[np.ndarray] | list[jax.Array]):
-        self._split_idx: list[int] = np.cumsum(
-            [x.size for x in psi_states]
-        ).tolist()[:-1]
-        # if const.use_jax:
-        #     self._split_idx = jnp.array(self._split_idx)
-        self.matC_sval_shapes: list[tuple[int, ...]] = [
-            x.shape for x in psi_states
-        ]
->>>>>>> a7c773f (update radicalpy)
 
     def stack(
         self,
