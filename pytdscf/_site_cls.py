@@ -18,9 +18,9 @@ from pytdscf._const_cls import const
 logger = _logger.bind(name="main")
 rank_logger = _logger.bind(name="rank")
 
-SQRT_EPSRHO = 1.0e-04
+SQRT_EPSRHO = 1e-04  # const.p_svd
 TIKHONOV_LAMBDA = 1.0e-08
-RCOND = 1.0e-14
+RCOND = 1e-13  # const.p_svd
 
 
 class SiteCoef:
@@ -204,9 +204,9 @@ class SiteCoef:
             matC = np.array(self)
         """still experimental and this makes linalg.eigh(proj_dens) slow...)"""
         if regularize:
-            raise NotImplementedError(
-                "Regularization is not guaranteed to be correct."
-            )
+            # raise NotImplementedError(
+            #     "Regularization is not guaranteed to be correct."
+            # )
             """regularize the site coefficients"""
             ldim, ndim, rdim = matC.shape
             # sqrt_epsrho = math.sqrt(const.epsrho)
@@ -542,8 +542,8 @@ def truncate_sigvec(
     If Bsite is None, return (AU, σ', Vh)
     If both are None, return (U, σ', Vh)
     """
-    if regularize:
-        raise ValueError("Use eval_PsiXpinvPsi instead")
+    # if regularize:
+    #     raise ValueError("Use eval_PsiXpinvPsi instead")
     if isinstance(sigvec, jax.Array):
         raise NotImplementedError
     U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
@@ -600,7 +600,11 @@ def multiply_sigvec_pinv(
 ) -> jax.Array: ...
 
 
-def multiply_sigvec_pinv(X, left_tensor=None, right_tensor=None):
+def multiply_sigvec_pinv(
+    X: np.ndarray | jax.Array,
+    left_tensor: np.ndarray | jax.Array | None = None,
+    right_tensor: np.ndarray | jax.Array | None = None,
+):
     """
     Multiply X^{+} Y or Y X^{+}
 
@@ -619,18 +623,22 @@ def multiply_sigvec_pinv(X, left_tensor=None, right_tensor=None):
         or isinstance(right_tensor, jax.Array)
     ):
         raise NotImplementedError
-    XTX_reg = X.T.conj() @ X + TIKHONOV_LAMBDA * np.eye(X.shape[0])
-    X_pinv_reg = np.linalg.solve(XTX_reg, X.T.conj())
-    # X_pinv_reg = np.linalg.pinv(X, rcond=RCOND)
+    # XTX_reg = X.T.conj() @ X + TIKHONOV_LAMBDA * np.eye(X.shape[0])
+    # X_pinv_reg = np.linalg.solve(XTX_reg, X.T.conj())
+    X_pinv_reg = np.linalg.pinv(X, rcond=RCOND)
     match (left_tensor, right_tensor):
         case (None, None):
             return X_pinv_reg
         case (None, _):
+            assert isinstance(right_tensor, np.ndarray)
             return np.tensordot(X_pinv_reg, right_tensor, axes=(1, 0))
         case (_, None):
+            assert isinstance(left_tensor, np.ndarray)
             left_axes = left_tensor.ndim - 1
             return np.tensordot(left_tensor, X_pinv_reg, axes=(left_axes, 0))
         case (_, _):
+            assert isinstance(left_tensor, np.ndarray)
+            assert isinstance(right_tensor, np.ndarray)
             left_axes = left_tensor.ndim - 1
             right_axes = right_tensor.ndim - 1
             return np.tensordot(

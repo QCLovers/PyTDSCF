@@ -22,7 +22,6 @@ from pytdscf._mps_cls import (
 )
 from pytdscf._mps_mpo import MPSCoefMPO, myndarray
 from pytdscf._site_cls import (
-    eval_PsiXpinvPsi,
     multiply_sigvec_pinv,
     truncate_sigvec,
 )
@@ -65,12 +64,10 @@ class MPSCoefParallel(MPSCoefMPO):
     """
 
     superblock_states: list[list[SiteCoef]]  # each latest rank data
-    superblock_all_A: list[
-        SiteCoef
-    ]  # each rank data with gauge AAA except for the right terminal which has gauge AAPsi
-    superblock_all_B: list[
-        SiteCoef
-    ]  # each rank data with gauge BBB except for the left terminal which has gauge PsiBB
+    superblock_all_A: list[SiteCoef]
+    # each rank data with gauge AAA except for the right terminal which has gauge AAPsi
+    superblock_all_B: list[SiteCoef]
+    # each rank data with gauge BBB except for the left terminal which has gauge PsiBB
     superblock_all_B_world: list[SiteCoef]  # whole data stored in rank0
     superblock_all_A_world: list[SiteCoef]  # whole data stored in rank0
     joint_sigvec: np.ndarray | jax.Array  # Site with sigma gauge
@@ -197,8 +194,8 @@ class MPSCoefParallel(MPSCoefMPO):
             op_env_previous=op_env_previous,
             psi_L=psi_L,
             psi_R=psi_R,
-            # truncate=True,
-            truncate=False,
+            truncate=True,
+            # truncate=False,
         )
         self.send_B_to_right(even_rank=True, Bsite=Bsite)
         self.recv_B_from_left(even_rank=False)
@@ -254,8 +251,8 @@ class MPSCoefParallel(MPSCoefMPO):
             op_env_previous=op_env_previous,
             psi_L=psi_L,
             psi_R=psi_R,
-            # truncate=True,
-            truncate=False,
+            truncate=True,
+            # truncate=False,
         )
         self.send_B_to_right(even_rank=False, Bsite=Bsite)
         self.recv_B_from_left(even_rank=True)
@@ -305,18 +302,18 @@ class MPSCoefParallel(MPSCoefMPO):
             == self.joint_sigvec_not_pinv.shape
         )
         op_sys_previous = self.op_sys_sites[-1]
-        # psi_L.data = multiply_sigvec_pinv(
-        #     X=self.joint_sigvec_not_pinv,
-        #     left_tensor=psi_L.data,
-        #     right_tensor=None,
-        # )
-        # superblock = [psi_L, psi_R]
-        Psi_L, A_R = eval_PsiXpinvPsi(
-            Psi_L=psi_L,
-            X=self.joint_sigvec_not_pinv,
-            Psi_R=psi_R,
+        psi_L.data = multiply_sigvec_pinv(
+            X=self.joint_sigvec_not_pinv,  # type: ignore
+            left_tensor=psi_L.data,  # type: ignore
+            right_tensor=None,
         )
-        superblock = [Psi_L, A_R]
+        superblock = [psi_L, psi_R]
+        # Psi_L, A_R = eval_PsiXpinvPsi(
+        #     Psi_L=psi_L,
+        #     X=self.joint_sigvec_not_pinv,
+        #     Psi_R=psi_R,
+        # )
+        # superblock = [Psi_L, A_R]
         canonicalize(superblock, orthogonal_center=0)
         superblock_full = get_superblock_full(superblock, delta_rank=const.dD)
         superblock = [None] * (self.nsite - 1) + superblock  # type: ignore
@@ -369,6 +366,7 @@ class MPSCoefParallel(MPSCoefMPO):
             ints_site=None,
             matH_cas=matH,
             PsiB2AB=True,
+            regularize=True,  # False
         )
         if const.adaptive:
             op_env = op_env_D_braket
@@ -441,7 +439,7 @@ class MPSCoefParallel(MPSCoefMPO):
                 sigvec=svalues[0],
                 Bsite=Bsite,
                 p=const.p_svd,
-                regularize=False,
+                regularize=True,  # False
                 keepdim=True,
             )
             superblock[-2] = Asite

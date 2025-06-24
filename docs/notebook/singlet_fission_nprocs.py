@@ -101,20 +101,22 @@ model.init_HartreeProduct = [
 
 nproc = size
 D = 30
-proj = 7
+proj = 5
 svd = 6
 
 jobname = f"singlet_fission_{D}D-0{proj}proj-0{svd}svd-{nproc}cores"
 simulator = Simulator(jobname=jobname, model=model, backend=backend, verbose=2)
 simulator.propagate(
-    maxstep=4000,
-    stepsize=0.1,  # This value affects the accuracy of the simulation.
+    maxstep=2000,
+    stepsize=0.2,  # This value affects the accuracy of the simulation.
     reduced_density=(
         [(sys_site, sys_site)],
-        20,
+        10,
     ),  # we want to know diagonal_element of (|S1><S1| |CT><CT| |TT><TT| |S1><CT| |S1><TT| |CS><TT|)
     energy=False,
     autocorr=False,
+    norm=False,
+    populations=False,
     observables=True,
     observables_per_step=10,
     parallel_split_indices=[
