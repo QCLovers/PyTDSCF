@@ -12,29 +12,30 @@ PyTDSCF is a Python package for high-dimensional wave-packet dynamics simulation
 You can use various types of Matrix Product Operators (MPO) as Hamiltonians:
 
 - **[Symbolic MPO](https://qclovers.github.io/PyTDSCF/notebook/poly-MPO-H2O-relax.html)**
-   $$
-\sum_i \frac{\hat{Q}_i^2}{2} \Rightarrow\left[\begin{array}{ll}
-1 & \frac{\hat{Q}_1^2}{2}
-\end{array}\right]\left[\begin{array}{ll}
-1 & \frac{\hat{Q}_2^2}{2} \\
-0 & 1
-\end{array}\right] \ldots\left[\begin{array}{ll}
-1 & \frac{\hat{Q}_{k-1}^2}{2} \\
-0 & 1
-\end{array}\right]\left[\begin{array}{l}
-\frac{\hat{Q}_k^2}{2} \\
-1
-\end{array}\right]
-$$
+   ```math
+   \sum_{i=1}^ \frac{\hat{Q}_i^2}{2} \Rightarrow\left[\begin{array}{cc}
+   1 & \frac{\hat{Q}_1^2}{2}
+   \end{array}\right]\left[\begin{array}{cc}
+   1 & \frac{\hat{Q}_2^2}{2} \\
+   0 & 1
+   \end{array}\right] \ldots\left[\begin{array}{cc}
+   1 & \frac{\hat{Q}_{k-1}^2}{2} \\
+   0 & 1
+   \end{array}\right]\left[\begin{array}{l}
+   \frac{\hat{Q}_k^2}{2} \\
+   1
+   \end{array}\right]
+   ```
 
 - **[Grid-based MPO](https://qclovers.github.io/PyTDSCF/notebook/grid-based-MPO-H2CO.html)**
-   $$
-H_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}=W_{n_1}^{n_1^{\prime}} H_{n_2 \cdots n_k}^{n_2^{\prime} \cdots n_k^{\prime}}=\cdots=W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}
-$$
+   ```math
+   \hat{T} +  \sum_{i} V_{i} + \sum_{i< j} V_{ij} + \sum_{i< j< k} V_{ijk} + \cdots
+   ```
+
 - **[Neural network MPO](https://github.com/KenHino/Pompon)**
-  $$
-\underset{\{W\}}{\operatorname{argmin}} \sum_{\left\{n_i\right\}, E \in \mathcal{D}}\left|W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}-E_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}\right|
-$$
+  ```math
+   \underset{\{W\}}{\mathrm{argmin}} \sum_{\left\{n_i\right\}, E \in \mathcal{D}}\left|W_{n_1}^{n_1^{\prime}} W_{n_2}^{n_2^{\prime}} \cdots W_{n_k}^{n_k^{\prime}}-E_{n_1 n_2 \cdots n_k}^{n_1^{\prime} n_2^{\prime} \cdots n_k^{\prime}}\right|
+   ```
 
 ### Flexible Basis Sets
 
