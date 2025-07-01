@@ -181,6 +181,7 @@ class Simulator:
         adaptive_p_svd: float = 1.0e-07,
         integrator: Literal["lanczos", "arnoldi"] = "lanczos",
         step_size_is_fs: bool = True,
+        conserve_norm: bool = True,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
@@ -249,6 +250,7 @@ class Simulator:
             adaptive_p_svd=adaptive_p_svd,
             space=self.model.space,
             integrator=integrator,
+            conserve_norm=conserve_norm,
         )
 
         return self._execute(

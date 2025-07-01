@@ -124,6 +124,7 @@ class Const:
         adaptive_p_svd: float = 1.0e-07,
         space: Literal["hilbert", "liouville"] = "hilbert",
         integrator: Literal["lanczos", "arnoldi"] = "lanczos",
+        conserve_norm: bool = True,
     ):
         """
 
@@ -212,7 +213,9 @@ class Const:
         self.p_svd = adaptive_p_svd
         self.integrator = integrator.lower()
         self.space = space.lower()
-        if self.space == "liouville":  # or parallel_split_indices is not None:
+        if (
+            self.space == "liouville" or not conserve_norm
+        ):  # or parallel_split_indices is not None:
             self.conserve_norm = False
         else:
             self.conserve_norm = True

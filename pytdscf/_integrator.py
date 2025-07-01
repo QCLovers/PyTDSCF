@@ -208,7 +208,7 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                if const.space == "liouville":
+                if not const.conserve_norm:
                     psi_next *= β0
                 return multiplyOp.split(psi_next)
             psi_next_sv = psi_next
@@ -343,7 +343,7 @@ def short_iterative_lanczos(
             trial_states = multiplyOp.split(V[-1], truncate=True)
 
         v_l = H(trial_states)
-        if const.space == "liouville" and ldim == 0:
+        if not const.conserve_norm and ldim == 0:
             v_l /= β0
 
         if use_jax:
@@ -415,7 +415,7 @@ def short_iterative_lanczos(
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
         if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.space == "liouville":
+            if not const.conserve_norm:
                 psi_next *= β0
             return multiplyOp.split(psi_next)
         elif ldim == maxsize:
