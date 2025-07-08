@@ -21,5 +21,6 @@ ignore = [
   "B023", # Function definition does not bind loop variable
   "E501", # line too long
   "E731", # do not assign a lambda expression, use a def
+  "E741", # Ambiguous variable name
 ]
 #ignore-init-module-imports = true

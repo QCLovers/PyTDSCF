@@ -15,6 +15,7 @@ from typing import Literal
 import jax
 import jax.numpy as jnp
 import numpy as np
+import scipy
 import scipy.linalg as linalg
 from loguru import logger as _logger
 from opt_einsum import contract
@@ -484,6 +485,9 @@ class MPSCoef(ABC):
             begin_site=nsite - 1,
             end_site=0,
         )
+        if const.space == "liouville":
+            pass
+            # self.hermitise()
 
     def construct_mfop_TEMP4DIPOLE(self, ints_spf: SPFInts, matO, ci_coef_ket):
         mps_copy_bra = copy.deepcopy(self)
@@ -1948,6 +1952,142 @@ class MPSCoef(ABC):
                     0
                 ][psite - 1].data[:, :, :newD]
         return newD, error, op_env_D_bra, op_env_D_braket
+
+    def hermitise(self):
+        """
+        Hermitise MPDO
+
+        1. rho <- svd(rho)
+        2. rho <- 1/2 (rho + rho^dagger)
+        """
+        assert const.space == "liouville"
+        superblock = self.superblock_states[0]
+
+        if len(superblock) == 1:
+            rho = _core_to_4d(superblock[0].data)
+            rho = 0.5 * (rho + rho.conj().transpose(0, 2, 1, 3))
+            superblock[0].data = _4d_to_core(rho)
+            return
+
+        if isinstance(superblock[0].data, jax.Array):
+            raise NotImplementedError("jax not supported")
+        else:
+            superblock = svd_conj_mpdo(superblock)
+
+        # Reset op_sys_sites to update environment block
+        self.op_sys_sites = None
+        return
+
+
+def _core_to_4d(data):
+    assert data.ndim == 3
+    i, j, k = data.shape
+    j_sqrt = math.isqrt(j)
+    return data.reshape(i, j_sqrt, j_sqrt, k)
+
+
+def _4d_to_core(data):
+    assert data.ndim == 4
+    i, j, k, l = data.shape
+    assert j == k
+    return data.reshape(i, j * k, l)
+
+
+def _block_diag4d(
+    tensor: np.ndarray, *, to: Literal["row", "col", "diag"] = "diag"
+) -> np.ndarray:
+    """Create a 4-D block-diagonal tensor with its hermitian conjugate.
+
+    If ``add_dagger_to_row`` is ``True``:
+        returns concatenation along the last axis (shape: a,b,c,2d).
+        [[tensor, tensor†]]
+
+    If ``add_dagger_to_col`` is ``True``:
+        returns concatenation along the second axis (shape: 2*a,b,c,d).
+        [[tensor],
+         [tensor†]]
+
+    Else:
+        returns full block-diagonal along first & last axes (shape: 2a,b,c,2d)
+        [[tensor,      0  ],
+         [   0  , tensor†]]
+    """
+    rho = tensor
+    a, b, c, d = rho.shape
+    rho_dag = np.transpose(rho.conj(), (0, 2, 1, 3))
+    assert rho_dag.shape == (a, c, b, d)
+    match to:
+        case "row":
+            # Only extend along the last axis – no new leading blocks
+            _ = np.concatenate((rho, rho_dag), axis=0)
+            assert _.shape == (2 * a, b, c, d)
+            return _
+        case "col":
+            _ = np.concatenate((rho, rho_dag), axis=3)
+            assert _.shape == (a, b, c, 2 * d)
+            return _
+        case "diag":
+            # Allocate the full output once and fill by slice assignment
+            out = np.zeros((2 * a, b, c, 2 * d), dtype=rho.dtype)
+            out[:a, ..., :d] = rho  # upper-left
+            out[a:, ..., d:] = rho_dag  # lower-right
+            zeros = np.zeros((a, b, c, d), dtype=rho.dtype)
+            out1 = np.concatenate((rho, zeros), axis=3)
+            out2 = np.concatenate((zeros, rho_dag), axis=3)
+            np.testing.assert_array_equal(
+                out, np.concatenate((out1, out2), axis=0)
+            )
+            assert out.shape == (2 * a, b, c, 2 * d)
+            return out
+
+
+def svd_conj_mpdo(superblock: list[SiteCoef]) -> list[SiteCoef]:
+    """
+    SVD MPDO
+    """
+    assert len(superblock) > 1
+    assert isinstance(superblock[0].data, np.ndarray)
+    bond_dims = [core.shape[-1] for core in superblock[:-1]]
+    trace = np.array([1.0 + 0.0j])
+    for isite in range(len(superblock)):
+        if isite == 0:
+            data = _block_diag4d(
+                0.5 * _core_to_4d(superblock[isite].data), to="col"
+            )
+        elif isite == len(superblock) - 1:
+            data = _block_diag4d(_core_to_4d(superblock[isite].data), to="row")
+        else:
+            data = _block_diag4d(_core_to_4d(superblock[isite].data), to="diag")
+        # data = _core_to_4d(superblock[isite].data)
+        trace = np.einsum("i,ijjl->l", trace, data)
+        superblock[isite].data = _4d_to_core(data)
+    print(trace)
+
+    for isite in range(len(superblock) - 1):
+        rho_L = superblock[isite].data
+        rho_R = superblock[isite + 1].data
+        B = contract("ijk,klm->ijlm", rho_L, rho_R)
+        i, j, l, m = B.shape
+        chi = bond_dims[isite]
+        B = B.reshape(i * j, l * m)
+        try:
+            U, S, Vh = scipy.linalg.svd(B, full_matrices=False)
+        except np.linalg.LinAlgError:
+            U, S, Vh = scipy.linalg.svd(
+                B, full_matrices=False, lapack_driver="gesvd"
+            )
+        # truncate up to k
+        U = U[:, :chi]
+        S = S[:chi]
+        Vh = Vh[:chi, :]
+        sqrt_S = np.sqrt(S)
+        rho_L = (U @ np.diag(sqrt_S)).reshape(i, j, chi)
+        rho_R = (np.diag(sqrt_S) @ Vh).reshape(chi, l, m)
+        superblock[isite].data = rho_L
+        superblock[isite + 1].data = rho_R
+    canonicalize(superblock, orthogonal_center=0, incremental=False)
+
+    return superblock
 
 
 def _prod(arr: list[int] | np.ndarray) -> int:

@@ -228,7 +228,8 @@ class Const:
         if self.use_mpo and not self.standard_method:
             raise ValueError("MPO is only available for standard method.")
         if self.use_jax and self.space == "liouville":
-            raise ValueError("jax is not supported for liouville space.")
+            pass
+            # raise ValueError("jax is not supported for liouville space.")
         if parallel_split_indices is not None:
             assert len(parallel_split_indices) == self.mpi_size
             # self.regularize_site = True
