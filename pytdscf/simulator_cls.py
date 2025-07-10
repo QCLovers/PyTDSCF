@@ -415,6 +415,8 @@ class Simulator:
 
             helper._ElpTime.steps -= time()
             if const.standard_method:
+                if self.model.one_gate_to_apply is not None:
+                    wf.apply_one_gate(self.model.one_gate_to_apply)
                 stepsize_actual = self.stepsize / units.au_in_fs
                 _ = wf.propagate_SM(
                     self.model.hamiltonian, stepsize_actual, istep

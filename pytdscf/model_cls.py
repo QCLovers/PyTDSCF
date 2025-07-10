@@ -61,6 +61,7 @@ class Model:
         *,
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
         space: Literal["hilbert", "liouville"] = "hilbert",
+        one_gate_to_apply: TensorHamiltonian | None = None,
     ):
         self.basinfo = basinfo
         self.hamiltonian = operators.pop("hamiltonian")
@@ -77,6 +78,7 @@ class Model:
                 f"space must be 'hilbert' or 'liouville' but got {space}"
             )
         self.space: Literal["hilbert", "liouville"] = space.lower()  # type: ignore
+        self.one_gate_to_apply = one_gate_to_apply
 
     def get_nstate(self) -> int:
         """

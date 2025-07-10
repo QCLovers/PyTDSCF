@@ -189,6 +189,7 @@ class OperatorCore:
         self.only_diag = (
             True if isinstance(data, int) or len(data.shape) == 3 else False
         )
+        self.backend = backend
 
         if isinstance(data, np.ndarray | jax.Array):
             self.shape = data.shape

@@ -568,3 +568,15 @@ class WFunc:
         ]
 
         return (g, spf_occ, stepsize, stepsize_next)
+
+    def apply_one_gate(self, matOp: HamiltonianMixin):
+        """
+        Apply one-site operator to the wavefunction.
+
+        Args:
+            matOp (hamiltonian_cls.HamiltonianMixin) : One-site operator
+        """
+        assert isinstance(matOp, TensorHamiltonian)
+        assert len(matOp.mpo) == 1
+        assert isinstance(self.ci_coef, MPSCoef)
+        self.ci_coef.apply_one_gate(matOp)

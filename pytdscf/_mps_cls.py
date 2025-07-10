@@ -31,6 +31,7 @@ from pytdscf._contraction import (
     multiplyK_MPS_direct,
     multiplyK_MPS_direct_MPO,
 )
+from pytdscf._mpo_cls import OperatorCore
 from pytdscf._site_cls import (
     SiteCoef,
     truncate_sigvec,
@@ -1978,6 +1979,72 @@ class MPSCoef(ABC):
         self.op_sys_sites = None
         return
 
+    def apply_one_gate(self, matOp: HamiltonianMixin):
+        """
+        Apply one-site operator to MPS.
+
+        Tensor network diagram:
+            |
+            U
+         |  | | | |
+        Psi-B-B-B-B
+
+        => contract U with B
+
+         |  | | | |
+        Psi-C-B-B-B
+
+        => canonicalize
+
+         |  | | | |
+        Psi-B-B-B-B
+        """
+        assert isinstance(matOp, TensorHamiltonian)
+        assert len(matOp.mpo) == 1
+        assert len(self.superblock_states) == 1
+        mpo = matOp.mpo[0][0]
+        assert mpo is not None
+        superblock = self.superblock_states[0]
+        reorth = False
+        reorth_site = 0
+        for isite in range(len(superblock)):
+            if len(mpo.calc_point[isite]) == 0:
+                continue
+            elif len(mpo.calc_point[isite]) >= 2:
+                raise ValueError(
+                    "Multiple one gate on same site is not supported. Contract gates in advance!"
+                )
+            op_core = mpo.calc_point[isite][0]
+            assert isinstance(op_core, OperatorCore), f"{op_core=}"
+            assert op_core.key in [(isite,), ((isite, isite),)], (
+                f"{op_core.key=}"
+            )
+            if op_core.backend == "jax":
+                einsum = jnp.einsum
+            else:
+                einsum = np.einsum  # type: ignore
+            assert not isinstance(op_core.data, int)
+            if op_core.key == (isite,):
+                subscripts = "abc,b->abc"
+                U = op_core.data[0, :, 0]
+            elif op_core.key == ((isite, isite),):
+                subscripts = "abc,db->adc"
+                U = op_core.data[0, :, :, 0]
+            else:
+                raise ValueError(f"{op_core=}")
+            superblock[isite].data = einsum(
+                subscripts, superblock[isite].data, U
+            )
+            if superblock[isite].gauge != "Psi":
+                superblock[isite].gauge = "C"
+                reorth_site = isite
+                reorth = True
+        if reorth:
+            canonicalizeB(superblock[: reorth_site + 1])
+            self.op_sys_sites = None
+        self.superblock_states = [superblock]
+        return
+
 
 def _core_to_4d(data):
     assert data.ndim == 3
@@ -2061,7 +2128,6 @@ def svd_conj_mpdo(superblock: list[SiteCoef]) -> list[SiteCoef]:
         # data = _core_to_4d(superblock[isite].data)
         trace = np.einsum("i,ijjl->l", trace, data)
         superblock[isite].data = _4d_to_core(data)
-    print(trace)
 
     for isite in range(len(superblock) - 1):
         rho_L = superblock[isite].data
