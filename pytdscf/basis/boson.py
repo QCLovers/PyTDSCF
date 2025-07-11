@@ -11,7 +11,7 @@ class Boson:
     Boson basis class.
 
     Args:
-        nstate (int): Number of basis states :math:`|0\rangle, \; |1\rangle, \dots, |n_{\text{state}}-1\rangle`.
+        nstate (int): Number of basis states :math:`|0\rangle, \\; |1\rangle, \\dots, |n_{\text{state}}-1\rangle`.
     """
 
     nstate: int
