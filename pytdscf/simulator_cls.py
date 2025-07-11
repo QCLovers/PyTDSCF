@@ -121,6 +121,7 @@ class Simulator:
             norm (bool, optional): Calculate norm. Defaults to ``True``.
             populations (bool, optional): Calculate populations. Defaults to ``True``.
             observables (bool, optional): Calculate observables. Defaults to ``False``.
+            integrator (Literal["lanczos", "arnoldi"], optional): Krylov subspace integrator type. Defaults to ``'lanczos'``.
 
         Returns:
             Tuple[float, WFunc]: Energy after relaxation in Eh, and Wavefunction after relaxation.
@@ -215,6 +216,19 @@ class Simulator:
             Δt (float, optional): Same as ``stepsize``
             thresh_sil (float): Convergence threshold of short iterative Lanczos. Defaults to 1.e-09.
             step_size_is_fs (bool, optional): If ``True``, ``stepsize`` is in fs. Defaults to ``True``.
+            autocorr_per_step (int, optional): Interval of steps between autocorrelation evaluations. Defaults to ``1``.
+            observables_per_step (int, optional): Interval of steps between observables evaluations. Defaults to ``1``.
+            energy_per_step (int, optional): Interval of steps between energy evaluations. Defaults to ``1``.
+            norm_per_step (int, optional): Interval of steps between norm evaluations. Defaults to ``1``.
+            populations_per_step (int, optional): Interval of steps between population evaluations. Defaults to ``1``.
+            parallel_split_indices (List[Tuple[int, int]], optional): Split indices for parallel (MPI) computation. Defaults to ``None``.
+            adaptive (bool, optional): Use adaptive bond dimension algorithm. Defaults to ``False``.
+            adaptive_Dmax (int, optional): Maximum bond dimension for adaptive algorithm. Defaults to ``20``.
+            adaptive_dD (int, optional): Increment of bond dimension for adaptive algorithm. Defaults to ``5``.
+            adaptive_p_proj (float, optional): Projection threshold for adaptive algorithm. Defaults to ``1.0e-4``.
+            adaptive_p_svd (float, optional): SVD truncation threshold for adaptive algorithm. Defaults to ``1.0e-7``.
+            integrator (Literal["lanczos", "arnoldi"], optional): Krylov subspace integrator type. Defaults to ``'lanczos'``.
+            conserve_norm (bool, optional): Keep norm constant during propagation. Defaults to ``True``.
 
 
         Returns:
@@ -280,7 +294,6 @@ class Simulator:
         Args:
             maxstep (int, optional): Maximum number of iteration. Defaults to ``10``.
             restart (bool, optional): Restart from the previous wavefunction. Defaults to ``False``.
-            backend (str, optional): JAX or Numpy. Defaults to ``'jax'``.
             savefile_ext (str, optional): Extension of the save file. Defaults to ``'_operate'``.
             loadfile_ext (str, optional): Extension of the load file. Defaults to ``'_gs'``. \
                 When ``restart=False``, ``loadfile_ext`` is ignored.
