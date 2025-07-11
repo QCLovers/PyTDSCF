@@ -53,6 +53,7 @@ class Model:
     )
     ints_prim_file: str | None = None
     m_aux_max: int | None = None
+    subspace_inds: dict[int, tuple[int, ...]] | None
 
     def __init__(
         self,
@@ -62,6 +63,7 @@ class Model:
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
         space: Literal["hilbert", "liouville"] = "hilbert",
         one_gate_to_apply: TensorHamiltonian | None = None,
+        subspace_inds: dict[int, tuple[int, ...]] | None = None,
     ):
         self.basinfo = basinfo
         self.hamiltonian = operators.pop("hamiltonian")
@@ -79,6 +81,18 @@ class Model:
             )
         self.space: Literal["hilbert", "liouville"] = space.lower()  # type: ignore
         self.one_gate_to_apply = one_gate_to_apply
+        if self.space == "liouville" and subspace_inds is not None:
+            assert isinstance(subspace_inds, dict)
+            self.subspace_inds = subspace_inds
+            for operator in self.observables.values():
+                assert isinstance(operator, TensorHamiltonian)
+                operator.project_subspace(subspace_inds)
+            self.hamiltonian.project_subspace(subspace_inds)
+            if self.one_gate_to_apply is not None:
+                self.one_gate_to_apply.project_subspace(subspace_inds)
+
+        else:
+            self.subspace_inds = None
 
     def get_nstate(self) -> int:
         """

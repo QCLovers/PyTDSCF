@@ -1282,21 +1282,21 @@ class MPSCoef(ABC):
                 break
         if center_site is None:
             raise ValueError("No site with 2 legs found in remain_nleg")
-        mps = [core.data for core in self.superblock_states[istate]]
+        if not hasattr(self, "reshape_mat"):
+            raise ValueError("reshape_mat is not defined")
+        mpdm_reshaped = [
+            self.reshape_mat[isite](core.data)
+            for isite, core in enumerate(self.superblock_states[istate])
+        ]
         if const.use_jax:
             return np.array(
-                _get_partial_trace_jax(mps, remain_nleg, center_site)
+                _get_partial_trace_jax(mpdm_reshaped, remain_nleg, center_site)
             )
 
-        def reshape_mat(mat) -> np.ndarray:
-            i, j, k = mat.shape
-            j_sqrt = math.isqrt(j)
-            return mat.reshape(i, j_sqrt, j_sqrt, k, order="C")
-
-        nsite = len(mps)
+        nsite = len(mpdm_reshaped)
         left_env = np.array([1.0 + 0.0j])
         for isite in range(center_site):
-            data: np.ndarray = reshape_mat(mps[isite])
+            data: np.ndarray = mpdm_reshaped[isite]
             match remain_nleg[isite]:
                 case 0:
                     subscript = "...i,ijjl->...l"
@@ -1312,9 +1312,9 @@ class MPSCoef(ABC):
 
         right_env = np.array([1.0 + 0.0j])
         for isite in range(nsite - 1, center_site, -1):
-            data = reshape_mat(mps[isite])
+            data = mpdm_reshaped[isite]
             right_env = np.einsum("ijjl,l->i", data, right_env)
-        data = reshape_mat(mps[center_site])
+        data = mpdm_reshaped[center_site]
         dm = np.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
         return dm
 
@@ -2648,7 +2648,7 @@ def _get_normalized_reduced_density_jax(
 
 @partial(jax.jit, static_argnames=("remain_nleg", "sys_site"))
 def _get_partial_trace_jax(
-    mps: list[jax.Array],
+    mpdm_reshaped: list[jax.Array],
     remain_nleg: tuple[int, ...],
     sys_site: int,
 ) -> jax.Array:
@@ -2656,15 +2656,10 @@ def _get_partial_trace_jax(
     Get partial trace for Liouville space MPS.
     """
 
-    def reshape_mat(mat: jax.Array) -> jax.Array:
-        i, j, k = mat.shape
-        j_sqrt = math.isqrt(j)
-        return mat.reshape(i, j_sqrt, j_sqrt, k)
-
-    nsite = len(mps)
+    nsite = len(mpdm_reshaped)
     left_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
     for isite in range(sys_site):
-        data = reshape_mat(mps[isite])
+        data = mpdm_reshaped[isite]
         match remain_nleg[isite]:
             case 0:
                 subscript = "...i,ijjl->...l"
@@ -2680,9 +2675,9 @@ def _get_partial_trace_jax(
 
     right_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
     for isite in range(nsite - 1, sys_site, -1):
-        data = reshape_mat(mps[isite])
+        data = mpdm_reshaped[isite]
         right_env = jnp.einsum("ijjl,l->i", data, right_env)
-    data = reshape_mat(mps[sys_site])
+    data = mpdm_reshaped[sys_site]
     dm = jnp.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
     return dm
 

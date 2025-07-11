@@ -783,6 +783,35 @@ class TensorHamiltonian(HamiltonianMixin):
                 mpo_ij.calc_point = recv_data[(i, j)]
                 self.mpo[i][j] = mpo_ij
 
+    def project_subspace(self, subspace_inds: dict[int, tuple[int, ...]]):
+        assert len(self.mpo) == 1, "Only one state is supported"
+        mpo = self.mpo[0][0]
+        if mpo is None:
+            return
+        for isite, P_inds in subspace_inds.items():
+            if mpo.calc_point[isite] is None:
+                continue
+            for core in mpo.calc_point[isite]:
+                assert isinstance(core, OperatorCore)
+                if isinstance(core.data, int):
+                    continue
+                elif len(core.data.shape) == 3:
+                    core.data = core.data[:, P_inds, :]
+                elif len(core.data.shape) == 4:
+                    is_hermitian = core.is_hermitian()
+                    # Reduce bra and ket indices according to projection.
+                    ket_inds, bra_inds = np.ix_(P_inds, P_inds)
+                    core.data = core.data[:, ket_inds, bra_inds, :]
+                    is_hermitian_after = core.is_hermitian()
+                    if is_hermitian != is_hermitian_after:
+                        logger.warning(
+                            f"The operator {core.key} is {is_hermitian} hermitian, but after subspace projection, it is {is_hermitian_after} hermitian. You might need to change integrator."
+                        )
+                else:
+                    raise ValueError(
+                        f"core.data.shape = {core.data.shape} is not supported"
+                    )
+
 
 def read_potential_nMR(
     potential_emu: dict[tuple[int, ...], float | complex],

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import itertools
 import math
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from discvar import HarmonicOscillator as HO
+from loguru import logger as _logger
 
 from pytdscf._const_cls import const
 from pytdscf._contraction import (
@@ -30,6 +32,8 @@ from pytdscf._spf_cls import SPFInts
 from pytdscf.basis.ho import HarmonicOscillator as _HO
 from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
+
+logger = _logger.bind(name="main")
 
 
 class MPSCoefMPO(MPSCoef):
@@ -118,8 +122,85 @@ class MPSCoefMPO(MPSCoef):
         )
         if not mps_coef.site_is_dof:
             raise NotImplementedError
+        mps_coef.reshape_mat = {}
+        if model.space == "liouville":
+            mps_coef.reshape_mat = mps_coef.define_reshape_mat(
+                model.subspace_inds
+            )
+        if model.subspace_inds is not None:
+            mps_coef.project_subspace(model.subspace_inds)
 
         return mps_coef
+
+    def define_reshape_mat(
+        self, subspace_inds: dict[int, tuple[int, ...]] | None
+    ):
+        """
+        Define reshape function for twin-space
+        """
+        assert len(self.lattice_info_states) == 1, "Only one state is supported"
+        superblock = self.superblock_states[0]
+
+        # Use a dedicated dictionary name to store reshape callables.
+        reshape_funcs: dict[int, Callable] = {}
+
+        def _reshape_core(
+            data: np.ndarray | jax.Array,
+            *,
+            i: int,
+            j_sqrt: int,
+            k: int,
+            P_inds: tuple[int, ...] | None = None,
+        ) -> np.ndarray | jax.Array:
+            """
+            data.shape = (len(P_inds) if P_inds else j, k)
+            ->  (i, j_sqrt, j_sqrt, k)
+            """
+            if P_inds is None:
+                mat = data
+            else:
+                # when subspace projection is applied
+                mat = np.zeros(
+                    (i, len(P_inds) + (j_sqrt**2 - len(P_inds)), k),
+                    dtype=np.complex128,
+                )
+                mat[:, P_inds, :] = data
+                if isinstance(data, jax.Array):
+                    mat = jnp.array(mat, dtype=jnp.complex128)
+            return mat.reshape(i, j_sqrt, j_sqrt, k, order="C")
+
+        for isite, core in enumerate(superblock):
+            i, j, k = core.shape
+            j_sqrt = math.isqrt(j)
+
+            if subspace_inds is not None and isite in subspace_inds:
+                P_inds = subspace_inds[isite]
+                reshape_funcs[isite] = partial(
+                    _reshape_core, i=i, j_sqrt=j_sqrt, k=k, P_inds=P_inds
+                )
+            else:
+                reshape_funcs[isite] = partial(
+                    _reshape_core, i=i, j_sqrt=j_sqrt, k=k, P_inds=None
+                )
+
+        return reshape_funcs
+
+    def project_subspace(self, subspace_inds: dict[int, tuple[int, ...]]):
+        assert len(self.lattice_info_states) == 1, "Only one state is supported"
+        lattice_info = self.lattice_info_states[0]
+        superblock = self.superblock_states[0]
+        for isite, P_inds in subspace_inds.items():
+            Q_inds = tuple(
+                set(np.arange(superblock[isite].shape[1])) - set(P_inds)
+            )
+            core_Q = superblock[isite].data[:, Q_inds, :]
+            if np.allclose(core_Q, np.zeros_like(core_Q)):
+                logger.warning(
+                    f"Nonzero values are projected out for {isite} site."
+                )
+            superblock[isite].data = superblock[isite].data[:, P_inds, :]
+            lattice_info.dim_of_sites[isite] = len(P_inds)
+            lattice_info.nspf_list_sites[isite] = len(P_inds)
 
     def get_matH_sweep(self, matH: TensorHamiltonian) -> TensorHamiltonian:
         return matH
