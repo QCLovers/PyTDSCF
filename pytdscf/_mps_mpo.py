@@ -160,8 +160,12 @@ class MPSCoefMPO(MPSCoef):
                 mat = data
             else:
                 # when subspace projection is applied
+                # Bond dimension can be reduced by projection
+                i_new = min(i, len(P_inds) * k)
+                k_new = min(i * len(P_inds), k)
+                i, k = i_new, k_new
                 mat = np.zeros(
-                    (i, len(P_inds) + (j_sqrt**2 - len(P_inds)), k),
+                    (i, j_sqrt**2, k),
                     dtype=np.complex128,
                 )
                 mat[:, P_inds, :] = data
