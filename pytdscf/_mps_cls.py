@@ -2207,6 +2207,23 @@ class LatticeInfo:
         ]
         return LatticeInfo(nspf_list_sites)
 
+    def get_bond_dim(self, isite: int, m_aux_max: int) -> tuple[int, int]:
+        is_lend = isite == 0
+        is_rend = isite == self.nsite - 1
+        dim_centr = self.dim_of_sites[isite]
+        if is_lend:
+            dim_left = 1
+        else:
+            dim_left = min(m_aux_max, _prod(self.dim_of_sites[:isite]))
+        if is_rend:
+            dim_right = 1
+        else:
+            dim_right = min(m_aux_max, _prod(self.dim_of_sites[isite + 1 :]))
+        """A(l,n,r)"""
+        m_aux_l = min(dim_left, dim_centr * dim_right, m_aux_max)
+        m_aux_r = min(dim_left * dim_centr, dim_right, m_aux_max)
+        return m_aux_l, m_aux_r
+
     @helper.rank0_only
     def alloc_superblock_random(
         self,
@@ -2228,23 +2245,11 @@ class LatticeInfo:
             List[SiteCoef]: site coefficient for each sites
         """
         superblock: list[SiteCoef] = []
+
         for isite in range(self.nsite):
+            m_aux_l, m_aux_r = self.get_bond_dim(isite, m_aux_max)
             is_lend = isite == 0
             is_rend = isite == self.nsite - 1
-            dim_centr = self.dim_of_sites[isite]
-            if is_lend:
-                dim_left = 1
-            else:
-                dim_left = min(m_aux_max, _prod(self.dim_of_sites[:isite]))
-            if is_rend:
-                dim_right = 1
-            else:
-                dim_right = min(
-                    m_aux_max, _prod(self.dim_of_sites[isite + 1 :])
-                )
-            """A(l,n,r)"""
-            m_aux_l = min(dim_left, dim_centr * dim_right, m_aux_max)
-            m_aux_r = min(dim_left * dim_centr, dim_right, m_aux_max)
             matC = SiteCoef.init_random(
                 isite=isite,
                 ndim=self.dim_of_sites[isite],

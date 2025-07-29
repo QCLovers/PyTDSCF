@@ -128,7 +128,7 @@ class MPSCoefMPO(MPSCoef):
                 model.subspace_inds
             )
         if model.subspace_inds is not None:
-            mps_coef.project_subspace(model.subspace_inds)
+            mps_coef.project_subspace(model.subspace_inds, m_aux_max)
 
         return mps_coef
 
@@ -147,9 +147,7 @@ class MPSCoefMPO(MPSCoef):
         def _reshape_core(
             data: np.ndarray | jax.Array,
             *,
-            i: int,
             j_sqrt: int,
-            k: int,
             P_inds: tuple[int, ...] | None = None,
         ) -> np.ndarray | jax.Array:
             """
@@ -158,12 +156,12 @@ class MPSCoefMPO(MPSCoef):
             """
             if P_inds is None:
                 mat = data
+                i, _, k = data.shape
             else:
                 # when subspace projection is applied
                 # Bond dimension can be reduced by projection
-                i_new = min(i, len(P_inds) * k)
-                k_new = min(i * len(P_inds), k)
-                i, k = i_new, k_new
+                i, _, k = data.shape
+
                 mat = np.zeros(
                     (i, j_sqrt**2, k),
                     dtype=np.complex128,
@@ -174,22 +172,24 @@ class MPSCoefMPO(MPSCoef):
             return mat.reshape(i, j_sqrt, j_sqrt, k, order="C")
 
         for isite, core in enumerate(superblock):
-            i, j, k = core.shape
+            _, j, _ = core.shape
             j_sqrt = math.isqrt(j)
 
             if subspace_inds is not None and isite in subspace_inds:
                 P_inds = subspace_inds[isite]
                 reshape_funcs[isite] = partial(
-                    _reshape_core, i=i, j_sqrt=j_sqrt, k=k, P_inds=P_inds
+                    _reshape_core, j_sqrt=j_sqrt, P_inds=P_inds
                 )
             else:
                 reshape_funcs[isite] = partial(
-                    _reshape_core, i=i, j_sqrt=j_sqrt, k=k, P_inds=None
+                    _reshape_core, j_sqrt=j_sqrt, P_inds=None
                 )
 
         return reshape_funcs
 
-    def project_subspace(self, subspace_inds: dict[int, tuple[int, ...]]):
+    def project_subspace(
+        self, subspace_inds: dict[int, tuple[int, ...]], m_aux_max: int
+    ):
         assert len(self.lattice_info_states) == 1, "Only one state is supported"
         lattice_info = self.lattice_info_states[0]
         superblock = self.superblock_states[0]
@@ -205,6 +205,13 @@ class MPSCoefMPO(MPSCoef):
             superblock[isite].data = superblock[isite].data[:, P_inds, :]
             lattice_info.dim_of_sites[isite] = len(P_inds)
             lattice_info.nspf_list_sites[isite] = len(P_inds)
+        # Recalculate bond dimension
+        nsite = len(superblock)
+        for isite in range(nsite):
+            m_aux_l, m_aux_r = lattice_info.get_bond_dim(isite, m_aux_max)
+            superblock[isite].data = superblock[isite].data[
+                :m_aux_l, :, :m_aux_r
+            ]
 
     def get_matH_sweep(self, matH: TensorHamiltonian) -> TensorHamiltonian:
         return matH
