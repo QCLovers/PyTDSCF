@@ -162,13 +162,19 @@ class MPSCoefMPO(MPSCoef):
                 # Bond dimension can be reduced by projection
                 i, _, k = data.shape
 
-                mat = np.zeros(
-                    (i, j_sqrt**2, k),
-                    dtype=np.complex128,
-                )
-                mat[:, P_inds, :] = data
                 if isinstance(data, jax.Array):
-                    mat = jnp.array(mat, dtype=jnp.complex128)
+                    # For GPU efficiency, perform direct operations on JAX arrays
+                    mat = jnp.zeros(
+                        (i, j_sqrt**2, k),
+                        dtype=jnp.complex128,
+                    )
+                    mat = mat.at[:, P_inds, :].set(data)
+                else:
+                    mat = np.zeros(
+                        (i, j_sqrt**2, k),
+                        dtype=np.complex128,
+                    )
+                    mat[:, P_inds, :] = data
             return mat.reshape(i, j_sqrt, j_sqrt, k, order="C")
 
         for isite, core in enumerate(superblock):
