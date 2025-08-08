@@ -66,12 +66,12 @@ class MPSCoefMPO(MPSCoef):
 
         (
             nstate,
-            lattice_info_states,
-            superblock_states,
             weight_estate,
             weight_vib,
             m_aux_max,
         ) = super()._get_initial_condition(model)
+        lattice_info_states = []
+        superblock_states = []
 
         mps_coef = cls()
         dofs_cas = list(range(model.get_ndof()))
@@ -90,7 +90,7 @@ class MPSCoefMPO(MPSCoef):
                 superblock = lattice_info.alloc_superblock_random(
                     m_aux_max,
                     math.sqrt(weight),
-                    weight_vib=model.init_HartreeProduct[istate],
+                    core_weight=model.init_HartreeProduct[istate],
                 )
             else:
                 dvr_unitary = [
@@ -105,7 +105,7 @@ class MPSCoefMPO(MPSCoef):
                 superblock = lattice_info.alloc_superblock_random(
                     m_aux_max,
                     math.sqrt(weight),
-                    weight_vib=weight_vib[istate],
+                    core_weight=weight_vib[istate],
                     site_unitary=dvr_unitary,
                 )
             superblock_states.append(superblock)

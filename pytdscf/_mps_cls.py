@@ -146,8 +146,6 @@ class MPSCoef(ABC):
         ndof = model.get_ndof()
         if (m_aux_max := model.m_aux_max) is None:
             m_aux_max = 10**9
-        lattice_info_states = []
-        superblock_states = []
 
         if (weight_estate := model.init_weight_ESTATE) is None:
             weight_estate = np.array([1.0] + [0.0] * (nstate - 1))
@@ -212,8 +210,6 @@ class MPSCoef(ABC):
                     )
         return (
             nstate,
-            lattice_info_states,
-            superblock_states,
             weight_estate,
             weight_vib,
             m_aux_max,
@@ -2229,7 +2225,7 @@ class LatticeInfo:
         self,
         m_aux_max: int,
         scale: float,
-        weight_vib: list[list[float]],
+        core_weight: list[list[float] | np.ndarray],
         *,
         site_unitary: list[np.ndarray] | None = None,
     ) -> list[SiteCoef]:
@@ -2238,7 +2234,7 @@ class LatticeInfo:
         Args:
             m_aux_max (int): Bond dimension = Max rank of MPS after renormalization.
             scale (float, optional): Normalization scale. Defaults to 1.0.
-            weight_vib (List[List[float]]): Weight of each DOFs for each sites.
+            core_weight (List[List[float] | np.ndarray]): Weight of each DOFs for each sites.
             dvr_unitary (List[np.ndarray], optional): Unitary matrix which translate φ to χ.
 
         Returns:
@@ -2255,7 +2251,7 @@ class LatticeInfo:
                 ndim=self.dim_of_sites[isite],
                 m_aux_l=m_aux_l,
                 m_aux_r=m_aux_r,
-                vibstate=weight_vib[isite],
+                init_state=core_weight[isite],
                 is_lend=is_lend,
                 is_rend=is_rend,
             )

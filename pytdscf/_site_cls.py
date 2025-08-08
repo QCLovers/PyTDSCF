@@ -355,7 +355,7 @@ class SiteCoef:
         ndim: int,
         m_aux_l: int,
         m_aux_r: int,
-        vibstate: list[float],
+        init_state: list[float] | np.ndarray,
         is_lend: bool = False,
         is_rend: bool = False,
     ) -> SiteCoef:
@@ -367,7 +367,7 @@ class SiteCoef:
                 :math:`\tau_{p-1}` =1,2,...,m_aux_l
             m_aux_r (int): Right side bond dimension. \
                 :math:`\tau_{p}` =1,2,...,m_aux_r
-            vibstate (List[float]): Vibrational state.
+            init_state (List[float] | np.ndarray): Initial core state.
             is_lend (bool, optional): \
                 Whether site is left terminal. Defaults to False.
             is_rend (bool, optional): \
@@ -384,18 +384,33 @@ class SiteCoef:
 
         data: np.ndarray | jax.Array
         data = np.zeros(shape, dtype="complex128")
-        vibstate_array = np.array(vibstate, dtype="complex128")
-        data[0, :, 0] = vibstate_array
-        match const.space:
-            case "hilbert":
-                # In Hilbert space, the norm of the wavefunction is 1.0
-                data[0, :, 0] /= np.linalg.norm(vibstate_array)
-            case "liouville":
-                # In Liouville space, the trace of density matrix is 1.0
-                trace = np.trace(
-                    vibstate_array.reshape(isqrt(ndim), isqrt(ndim))
-                )
-                data[0, :, 0] /= trace
+        init_state_array = np.array(init_state, dtype="complex128")
+        if init_state_array.ndim == 1:
+            # Common API (define initial state as a Hartree product (m=1))
+            data[0, :, 0] = init_state_array
+            match const.space:
+                case "hilbert":
+                    # In Hilbert space, the norm of the wavefunction is 1.0
+                    data[0, :, 0] /= np.linalg.norm(init_state_array)
+                case "liouville":
+                    # In Liouville space, the trace of density matrix is 1.0
+                    trace = np.trace(
+                        init_state_array.reshape(isqrt(ndim), isqrt(ndim))
+                    )
+                    data[0, :, 0] /= trace
+        elif init_state_array.ndim == 3:
+            # Lower API (define core state directly)
+            i, j, k = init_state_array.shape
+            try:
+                data[:i, :j, :k] = init_state_array
+            except Exception as e:
+                msg = "Failed to assign init_state_array to data"
+                msg += f"isite: {isite}"
+                msg += f"Expected shape is smaller than {data.shape}"
+                msg += f"tried shape: {init_state_array.shape}"
+                msg += f"tried values = {init_state_array}"
+                logger.error(msg)
+                raise e
 
         if const.use_jax:
             data = jnp.array(data, dtype=jnp.complex128)

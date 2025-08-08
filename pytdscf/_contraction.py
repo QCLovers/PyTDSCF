@@ -185,7 +185,10 @@ def contract_with_site_mpo(
         assert len(op_site.shape) == 2, f"op_site.shape = {op_site.shape}"
         op_site_mode = 2
     elif isinstance(op_site, OperatorCore):
-        op_site_mode = 3
+        if isinstance(op_site.data, int):
+            op_site_mode = 1
+        else:
+            op_site_mode = 3
     else:
         raise AssertionError(f"Invalid op_site type: {type(op_site)}")
 
@@ -357,7 +360,7 @@ def contract_with_site_mpo(
         case ("B", 3, 2):
             assert isinstance(op_site, OperatorCore)
             data = op_site.data
-            assert isinstance(data, np.ndarray | jax.Array)
+            assert isinstance(data, np.ndarray | jax.Array), type(data)
             if op_site.only_diag:
                 #   i-|-m m
                 #     r   |
@@ -1028,6 +1031,8 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
             op_c_mode = 1
         elif len(_op_c.shape) == 2:
             op_c_mode = 2
+        elif isinstance(_op_c.data, int):
+            op_c_mode = 1
         elif _op_c.only_diag:
             op_c_mode = 3
         else:
