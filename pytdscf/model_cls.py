@@ -62,8 +62,8 @@ class Model:
         *,
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
         space: Literal["hilbert", "liouville"] = "hilbert",
-        one_gate_to_apply: TensorHamiltonian | None = None,
         subspace_inds: dict[int, tuple[int, ...]] | None = None,
+        one_gate_to_apply: TensorHamiltonian | None = None,
     ):
         self.basinfo = basinfo
         self.hamiltonian = operators.pop("hamiltonian")

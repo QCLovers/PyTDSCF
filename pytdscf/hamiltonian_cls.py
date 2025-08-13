@@ -2,6 +2,8 @@
 The operator modules consists Hamiltonian.
 """
 
+from __future__ import annotations
+
 import itertools
 import math
 import random
@@ -735,6 +737,51 @@ class TensorHamiltonian(HamiltonianMixin):
             self.mpo[i][j] = MatrixProductOperators(
                 nsite=ndof, operators=operators, backend=backend
             )
+
+    def interaction_picture(self, U: TensorHamiltonian):
+        """
+        H_int = U^† H U
+        """
+
+        assert len(self.mpo) == 1, "Only one state is supported"
+        assert len(U.mpo) == 1, "Only one state is supported"
+        H_mpo = self.mpo[0][0]
+        U_mpo = U.mpo[0][0]
+        assert isinstance(U_mpo, MatrixProductOperators)
+        assert isinstance(H_mpo, MatrixProductOperators)
+        for i, op_cores in enumerate(U_mpo.calc_point):
+            if len(op_cores) != 1:
+                continue
+            if H_mpo.calc_point[i] is None:
+                continue
+            else:
+                H_cores = H_mpo.calc_point[i]
+            op_core = op_cores[0]
+            assert isinstance(op_core, OperatorCore)
+            assert op_core.key in [(i,), ((i, i),)], f"{op_core.key=}"
+            if op_core.key == (i,):
+                subscripts = "b,cbde,d->cbde"
+            elif op_core.key == ((i, i),):
+                subscripts = "ab,cbde,df->cafe"
+            else:
+                raise ValueError(f"{op_core.key=} is not supported")
+            for H_core in H_cores:
+                assert isinstance(H_core, OperatorCore)
+                assert isinstance(H_core.data, jnp.ndarray | np.ndarray)
+                assert H_core.data.ndim == 4, (
+                    f"{H_core.data.ndim=} is not yet implemented"
+                )
+                if isinstance(H_core.data, jnp.ndarray):
+                    einsum = jnp.einsum
+                else:
+                    einsum = np.einsum  # type: ignore
+                assert isinstance(op_core.data, jnp.ndarray | np.ndarray)
+                H_core.data = einsum(
+                    subscripts,
+                    op_core.data[0, ..., 0].conj(),
+                    H_core.data,
+                    op_core.data[0, ..., 0],
+                )
 
     def distribute_mpo_cores(self):
         import copy

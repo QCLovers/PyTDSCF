@@ -444,7 +444,11 @@ class MPSCoef(ABC):
         return norm
 
     def propagate(
-        self, stepsize: float, ints_spf: SPFInts | None, matH: HamiltonianMixin
+        self,
+        stepsize: float,
+        ints_spf: SPFInts | None,
+        matH: HamiltonianMixin,
+        one_gate_to_apply: TensorHamiltonian | None = None,
     ):
         if const.verbose == 4:
             helper._ElpTime.ci_etc -= time()
@@ -475,6 +479,9 @@ class MPSCoef(ABC):
             begin_site=0,
             end_site=nsite - 1,
         )
+        # if one_gate_to_apply is not None:
+        #     self.apply_one_gate(one_gate_to_apply, reorth_center=nsite-1)
+
         self.propagate_along_sweep(
             self.ints_site,
             self.matH_sweep,
@@ -916,7 +923,6 @@ class MPSCoef(ABC):
                     f"{psite=} {to=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=}"
                 )
                 raise
-
             if psite != end_site:
                 svalues, op_sys = self.trans_next_psite_AsigmaB(
                     psite=psite,
@@ -1225,7 +1231,7 @@ class MPSCoef(ABC):
                 subscript = "ijk,alk->iajl"
             else:
                 raise ValueError("The number of legs must be less than 3.")
-            density = np.einsum(subscript, np.conj(core), core)
+            density = np.einsum(subscript, core, np.conj(core))
             isite = len(remain_nleg) - 1
             while cores:
                 isite -= 1
@@ -1251,7 +1257,7 @@ class MPSCoef(ABC):
                     subscript = "lmi,bma,ia...->lb..."
                 else:
                     raise ValueError("The number of legs must be less than 3.")
-                density = contract(subscript, np.conj(core), core, density)
+                density = contract(subscript, core, np.conj(core), density)
             assert isite == 0
             return density[0, 0, ...]
 
@@ -1975,7 +1981,13 @@ class MPSCoef(ABC):
         self.op_sys_sites = None
         return
 
-    def apply_one_gate(self, matOp: HamiltonianMixin):
+    def apply_one_gate(
+        self,
+        matOp: HamiltonianMixin,
+        reorth_center: int,
+        conj: bool = False,
+        power: int = 1,
+    ):
         """
         Apply one-site operator to MPS.
 
@@ -2001,8 +2013,7 @@ class MPSCoef(ABC):
         mpo = matOp.mpo[0][0]
         assert mpo is not None
         superblock = self.superblock_states[0]
-        reorth = False
-        reorth_site = 0
+        gauge_changed_sites = []
         for isite in range(len(superblock)):
             if len(mpo.calc_point[isite]) == 0:
                 continue
@@ -2010,36 +2021,59 @@ class MPSCoef(ABC):
                 raise ValueError(
                     "Multiple one gate on same site is not supported. Contract gates in advance!"
                 )
-            op_core = mpo.calc_point[isite][0]
-            assert isinstance(op_core, OperatorCore), f"{op_core=}"
-            assert op_core.key in [(isite,), ((isite, isite),)], (
-                f"{op_core.key=}"
-            )
-            if op_core.backend == "jax":
-                einsum = jnp.einsum
-            else:
-                einsum = np.einsum  # type: ignore
-            assert not isinstance(op_core.data, int)
-            if op_core.key == (isite,):
-                subscripts = "abc,b->abc"
-                U = op_core.data[0, :, 0]
-            elif op_core.key == ((isite, isite),):
-                subscripts = "abc,db->adc"
-                U = op_core.data[0, :, :, 0]
-            else:
-                raise ValueError(f"{op_core=}")
-            superblock[isite].data = einsum(
-                subscripts, superblock[isite].data, U
+            self._apply_one_gate_isite(
+                isite,
+                mpo.calc_point[isite][0],
+                superblock,
+                conj=conj,
+                power=power,
             )
             if superblock[isite].gauge != "Psi":
                 superblock[isite].gauge = "C"
-                reorth_site = isite
-                reorth = True
-        if reorth:
-            canonicalizeB(superblock[: reorth_site + 1])
+                gauge_changed_sites.append(isite)
+        if len(gauge_changed_sites) > 0:
+            canonicalizeB(
+                superblock[reorth_center : max(gauge_changed_sites) + 1]
+            )
+            canonicalizeA(
+                superblock[min(gauge_changed_sites) : reorth_center + 1]
+            )
             self.op_sys_sites = None
         self.superblock_states = [superblock]
         return
+
+    def _apply_one_gate_isite(
+        self,
+        isite,
+        op_core,
+        superblock,
+        conj: bool = False,
+        power: int = 1,
+    ):
+        assert isinstance(op_core, OperatorCore), f"{op_core=}"
+        assert op_core.key in [(isite,), ((isite, isite),)], f"{op_core.key=}"
+        if op_core.backend == "jax":
+            einsum = jnp.einsum
+            matrix_power = jax.numpy.linalg.matrix_power
+            diag = jax.numpy.diag
+        else:
+            einsum = np.einsum  # type: ignore
+            matrix_power = np.linalg.matrix_power  # type: ignore
+            diag = np.diag  # type: ignore
+        assert not isinstance(op_core.data, int)
+        if op_core.key == (isite,):
+            U = diag(op_core.data[0, :, 0])
+        elif op_core.key == ((isite, isite),):
+            U = op_core.data[0, :, :, 0]  # type: ignore
+        else:
+            raise ValueError(f"{op_core=}")
+        if conj:
+            U = U.conj()
+        if power != 1:
+            U = matrix_power(U, power)
+        superblock[isite].data = einsum(
+            "abc,db->adc", superblock[isite].data, U
+        )
 
 
 def _core_to_4d(data):
@@ -2617,7 +2651,7 @@ def _get_normalized_reduced_density_jax(
         raise ValueError(
             "The number of legs must be either 1 or 2 at the last site."
         )
-    density = jnp.einsum(subscript, jnp.conj(core), core)
+    density = jnp.einsum(subscript, core, jnp.conj(core))
     isite = len(remain_nleg) - 1
     while cores:
         core = cores.pop()
@@ -2642,7 +2676,7 @@ def _get_normalized_reduced_density_jax(
             subscript = "lmi,bma,ia...->lb..."
         else:
             raise ValueError("The number of legs must be less than 3.")
-        density = jnp.einsum(subscript, jnp.conj(core), core, density)
+        density = jnp.einsum(subscript, core, jnp.conj(core), density)
     assert isite == 0
     return density[0, 0, ...]
 
@@ -2807,6 +2841,8 @@ def canonicalizeA(
     Args:
         superblock (List[SiteCoef]): MPS converted into A(1)A(2),...,A(end-1)Psi(end). The given MPS will be updated.
     """
+    if len(superblock) == 0:
+        return
     use_jax = isinstance(superblock[0].data, jax.Array)
     sval: jax.Array | np.ndarray | None = None
     if use_jax:
@@ -2833,6 +2869,8 @@ def canonicalizeB(
     Args:
         superblock (List[SiteCoef]): MPS converted into Psi(1)B(2),...,B(end-1)B(end). The given MPS will be updated.
     """
+    if len(superblock) == 0:
+        return
     use_jax = isinstance(superblock[0].data, jax.Array)
     sval: jax.Array | np.ndarray | None = None
     if use_jax:
