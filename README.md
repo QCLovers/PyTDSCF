@@ -13,7 +13,7 @@ You can use various types of Matrix Product Operators (MPO) as Hamiltonians:
 
 - **[Symbolic MPO](https://qclovers.github.io/PyTDSCF/notebook/poly-MPO-H2O-relax.html)**
    ```math
-   \sum_{i=1}^ \frac{\hat{Q}_i^2}{2} \Rightarrow\left[\begin{array}{cc}
+   \sum_{i=1}^{k} \frac{\hat{Q}_i^2}{2} \Rightarrow\left[\begin{array}{cc}
    1 & \frac{\hat{Q}_1^2}{2}
    \end{array}\right]\left[\begin{array}{cc}
    1 & \frac{\hat{Q}_2^2}{2} \\
