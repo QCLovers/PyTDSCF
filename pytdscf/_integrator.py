@@ -5,16 +5,20 @@ Integrator module for MPS time evolution & diagonalization.
 from __future__ import annotations
 
 import cmath
+from functools import partial
 from typing import overload
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg
+from loguru import logger as _logger
 
 from pytdscf._const_cls import const
 from pytdscf._contraction import SplitStack
 from pytdscf._helper import _Debug
+
+logger = _logger.bind(name="main")
 
 
 @overload
@@ -111,7 +115,16 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         beta = np.append(beta, scipy.linalg.norm(sigvec))
         sigvec /= beta[-1]
 
-        _, eigvecs = scipy.linalg.eigh_tridiagonal(alpha, beta[1:-1])
+        # if alpha is real, eigh_tridiagonal is faster than eigh
+        if np.all(np.isreal(alpha)):
+            _, eigvecs = scipy.linalg.eigh_tridiagonal(alpha, beta[1:-1])
+        else:
+            mat = (
+                np.diag(alpha, 0)
+                + np.diag(beta[1:-1], -1)
+                + np.diag(beta[1:-1], 1)
+            )
+            _, eigvecs = scipy.linalg.eig(mat)
         psi_next = (
             np.array(cveclist).T @ eigvecs[:, root].reshape(i_iter + 1, 1)
         ).reshape(ndim)
@@ -132,7 +145,124 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
     raise ValueError("Lanczos Diagonalization is not converged in 3000 basis")
 
 
-def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
+def _is_jax(x: np.ndarray | jax.Array) -> bool:
+    return isinstance(x, jax.Array)
+
+
+def _stack(
+    states: list[np.ndarray] | list[jax.Array],
+    multiplyOp: SplitStack,
+    extend: bool = False,
+) -> np.ndarray | jax.Array:
+    return multiplyOp.stack(states, extend=extend)
+
+
+def _split(
+    vec: np.ndarray | jax.Array, multiplyOp: SplitStack, truncate: bool = False
+) -> list[np.ndarray] | list[jax.Array]:
+    return multiplyOp.split(vec, truncate=truncate)
+
+
+def _dot(
+    states: list[np.ndarray] | list[jax.Array], multiplyOp: SplitStack
+) -> list[np.ndarray] | list[jax.Array]:
+    return multiplyOp.dot(states)
+
+
+def _norm(x: np.ndarray | jax.Array) -> float:
+    if _is_jax(x):
+        return float(jnp.linalg.norm(x))
+    else:
+        return float(np.linalg.norm(x))
+
+
+def _H(
+    psi_states: list[np.ndarray] | list[jax.Array], multiplyOp: SplitStack
+) -> np.ndarray | jax.Array:
+    return multiplyOp.stack(multiplyOp.dot(psi_states))
+
+
+def _iter_info(
+    psi_states: list[np.ndarray] | list[jax.Array],
+) -> tuple[int, int, int]:
+    maxsize = max([x.size for x in psi_states])
+    ndim = min(maxsize, 20)
+    n_warmup = min(
+        maxsize, min(max(0, _Debug.niter_krylov[_Debug.site_now] - 2), 15)
+    )
+    return maxsize, ndim, n_warmup
+
+
+def _normalize(
+    v: np.ndarray | jax.Array,
+) -> tuple[np.ndarray | jax.Array, float]:
+    if const.conserve_norm:
+        return v, 1.0
+    else:
+        β0 = _norm(v)
+        if β0 == 0.0:
+            raise ValueError("Initial psi has zero norm.")
+        v /= β0
+        return v, β0
+
+
+def _rescale(v: np.ndarray | jax.Array, β0: float) -> np.ndarray | jax.Array:
+    if const.conserve_norm:
+        return v / _norm(v)
+    else:
+        return v * β0
+
+
+@jax.jit
+def _orth_step_jax(
+    v: jax.Array, V: jax.Array
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+    # V: (k, N), v: (N,)
+    # h_i = <V_i, v>
+    hcol = jnp.sum(jnp.conj(V) * v[jnp.newaxis, :], axis=1)  # (k,)
+    # v' = v - Σ_i h_i V_i
+    v -= jnp.sum(hcol[:, jnp.newaxis] * V, axis=0)  # (N,)
+    beta = jnp.linalg.norm(v).real
+    v /= beta
+    V = stack_to_cvecs(v, V)
+    return hcol, v, V, beta.astype(jnp.float64)
+
+
+def _orth_step_np(
+    v: np.ndarray, V: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.float64]:
+    hcol: np.ndarray = np.sum(np.conj(V) * v[np.newaxis, :], axis=1)  # (k,)
+    v -= np.sum(hcol[:, np.newaxis] * V, axis=0)  # (N,)
+    beta = np.linalg.norm(v)
+    v /= beta
+    V = np.vstack([V, v])
+    return hcol, v, V, beta.astype(np.float64)
+
+
+@overload
+def short_iterative_arnoldi(
+    scale: float | complex,
+    multiplyOp,
+    psi_states: list[np.ndarray],
+    thresh: float,
+) -> list[np.ndarray]: ...
+
+
+@overload
+def short_iterative_arnoldi(
+    scale: float | complex,
+    multiplyOp,
+    psi_states: list[jax.Array],
+    thresh: float,
+) -> list[jax.Array]: ...
+
+
+def short_iterative_arnoldi(
+    scale: float | complex,
+    multiplyOp: SplitStack,
+    psi_states: list[np.ndarray] | list[jax.Array],
+    thresh: float,
+) -> list[np.ndarray] | list[jax.Array]:
     """Approximate matrix exponential by \
         Short-time iterative Arnoldi algorithm
 
@@ -158,62 +288,113 @@ def short_iterative_arnoldi(scale, multiplyOp, psi_states, thresh):
                 ``np.ndarray`` part shape is \
                 (tau_{p-1}, j_p, tau_p) or (tau_{p-1}, tau_p).
 
+    - Vector side (cveclist, v, psi_next) can be GPU-executed if stored in JAX
+    - Hessenberg (<=20x20) and its eigendecomposition use CPU (NumPy/SciPy)
+    - First few iterations expand Krylov basis without eigendecomposition (same spirit as SIL)
+    - Warning if Hessenberg is essentially tridiagonal
     """
-    if const.use_jax:
-        raise NotImplementedError(
-            "Short Iterative Arnoldi is not implemented for JAX."
-        )
-    ndim = min(sum([x.size for x in psi_states]), 20)
-    # short iterative lanczos should converge in a few steps
-    hessen = np.zeros((ndim + 1, ndim + 1), dtype=complex)
-    psi = multiplyOp.stack(psi_states)
-    if const.conserve_norm:
-        β0 = 1.0
+
+    # --- JIT-able orthogonalization (SIL-style batch orthogonalization) ---
+
+    def _maybe_warn_tridiag(Hsub: np.ndarray) -> None:
+        if _Debug.niter_krylov[_Debug.site_now] > 3:
+            return
+        k = Hsub.shape[0]
+        if k <= 2:
+            return
+        # Check above the first super-diagonal (third diagonal and beyond)
+        mask = np.triu(np.ones_like(Hsub, dtype=bool), 2)
+        off = np.linalg.norm(Hsub[mask])
+        if off <= 1e-12:
+            logger.warning(
+                f"Arnoldi Hessenberg became tridiagonal {Hsub=}; consider using Lanczos for efficiency."
+            )
+            if const.pytest_enabled:
+                raise ValueError("Arnoldi Hessenberg became tridiagonal")
+
+    stack = partial(_stack, multiplyOp=multiplyOp)
+    split = partial(_split, multiplyOp=multiplyOp)
+    H = partial(_H, multiplyOp=multiplyOp)
+
+    # --- Parameters / warmup gating ---
+    psi_next_sv = None
+    maxsize, ndim, n_warmup = _iter_info(psi_states)
+    hessen = np.zeros((ndim + 1, ndim + 1), dtype=np.complex128)  # CPU
+
+    # --- Initial vector ---
+    v0 = stack(psi_states, extend=True)
+    v0, β0 = _normalize(v0)
+    if _is_jax(v0):
+        V = stack_to_cvecs(v0)
     else:
-        β0 = np.linalg.norm(psi).item()
-        psi /= β0
-    cveclist = [psi]
+        V = np.vstack([v0])
+
     for ldim in range(ndim + 1):
-        """Hessenberg matrix by Arnoldi algorithm"""
-        trial_states = multiplyOp.split(cveclist[-1])
-        sigvec_states = multiplyOp.dot(trial_states)
-        sigvec = multiplyOp.stack(sigvec_states)
-        for icol, cvec in enumerate(cveclist):
-            hessen[icol, ldim] = np.inner(np.conj(cvec), sigvec)
-            sigvec -= cvec * hessen[icol, ldim]
+        # --- Arnoldi step: v = A @ v_k ---
+        if ldim == 0:
+            trial_states = psi_states
+        else:
+            trial_states = split(V[-1], truncate=True)
+        v_l = H(trial_states)
+        if not const.conserve_norm and ldim == 0:
+            v_l /= β0
 
-        subH = hessen[: ldim + 1, : ldim + 1]
-        eigvals, eigvecs = scipy.linalg.eig(subH)
-        # Naive implementation
-        psi_next = sum(
-            [
-                cvec
-                * np.sum(
-                    eigvecs[k, :]
-                    * np.exp(scale * eigvals)
-                    * scipy.linalg.inv(eigvecs)[:, 0]
+        # --- Orthogonalise ---
+        if _is_jax(v0):
+            hcol, _, V, beta_j = _orth_step_jax(v_l, V)  # JIT
+            hessen[: ldim + 1, ldim] = np.asarray(hcol)
+        else:
+            hcol, _, V, beta_j = _orth_step_np(v_l, V)  # type: ignore
+            hessen[: ldim + 1, ldim] = hcol
+        beta = float(beta_j)
+        hessen[ldim + 1, ldim] = beta
+
+        # --- Breakdown: this is the only place that requires eigendecomposition ---
+        if is_converged := (beta < 1e-15):
+            pass
+        elif ldim < n_warmup:
+            # --- Warmup: skip eigendecomposition and basis expansion ---
+            continue
+        if ldim == 0:
+            psi_next = v0 * cmath.exp(scale * hessen[0, 0])
+        else:
+            # --- Ritz update on current subspace ---
+            subH = hessen[: ldim + 1, : ldim + 1]
+            eigvals, eigvecs = np.linalg.eig(subH)
+            Vinv = np.linalg.inv(eigvecs)
+            coeff = eigvecs @ (np.exp(scale * eigvals) * Vinv[:, 0])
+            if _is_jax(v0):
+                psi_next = jnp.tensordot(
+                    jnp.asarray(coeff), V[:-1, :], axes=(0, 0)
                 )
-                for k, cvec in enumerate(cveclist)
-            ]
-        )
+            else:
+                psi_next = np.tensordot(
+                    np.asarray(coeff), V[:-1, :], axes=(0, 0)
+                )
 
-        if scipy.linalg.norm(sigvec) < 1e-15:
+        if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if not const.conserve_norm:
-                psi_next *= β0
+            psi_next = _rescale(psi_next, β0)
+            return split(psi_next)
+        elif ldim == maxsize:
+            # When Krylov subspace is the same as the whole space,
+            # calculated psi_next must be the exact solution.
+            _Debug.niter_krylov[_Debug.site_now] = ldim
+            psi_next = _rescale(psi_next, β0)
             return multiplyOp.split(psi_next)
-        elif ldim == 0:
+
+        # --- Convergence check ---
+        if psi_next_sv is None:
             psi_next_sv = psi_next
         else:
-            err = scipy.linalg.norm(psi_next - psi_next_sv)
+            err = _norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                if not const.conserve_norm:
-                    psi_next *= β0
-                return multiplyOp.split(psi_next)
+                psi_next = _rescale(psi_next, β0)
+                _maybe_warn_tridiag(subH)
+                return split(psi_next)
             psi_next_sv = psi_next
-        hessen[ldim + 1, ldim] = scipy.linalg.norm(sigvec)
-        cveclist.append(sigvec / hessen[ldim + 1, ldim])
+
     raise ValueError("Short Iterative Arnoldi is not converged in 20 basis")
 
 
@@ -298,49 +479,31 @@ def short_iterative_lanczos(
             return |ψ(Δt)>
     ```
     """
-
-    def norm(psi: np.ndarray | jax.Array) -> float:
-        if isinstance(psi, jax.Array):
-            return jnp.linalg.norm(psi).item()
-        else:
-            return np.linalg.norm(psi).item()
-
-    def H(
-        psi_states: list[np.ndarray] | list[jax.Array],
-    ) -> np.ndarray | jax.Array:
-        return multiplyOp.stack(multiplyOp.dot(psi_states))
+    stack = partial(_stack, multiplyOp=multiplyOp)
+    split = partial(_split, multiplyOp=multiplyOp)
+    H = partial(_H, multiplyOp=multiplyOp)
 
     psi_next_sv = None
-    nstep_skip_conv_check = min(
-        max(0, _Debug.niter_krylov[_Debug.site_now] - 2),
-        15,
-    )
-
-    maxsize = sum([x.size for x in psi_states])
-    ndim = min(maxsize, 20)
-    # short iterative lanczos should converge in a few steps
+    maxsize, ndim, n_warmup = _iter_info(psi_states)
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
-    v1 = multiplyOp.stack(psi_states, extend=True)
-    use_jax = isinstance(v1, jax.Array)
-    if const.conserve_norm:
-        β0 = 1.0
-    else:
-        β0 = norm(v1)
-        v1 /= β0
+    v0 = stack(psi_states, extend=True)
+    v0, β0 = _normalize(v0)
+    use_jax = isinstance(v0, jax.Array)
+    alpha_is_real = True
     if use_jax:
-        v1_conj: np.ndarray | jax.Array = jnp.conj(v1)
-        V = stack_to_cvecs(v1)
+        v0_conj: np.ndarray | jax.Array = jnp.conj(v0)
+        V = stack_to_cvecs(v0)
     else:
-        v1_conj = np.conj(v1)
-        V = np.vstack([v1])
+        v0_conj = np.conj(v0)
+        V = np.vstack([v0])
 
     for ldim in range(ndim + 1):
         """Hessenberg matrix by Lanczos algorithm"""
         if ldim == 0:
             trial_states = psi_states
         else:
-            trial_states = multiplyOp.split(V[-1], truncate=True)
+            trial_states = split(V[-1], truncate=True)
 
         v_l = H(trial_states)
         if not const.conserve_norm and ldim == 0:
@@ -349,14 +512,12 @@ def short_iterative_lanczos(
         if use_jax:
             if ldim == 0:
                 β_l = None
-            v_l, V, α_l, β_l = _next_sigvec_cvecs_alpha_beta(
-                v_l, V, v1_conj, β_l
-            )
-            alpha.append(float(α_l))
+            _, V, α_l, β_l = _next_sigvec_cvecs_alpha_beta(v_l, V, v0_conj, β_l)
+            alpha.append(complex(α_l))
             beta.append(float(β_l))
         else:
-            α_l = np.inner(v1_conj, v_l).real
-            alpha.append(float(α_l))
+            α_l = np.inner(v0_conj, v_l)
+            alpha.append(complex(α_l))
             v_l -= V[-1] * α_l
             if ldim > 0:
                 v_l -= V[-2] * β_l  # noqa: F821
@@ -368,22 +529,38 @@ def short_iterative_lanczos(
                 # Krylov space exhausted
                 v_l = np.empty_like(v_l)
             V = np.vstack([V, v_l])
+        if alpha_is_real and np.abs(alpha[-1].imag) > 1e-12:
+            alpha_is_real = False
+            if const.conserve_norm:
+                logger.warning(
+                    "Diagonal element of Hessenberg matrix is complex, it usually means that the Hamiltonian is not Hermitian. but you have set conserve_norm=True."
+                )
         if is_converged := (beta[-1] < 1e-15):
             pass
-        else:
-            if ldim < min(nstep_skip_conv_check, maxsize):
-                continue
+        elif ldim < n_warmup:
+            continue
 
         if ldim == 0:
-            psi_next = v1 * cmath.exp(scale * alpha[-1])
+            psi_next = v0 * cmath.exp(scale * alpha[-1])
         else:
             # If jax.scipy.linalg.eigh_tridiagonal(eigvals_only=True) is available,
             # we will change whole loop implemented in JAX.
             if use_jax:
                 # # This method is slow when using GPU
                 # psi_next = _get_psi_next_jax(alpha, beta[:-1], cvecs, scale)
-                Λ, Φ = scipy.linalg.eigh_tridiagonal(alpha, beta[:-1])
-                expAΦᵗ0 = np.exp(scale * Λ) * np.conjugate(Φ).T[:, 0]
+                if alpha_is_real:
+                    Λ, Φ = scipy.linalg.eigh_tridiagonal(
+                        np.real(alpha), beta[:-1]
+                    )
+                    expAΦᵗ0 = np.exp(scale * Λ) * np.conjugate(Φ).T[:, 0]
+                else:
+                    mat = (
+                        np.diag(alpha, 0)
+                        + np.diag(beta[:-1], -1).astype(np.complex128)
+                        + np.diag(beta[:-1], 1).astype(np.complex128)
+                    )
+                    Λ, Φ = scipy.linalg.eig(mat)
+                    expAΦᵗ0 = np.exp(scale * Λ) * np.linalg.inv(Φ)[:, 0]
                 # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
                 ΦexpAΦᵗ0 = scipy.linalg.blas.zgemv(
                     alpha=1.0,
@@ -398,10 +575,20 @@ def short_iterative_lanczos(
                 psi_next = jnp.dot(
                     jnp.array(ΦexpAΦᵗ0, dtype=jnp.complex128), V[:-1, :]
                 )
-
             else:
-                Λ, Φ = scipy.linalg.eigh_tridiagonal(alpha, beta[:-1])
-                expAΦᵗ0 = np.exp(scale * Λ) * np.conjugate(Φ).T[:, 0]
+                if alpha_is_real:
+                    Λ, Φ = scipy.linalg.eigh_tridiagonal(
+                        np.real(alpha), beta[:-1]
+                    )
+                    expAΦᵗ0 = np.exp(scale * Λ) * np.conjugate(Φ).T[:, 0]
+                else:
+                    mat = (
+                        np.diag(alpha, 0)
+                        + np.diag(beta[:-1], -1).astype(np.complex128)
+                        + np.diag(beta[:-1], 1).astype(np.complex128)
+                    )
+                    Λ, Φ = scipy.linalg.eig(mat)
+                    expAΦᵗ0 = np.exp(scale * Λ) * np.linalg.inv(Φ)[:, 0]
                 # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
                 # NOTE: If scipy backend is MKL, numpy and mpi4py align with MKL.
                 #       Otherwise, parallelization will inefficient.
@@ -415,31 +602,23 @@ def short_iterative_lanczos(
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
         if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if not const.conserve_norm:
-                psi_next *= β0
-            return multiplyOp.split(psi_next)
+            psi_next = _rescale(psi_next, β0)
+            return split(psi_next)
         elif ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            if const.conserve_norm:
-                psi_next /= norm(psi_next)
-            else:
-                psi_next *= β0
-            return multiplyOp.split(psi_next)
+            psi_next = _rescale(psi_next, β0)
+            return split(psi_next)
 
         if psi_next_sv is None:
             psi_next_sv = psi_next
         else:
-            err = norm(psi_next - psi_next_sv)
+            err = _norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                if const.conserve_norm:
-                    # |C| should be 1.0
-                    psi_next /= norm(psi_next)
-                else:
-                    psi_next *= β0
-                return multiplyOp.split(psi_next)
+                psi_next = _rescale(psi_next, β0)
+                return split(psi_next)
             psi_next_sv = psi_next
     raise ValueError(
         f"Short Iterative Lanczos is not converged in {ldim} basis when {maxsize=}. Try shorter time interval."
@@ -447,29 +626,29 @@ def short_iterative_lanczos(
 
 
 @jax.jit
-def stack_to_cvecs(psi: jax.Array, cvecs: jax.Array | None = None) -> jax.Array:
-    if cvecs is None:
-        return jnp.vstack([psi])
+def stack_to_cvecs(v: jax.Array, V: jax.Array | None = None) -> jax.Array:
+    if V is None:
+        return jnp.vstack([v])
     else:
-        return jnp.vstack([cvecs, psi])
+        return jnp.vstack([V, v])
 
 
 @jax.jit
 def _next_sigvec_cvecs_alpha_beta(
-    sigvec: jax.Array,
-    cvecs: jax.Array,
+    v: jax.Array,
+    V: jax.Array,
     psi_conj: jax.Array,
     beta: float | None = None,
 ) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
-    alpha = jnp.inner(psi_conj, sigvec).real
+    alpha = jnp.inner(psi_conj, v)
     if beta is None:
-        sigvec = sigvec - cvecs[-1] * alpha
+        v -= V[-1] * alpha
     else:
-        sigvec = sigvec - cvecs[-1] * alpha - cvecs[-2] * beta
-    beta = jnp.linalg.norm(sigvec).real
-    sigvec /= beta
-    cvecs = stack_to_cvecs(sigvec, cvecs)
-    return sigvec, cvecs, alpha.astype(jnp.float64), beta.astype(jnp.float64)  # type: ignore
+        v -= V[-1] * alpha + V[-2] * beta
+    beta = jnp.linalg.norm(v).real
+    v /= beta
+    V = stack_to_cvecs(v, V)
+    return v, V, alpha.astype(jnp.complex128), beta.astype(jnp.float64)  # type: ignore
 
 
 @jax.jit

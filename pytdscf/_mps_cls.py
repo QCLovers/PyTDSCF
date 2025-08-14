@@ -1080,7 +1080,7 @@ class MPSCoef(ABC):
                 # In Hilbert space and Hamiltonian is Hermitian,
                 # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(matPsi_states_new)
-                matPsi_states_new = [x / norm for x in matPsi_states_new]
+                matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
 
         """update(over-write) matPsi(psite)"""
         for istate, superblock in enumerate(superblock_states):
@@ -1207,12 +1207,16 @@ class MPSCoef(ABC):
             self.superblock_states[istate][isite].data
             for isite in range(len(remain_nleg))
         ]
+        # If MPS is not canonicalised, all cores are explicitly contracted.
+        # cores = [core.copy() for core in cores]
+        # remain_nleg = remain_nleg + (0,) * (len(cores) - len(remain_nleg))
         if isinstance(cores[0], jax.Array):
             return _get_normalized_reduced_density_jax(cores, remain_nleg)
         else:
             core = cores.pop()
             nleg = remain_nleg[-1]
             if nleg == 0:
+                subscript = "ijk,ajk->ia"
                 raise ValueError("The number of legs must be greater than 0.")
             elif nleg == 1:
                 """

@@ -11,7 +11,7 @@ from time import time
 import jax
 import jax.numpy as jnp
 import numpy as np
-from loguru import logger
+from loguru import logger as _logger
 
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
@@ -40,7 +40,7 @@ from pytdscf.hamiltonian_cls import (
 )
 from pytdscf.model_cls import Model
 
-logger = logger.bind(name="main")
+logger = _logger.bind(name="main")
 
 
 def construct_matH_general_at_psite(matH, psite: int, A_is_sys):
