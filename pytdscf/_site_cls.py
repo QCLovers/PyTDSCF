@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from loguru import logger as _logger
+from scipy.linalg import qr, svd
 
 from pytdscf._const_cls import const
 
@@ -228,9 +229,16 @@ class SiteCoef:
                     .transpose(0, 2, 1)
                 )
             else:
-                U, sig, Vh = np.linalg.svd(
-                    matC.transpose(0, 2, 1).reshape(-1, ndim),
+                # U, sig, Vh = np.linalg.svd(
+                #     matC.transpose(0, 2, 1).reshape(-1, ndim),
+                #     full_matrices=False,
+                # )
+                U, sig, Vh = svd(
+                    np.ascontiguousarray(
+                        matC.transpose(0, 2, 1).reshape(-1, ndim)
+                    ),
                     full_matrices=False,
+                    overwrite_a=True,
                 )
                 sig_reg = np.where(
                     sig > sqrt_epsrho,
@@ -250,8 +258,15 @@ class SiteCoef:
             if const.use_jax:
                 sval, matR = gauge_trf_LQ(matC, m_aux_sys, nspf, m_aux_env)
             else:
-                Q, R = np.linalg.qr(
-                    matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="reduced"
+                # Q, R = np.linalg.qr(
+                #     matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="reduced"
+                # )
+                Q, R = qr(
+                    np.ascontiguousarray(
+                        matC.transpose((2, 1, 0)).reshape(ndim, -1)
+                    ),
+                    mode="economic",
+                    overwrite_a=True,
                 )
                 sval = R.transpose()
                 matR = Q.reshape(m_aux_sys, nspf, -1).transpose((2, 1, 0))
@@ -260,7 +275,10 @@ class SiteCoef:
             if const.use_jax:
                 sval, matL = gauge_trf_QR(matC, m_aux_sys, nspf, m_aux_env)
             else:
-                Q, R = np.linalg.qr(matC.reshape(ndim, -1), mode="reduced")
+                # Q, R = np.linalg.qr(matC.reshape(ndim, -1), mode="reduced")
+                Q, R = qr(
+                    matC.reshape(ndim, -1), mode="economic", overwrite_a=True
+                )
                 sval = R
                 try:
                     matL = Q.reshape(m_aux_sys, nspf, -1)
@@ -292,7 +310,8 @@ class SiteCoef:
                 assert l * c >= r
                 dr = min(delta_rank, l * c - r)
                 mat = self.data.reshape((l * c, r))
-                Q, _ = np.linalg.qr(mat, mode="complete")
+                # Q, _ = np.linalg.qr(mat, mode="complete")
+                Q, _ = qr(mat, mode="full", overwrite_a=False)
                 # to align sign of Q, calculate inner product of Q and Q_ref
                 ip = mat.T.conj() @ Q
                 unflip = np.sign(np.sign(np.diag(ip[:r, :r])) + 0.5)
@@ -320,7 +339,10 @@ class SiteCoef:
                 assert c * r >= l
                 dl = min(delta_rank, c * r - l)
                 mat = self.data.reshape((l, c * r)).transpose(1, 0)
-                Q, _ = np.linalg.qr(mat, mode="complete")
+                # Q, _ = np.linalg.qr(mat, mode="complete")
+                Q, _ = qr(
+                    np.ascontiguousarray(mat), mode="full", overwrite_a=False
+                )
                 # to align sign of Q, calculate inner product of Q and Q_ref
                 ip = mat.T.conj() @ Q
                 unflip = np.sign(np.sign(np.diag(ip[:l, :l])) + 0.5)
@@ -561,7 +583,8 @@ def truncate_sigvec(
     #     raise ValueError("Use eval_PsiXpinvPsi instead")
     if isinstance(sigvec, jax.Array):
         raise NotImplementedError
-    U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
+    # U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
+    U, sigvec2, Vh = svd(sigvec, full_matrices=False, overwrite_a=True)
     cumsum = np.cumsum(sigvec2.real)
     contribution = cumsum / cumsum[-1]
     idx = np.argmax(contribution >= (1 - p)) + 1
@@ -712,6 +735,7 @@ def eval_PsiXpinvPsi(
     dZ = Z - X
     dY = Y - X
     U, S, Vh = np.linalg.svd(X, full_matrices=False)
+    # U, S, Vh = svd(X, full_matrices=False, overwrite_a=False)
     Sinv = np.zeros_like(S)
     Sinv[S > SQRT_EPSRHO] = 1 / S[S > SQRT_EPSRHO]
     Sinv = np.diag(Sinv)

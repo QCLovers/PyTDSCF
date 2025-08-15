@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from opt_einsum import contract
-from scipy.linalg import expm
+from scipy.linalg import expm, svd
 
 from pytdscf._const_cls import const
 
@@ -190,7 +190,8 @@ def _kraus_contract_single_site_np(B: np.ndarray, A: np.ndarray) -> np.ndarray:
     """
 
     # 4. SVD of C
-    U, S, _ = np.linalg.svd(C, full_matrices=False)
+    # U, S, _ = np.linalg.svd(C, full_matrices=False)
+    U, S, _ = svd(C, full_matrices=False, overwrite_a=True)
     """
     mnx-U-kK kK-S-kK kK-Vh-kK
     """
@@ -303,9 +304,8 @@ def _kraus_contract_two_site_np(
     mxn-C-kK
     """
     C = C.reshape(m * x * n, k * K)
-    # 1. Rank-limited SVD of C (only compute first K singular values)
-    # This is much faster when K << min(m*x*n, k*K)
-    U, S, _ = np.linalg.svd(C, full_matrices=False)
+    # U, S, _ = np.linalg.svd(C, full_matrices=False, overwrite=True)
+    U, S, _ = svd(C, full_matrices=False)
     if const.pytest_enabled:
         print(f"truncation percentage: {1 - S[:K].sum() / S.sum():.2%}")
     S = S[:K]
@@ -332,7 +332,8 @@ def _kraus_contract_two_site_np(
     mx-C-Kn
     """
     # 6. Rank-limited SVD of C (only compute first l singular values)
-    U, S, Vh = np.linalg.svd(C, full_matrices=False)
+    # U, S, Vh = np.linalg.svd(C, full_matrices=False)
+    U, S, Vh = svd(C, full_matrices=False, overwrite_a=True)
     U = U[:, :l]
     S = S[:l]
     Vh = Vh[:l, :]

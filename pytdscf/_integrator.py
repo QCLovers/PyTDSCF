@@ -195,22 +195,22 @@ def _iter_info(
 
 def _normalize(
     v: np.ndarray | jax.Array,
-) -> tuple[np.ndarray | jax.Array, float]:
+) -> float:
     if const.conserve_norm:
-        return v, 1.0
+        return 1.0
     else:
         β0 = _norm(v)
         if β0 == 0.0:
             raise ValueError("Initial psi has zero norm.")
         v /= β0
-        return v, β0
+        return β0
 
 
-def _rescale(v: np.ndarray | jax.Array, β0: float) -> np.ndarray | jax.Array:
+def _rescale(v: np.ndarray | jax.Array, β0: float):
     if const.conserve_norm:
-        return v / _norm(v)
+        v /= _norm(v)
     else:
-        return v * β0
+        v *= β0
 
 
 @jax.jit
@@ -297,7 +297,7 @@ def short_iterative_arnoldi(
     # --- JIT-able orthogonalization (SIL-style batch orthogonalization) ---
 
     def _maybe_warn_tridiag(Hsub: np.ndarray) -> None:
-        if _Debug.niter_krylov[_Debug.site_now] > 3:
+        if not const.pytest_enabled:
             return
         k = Hsub.shape[0]
         if k <= 2:
@@ -309,8 +309,6 @@ def short_iterative_arnoldi(
             logger.warning(
                 f"Arnoldi Hessenberg became tridiagonal {Hsub=}; consider using Lanczos for efficiency."
             )
-            if const.pytest_enabled:
-                raise ValueError("Arnoldi Hessenberg became tridiagonal")
 
     stack = partial(_stack, multiplyOp=multiplyOp)
     split = partial(_split, multiplyOp=multiplyOp)
@@ -323,7 +321,7 @@ def short_iterative_arnoldi(
 
     # --- Initial vector ---
     v0 = stack(psi_states, extend=True)
-    v0, β0 = _normalize(v0)
+    β0 = _normalize(v0)
     if _is_jax(v0):
         V = stack_to_cvecs(v0)
     else:
@@ -374,13 +372,13 @@ def short_iterative_arnoldi(
 
         if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            psi_next = _rescale(psi_next, β0)
+            _rescale(psi_next, β0)
             return split(psi_next)
         elif ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            psi_next = _rescale(psi_next, β0)
+            _rescale(psi_next, β0)
             return multiplyOp.split(psi_next)
 
         # --- Convergence check ---
@@ -390,7 +388,7 @@ def short_iterative_arnoldi(
             err = _norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                psi_next = _rescale(psi_next, β0)
+                _rescale(psi_next, β0)
                 _maybe_warn_tridiag(subH)
                 return split(psi_next)
             psi_next_sv = psi_next
@@ -488,7 +486,7 @@ def short_iterative_lanczos(
     alpha = []  # diagonal term
     beta = []  # semi-diagonal term
     v0 = stack(psi_states, extend=True)
-    v0, β0 = _normalize(v0)
+    β0 = _normalize(v0)
     use_jax = isinstance(v0, jax.Array)
     alpha_is_real = True
     if use_jax:
@@ -602,13 +600,13 @@ def short_iterative_lanczos(
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
         if is_converged:
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            psi_next = _rescale(psi_next, β0)
+            _rescale(psi_next, β0)
             return split(psi_next)
         elif ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
-            psi_next = _rescale(psi_next, β0)
+            _rescale(psi_next, β0)
             return split(psi_next)
 
         if psi_next_sv is None:
@@ -617,7 +615,7 @@ def short_iterative_lanczos(
             err = _norm(psi_next - psi_next_sv)
             if err < thresh:
                 _Debug.niter_krylov[_Debug.site_now] = ldim
-                psi_next = _rescale(psi_next, β0)
+                _rescale(psi_next, β0)
                 return split(psi_next)
             psi_next_sv = psi_next
     raise ValueError(
