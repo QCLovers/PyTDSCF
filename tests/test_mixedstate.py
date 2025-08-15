@@ -36,7 +36,6 @@ By   = 10.0 * 0.1
 Bz   = 10.0 * 0.1
 k_Haberkorn = 0.1
 k_L_amp, k_L_deph = 6.0, 9.0
-# k_Haberkorn, k_L_amp, k_L_deph = 0.0, 0.0, 0.0 # for testing
 
 Sx = np.array([[0, 1], [1, 0]]) / 2
 Sy = np.array([[0, -1j], [1j, 0]]) / 2
@@ -216,7 +215,7 @@ def exact_solution(Lindblad=True, krylov=False):
     return rdms
 
 @pytest.mark.parametrize("backend", ['numpy', 'jax'])
-def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=10):
+def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1):
     rdms_exact = exact_solution(Lindblad=False)
     sx0 = OpSite("sx0", 0, value=Sx)
     sy0 = OpSite("sy0", 0, value=Sy)
@@ -273,7 +272,7 @@ def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=10)
         )
         simulator.propagate(
             reduced_density=([(1, 1)], 1),
-            maxstep=n_steps,
+            maxstep=n_steps*scale,
             stepsize=delta_t / scale,
             autocorr=True,
             energy=False,
@@ -305,14 +304,14 @@ def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=10)
     density_sums /= len(hps)
     plot_rdms(density_sums, 'sum_wavefunction_trajectory')
     np.testing.assert_allclose(rdms_exact[0, :, :], density_sums[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30 // scale, :, :], density_sums[30, :, :], atol=1e-12)
+    np.testing.assert_allclose(rdms_exact[30, :, :], density_sums[30*scale, :, :], atol=1e-12)
 
 
 @pytest.mark.parametrize("backend,supergate,scale", [
     ('numpy', False, 1),
-    ('numpy', True, 10),
+    ('numpy', True, 1),
     ('jax', False, 1),
-    ('jax', True, 10),
+    ('jax', True, 1),
 ])
 def test_vectorised_density_matrix(
         backend: Literal['numpy', 'jax'],
@@ -446,7 +445,7 @@ def test_vectorised_density_matrix(
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
 
 @pytest.mark.parametrize("backend", ['numpy', 'jax'])
-def test_purified_mps(backend: Literal['numpy', 'jax'], scale=10):
+def test_purified_mps(backend: Literal['numpy', 'jax'], scale=1):
     rdms_exact = exact_solution(Lindblad=False)
     sx0 = OpSite("sx0", 1, value=Sx)
     sy0 = OpSite("sy0", 1, value=Sy)
@@ -522,7 +521,7 @@ def test_purified_mps(backend: Literal['numpy', 'jax'], scale=10):
     )
     simulator.propagate(
         reduced_density=([(2, 2)], 1),
-        maxstep=n_steps,
+        maxstep=n_steps*scale,
         stepsize=delta_t / scale,
         autocorr=False,
         energy=False,
@@ -549,10 +548,132 @@ def test_purified_mps(backend: Literal['numpy', 'jax'], scale=10):
 
     plot_rdms(rdms, 'purified_mps')
     np.testing.assert_allclose(rdms_exact[0, :, :], rdms[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30 // scale, :, :], rdms[30, :, :], atol=1e-12)
+    np.testing.assert_allclose(rdms_exact[30, :, :], rdms[30*scale, :, :], atol=1e-12)
 
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
+
+@pytest.mark.parametrize("backend", ['numpy', 'jax'])
+def test_purified_mps_kraus(backend: Literal['numpy', 'jax'], scale=1):
+    rdms_exact = exact_solution(Lindblad=True)
+    kraus_dim = 12
+    Ek = np.eye(kraus_dim)
+    sx0 = OpSite("sx0", 1, value=Sx)
+    sy0 = OpSite("sy0", 1, value=Sy)
+    sz0 = OpSite("sz0", 1, value=Sz)
+    sx1 = OpSite("sx1E", 2, value=np.kron(Ix, Ek)) # phsycal index x kraus index
+    sy1 = OpSite("sy1E", 2, value=np.kron(Iy, Ek))
+    sz1 = OpSite("sz1E", 2, value=np.kron(Iz, Ek))
+    sx2 = OpSite("sx2", 3, value=Sx)
+    sy2 = OpSite("sy2", 3, value=Sy)
+    sz2 = OpSite("sz2", 3, value=Sz)
+    E1 = OpSite("E1", 2, value=np.kron(E3, Ek))
+
+    sop = SumOfProducts()
+    sop += Bx * sx1
+    sop += By * sy1
+    sop += Bz * sz1
+    sop += J_01 * (sx0 * sx1 + sy0 * sy1 + sz0 * sz1)
+    sop += J_12 * (sx1 * sx2 + sy1 * sy2 + sz1 * sz2)
+    sop += -1.0j * k_Haberkorn / 2 * E1
+
+    eye_sites = [
+        get_eye_site(0, n_basis=2),
+        get_eye_site(1, n_basis=2),
+        get_eye_site(2, n_basis=3*kraus_dim),
+        get_eye_site(3, n_basis=2),
+        get_eye_site(4, n_basis=2),
+    ]
+    dummy = 1
+    for eye_site in eye_sites:
+        dummy *= eye_site
+    sop += 0.0 * dummy
+
+    sop = sop.simplify()
+    am = AssignManager(sop)
+    am.assign()
+    mpo = am.numerical_mpo()
+
+    delta_t = dt * units.au_in_fs
+    basis = [Exciton(nstate=2), Exciton(nstate=2),
+             Exciton(nstate=3*kraus_dim),
+             Exciton(nstate=2), Exciton(nstate=2)]
+    basinfo = BasInfo([basis], spf_info=None)
+
+    op_dict ={
+        ((0,), (1, 1), (2, 2), (3, 3), (4,)): TensorOperator(mpo=mpo)
+    }
+    H = TensorHamiltonian(
+        5, potential=[[op_dict]], backend=backend
+    )
+    from pytdscf.kraus import lindblad_to_kraus, trace_kraus_dim
+    Bs = lindblad_to_kraus([L_amp_middle, L_deph_middle], dt / scale, backend=backend)
+    print(Bs.shape)
+
+    model = Model(
+        basinfo=basinfo,
+        operators={"hamiltonian": H},
+        kraus_op={2: Bs}
+    )
+
+    anc_0 = np.zeros((1, 2, 2))
+    anc_0[0, 0, 0] = 1
+    anc_0[0, 1, 1] = 1
+    phys_1 = np.zeros((2, 2, 1))
+    phys_1[0, 0, 0] = 1
+    phys_1[1, 1, 0] = 1
+    phys_2 = np.zeros((1, 3*kraus_dim, 1))
+    phys_2[0, kraus_dim*2, 0] = 1
+    phys_3 = np.zeros((1, 2, 2))
+    phys_3[0, 0, 0] = 1
+    phys_3[0, 1, 1] = 1
+    anc_4 = np.zeros((2, 2, 1))
+    anc_4[0, 0, 0] = 1
+    anc_4[1, 1, 0] = 1
+    model.init_HartreeProduct = [[anc_0, phys_1, phys_2, phys_3, anc_4]]
+    model.m_aux_max = 64 # no compression
+    jobname = f"purified_mps_{backend}"
+    simulator = Simulator(
+        jobname=jobname,
+        model=model,
+        backend=backend,
+        verbose=0
+    )
+    simulator.propagate(
+        reduced_density=([(2, 2)], 1),
+        maxstep=n_steps*scale,
+        stepsize=delta_t / scale,
+        autocorr=False,
+        energy=False,
+        norm=False,
+        populations=False,
+        conserve_norm=False, # Since Haberkorn relaxation is included
+        integrator='lanczos', # Since H is still skew-Hermitian
+    )
+    with nc.Dataset(f"{jobname}_prop/reduced_density.nc", "r") as file:
+        density_data_real = file.variables[f"rho_({2}, {2})_0"][
+            :
+        ]["real"]
+        density_data_imag = file.variables[f"rho_({2}, {2})_0"][
+            :
+        ]["imag"]
+        time_data = file.variables["time"][:]
+    shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
+    os.remove(f"wf_{jobname}.pkl")
+
+    rdms = np.array(density_data_real) + 1.0j * np.array(
+        density_data_imag
+    )
+    rdms = trace_kraus_dim(rdms, 3)
+    time_data = np.array(time_data)
+
+    plot_rdms(rdms, 'purified_mps_kraus')
+    np.testing.assert_allclose(rdms_exact[0, :, :], rdms[0, :, :], atol=1e-12)
+    np.testing.assert_allclose(rdms_exact[30, :, :], rdms[30*scale, :, :], atol=1e-02 / scale**2)
+
+    # remove output files
+    shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
+
 
 
 if __name__ == '__main__':
@@ -564,5 +685,6 @@ if __name__ == '__main__':
     # test_vectorised_density_matrix(backend='numpy', supergate=True, scale=1)
     # test_vectorised_density_matrix(backend='jax', supergate=False)
     #test_purified_mps(backend='jax')
-    exact_solution(Lindblad=False, krylov=True)
+    #exact_solution(Lindblad=False, krylov=True)
     #test_lanczos_ill_case_nontridiagonal()
+    test_purified_mps_kraus(backend='jax', scale=1)

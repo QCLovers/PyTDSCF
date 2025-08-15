@@ -356,6 +356,7 @@ class WFunc:
         stepsize: float,
         istep: int,
         one_gate_to_apply: TensorHamiltonian | None = None,
+        kraus_op: dict[int, np.ndarray | jax.Array] | None = None,
     ):
         """
 
@@ -394,14 +395,19 @@ class WFunc:
                 load_balance=(istep - 1) % const.load_balance_interval == 0,
             )
         else:
-            if one_gate_to_apply is not None:
+            if one_gate_to_apply is not None or kraus_op is not None:
                 assert isinstance(matH, TensorHamiltonian)
                 self.ci_coef.propagate(
                     stepsize / 2,
                     self.ints_spf,
                     matH,
                 )
-                self.ci_coef.apply_one_gate(one_gate_to_apply, reorth_center=0)
+                if one_gate_to_apply is not None:
+                    self.ci_coef.apply_one_gate(
+                        one_gate_to_apply, reorth_center=0
+                    )
+                if kraus_op is not None:
+                    self.ci_coef.apply_kraus(kraus_op, reorth_center=0)
                 self.ci_coef.propagate(
                     stepsize / 2,
                     self.ints_spf,

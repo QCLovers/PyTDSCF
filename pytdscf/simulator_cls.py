@@ -434,6 +434,7 @@ class Simulator:
                     stepsize_actual,
                     istep,
                     one_gate_to_apply=self.model.one_gate_to_apply,
+                    kraus_op=self.model.kraus_op,
                 )
             else:
                 if const.doDVR:

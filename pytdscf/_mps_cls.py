@@ -44,6 +44,7 @@ from pytdscf.hamiltonian_cls import (
     PolynomialHamiltonian,
     TensorHamiltonian,
 )
+from pytdscf.kraus import kraus_contract
 from pytdscf.model_cls import Model
 
 logger = _logger.bind(name="main")
@@ -1184,7 +1185,7 @@ class MPSCoef(ABC):
                     matA.data = np.tensordot(matA.data, sval, axes=(2, 0))
                 matA.gauge = "Psi"
 
-    def _get_normalized_reduced_density(
+    def _get_pure_reduced_density(
         self, istate: int, remain_nleg: tuple[int, ...]
     ) -> np.ndarray | jax.Array:
         """
@@ -1211,7 +1212,7 @@ class MPSCoef(ABC):
         # cores = [core.copy() for core in cores]
         # remain_nleg = remain_nleg + (0,) * (len(cores) - len(remain_nleg))
         if isinstance(cores[0], jax.Array):
-            return _get_normalized_reduced_density_jax(cores, remain_nleg)
+            return _get_pure_reduced_density_jax(cores, remain_nleg)
         else:
             core = cores.pop()
             nleg = remain_nleg[-1]
@@ -1335,7 +1336,7 @@ class MPSCoef(ABC):
             )
         match const.space:
             case "hilbert":
-                _reduced_density = self._get_normalized_reduced_density(
+                _reduced_density = self._get_pure_reduced_density(
                     0, remain_nleg
                 )
             case "liouville":
@@ -2046,6 +2047,23 @@ class MPSCoef(ABC):
         self.superblock_states = [superblock]
         return
 
+    def apply_kraus(
+        self, kraus_op: dict[int, np.ndarray | jax.Array], reorth_center: int
+    ):
+        assert len(self.superblock_states) == 1, (
+            f"{self.superblock_states=} is not implemented"
+        )
+        superblock = self.superblock_states[0]
+        for isite, B in kraus_op.items():
+            assert isinstance(isite, int)
+            core = superblock[isite].data
+            core = kraus_contract(B, core) # type: ignore
+            superblock[isite].data = core
+        canonicalizeB(superblock[reorth_center : max(kraus_op.keys()) + 1])
+        canonicalizeA(superblock[min(kraus_op.keys()) : reorth_center + 1])
+        self.op_sys_sites = None
+        self.superblock_states = [superblock]
+
     def _apply_one_gate_isite(
         self,
         isite,
@@ -2618,7 +2636,7 @@ def print_gauge(superblock_states: list[list[SiteCoef]]):
 
 
 @partial(jax.jit, static_argnames=("remain_nleg",))
-def _get_normalized_reduced_density_jax(
+def _get_pure_reduced_density_jax(
     cores: list[jax.Array],
     remain_nleg: tuple[int, ...],
 ) -> jax.Array:

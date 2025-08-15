@@ -82,7 +82,7 @@ def get_mps_parallel(adaptive: bool):
         superblock = lattice_info.alloc_superblock_random(
             m_aux_max=1 if not adaptive else 10,
             scale=1.0,
-            weight_vib=weight_vib,
+            core_weight=weight_vib,
         )
     else:
         superblock = None
