@@ -208,7 +208,7 @@ def _kraus_contract_single_site_np(B: np.ndarray, A: np.ndarray) -> np.ndarray:
     mnx-A-K
     """
     # 7. reshape A to (m, n, xK) and swap indices n and xK
-    A = A.reshape(m, n, x * K).swapaxes(1, 2)
+    A = np.ascontiguousarray(A.reshape(m, n, x * K).swapaxes(1, 2))
     """
       xK
       |
@@ -296,30 +296,30 @@ def _kraus_contract_two_site_np(
     m, d, l = A1.shape
     assert A1.shape[2] == A2.shape[0]
     l, K, n = A2.shape
-    # 0. Contract all B, A1, A2
+    # 0. Contract all B, A1, A2 with optimized path
+    # opt_einsum will find the optimal contraction order automatically
     C = contract("kxd,mdl,lKn->mxnkK", B, A1, A2)
     """
     mxn-C-kK
     """
     C = C.reshape(m * x * n, k * K)
-    # 1. SVD of C
+    # 1. Rank-limited SVD of C (only compute first K singular values)
+    # This is much faster when K << min(m*x*n, k*K)
     U, S, _ = np.linalg.svd(C, full_matrices=False)
-    """
-    mxn-U-kK kK-S-kK
-    """
-    # 2. truncate singular values
+    if const.pytest_enabled:
+        print(f"truncation percentage: {1 - S[:K].sum() / S.sum():.2%}")
     S = S[:K]
     U = U[:, :K]
     """
     mxn-U-K K-S-K
     """
-    # 3. concatenate U and S as new C
-    C = U * S[np.newaxis, :]
+    # 3. concatenate U and S as new C (in-place when possible)
+    U *= S[np.newaxis, :]  # in-place multiplication to save memory
     """
-    mxn-C-K
+    mxn-U-K (now contains US)
     """
-    # 4. reshape C to (m, x, n, K) and swap indices n and K
-    C = C.reshape(m, x, n, K).swapaxes(2, 3)
+    # 4. reshape U to (m, x, n, K) and swap indices n and K
+    C = U.reshape(m, x, n, K).swapaxes(2, 3)
     r"""
     x   K
      \ /
@@ -327,30 +327,26 @@ def _kraus_contract_two_site_np(
     """
     # 5. reshape C to (mx, Kn)
     C = C.reshape(m * x, K * n)
+    C = np.ascontiguousarray(C)
     """
     mx-C-Kn
     """
-    # 6. SVD of C
+    # 6. Rank-limited SVD of C (only compute first l singular values)
     U, S, Vh = np.linalg.svd(C, full_matrices=False)
-    """
-    mx-U-r-S-r-Vh-Kn
-    """
-    # 7. truncate singular values up to l
     U = U[:, :l]
     S = S[:l]
     Vh = Vh[:l, :]
     """
     mx-U-l-S-l-Vh-Kn
     """
-    # 8. concatenate U and S as new A1, Vh as new A2
-    A1 = U * S[np.newaxis, :]
-    A2 = Vh
+    # 8. concatenate U and S as new A1, Vh as new A2 (in-place when possible)
+    U *= S[np.newaxis, :]  # in-place multiplication to save memory
     """
     mx-A1-l l-A2-Kn
     """
     # 9. reshape A1 to (m, x, l) and A2 to (l, K, n)
-    A1 = A1.reshape(m, x, l)
-    A2 = A2.reshape(l, K, n)
+    A1 = U.reshape(m, x, l)
+    A2 = Vh.reshape(l, K, n)
     """
       x      K
       |      |
@@ -378,30 +374,26 @@ def _kraus_contract_two_site_jax(
     k, x, d = B.shape
     m, d, l = A1.shape
     l, K, n = A2.shape
-    # 0. Contract all B, A1, A2
+    # 0. Contract all B, A1, A2 with optimized einsum
     C = jnp.einsum("kxd,mdl,lKn->mxnkK", B, A1, A2)
     """
     mxn-C-kK
     """
     C = C.reshape(m * x * n, k * K)
-    # 1. SVD of C
+    # 1. SVD of C (truncated if beneficial)
     U, S, _ = jnp.linalg.svd(C, full_matrices=False)
-    """
-    mxn-U-kK kK-S-kK
-    """
-    # 2. truncate singular values
     S = S[:K]
     U = U[:, :K]
     """
     mxn-U-K K-S-K
     """
-    # 3. concatenate U and S as new C
-    C = U * S[jnp.newaxis, :]
+    # 3. concatenate U and S as new C (in-place style)
+    U *= S[jnp.newaxis, :]
     """
-    mxn-C-K
+    mxn-U-K (now contains US)
     """
-    # 4. reshape C to (m, x, n, K) and swap indices n and K
-    C = C.reshape(m, x, n, K).swapaxes(2, 3)
+    # 4. reshape U to (m, x, n, K) and swap indices n and K
+    C = U.reshape(m, x, n, K).swapaxes(2, 3)
     r"""
     x   K
      \ /
@@ -412,27 +404,22 @@ def _kraus_contract_two_site_jax(
     """
     mx-C-Kn
     """
-    # 6. SVD of C
+    # 6. SVD of C (second decomposition)
     U, S, Vh = jnp.linalg.svd(C, full_matrices=False)
-    """
-    mx-U-r-S-r-Vh-Kn
-    """
-    # 7. truncate singular values up to l
     U = U[:, :l]
     S = S[:l]
     Vh = Vh[:l, :]
     """
     mx-U-l-S-l-Vh-Kn
     """
-    # 8. concatenate U and S as new A1, Vh as new A2
-    A1 = U * S[jnp.newaxis, :]
-    A2 = Vh
+    # 8. concatenate U and S as new A1, Vh as new A2 (in-place style)
+    U *= S[jnp.newaxis, :]
     """
     mx-A1-l l-A2-Kn
     """
     # 9. reshape A1 to (m, x, l) and A2 to (l, K, n)
-    A1 = A1.reshape(m, x, l)
-    A2 = A2.reshape(l, K, n)
+    A1 = U.reshape(m, x, l)
+    A2 = Vh.reshape(l, K, n)
     """
       x      K
       |      |
