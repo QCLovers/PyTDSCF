@@ -8,7 +8,10 @@ from typing import Literal, overload
 import jax
 import jax.numpy as jnp
 import numpy as np
+from opt_einsum import contract
 from scipy.linalg import expm
+
+from pytdscf._const_cls import const
 
 
 def lindblad_to_kraus(
@@ -118,25 +121,27 @@ def lindblad_to_kraus(
 
 
 @overload
-def kraus_contract(B: np.ndarray, core: np.ndarray) -> np.ndarray: ...
+def kraus_contract_single_site(
+    B: np.ndarray, core: np.ndarray
+) -> np.ndarray: ...
 
 
 @overload
-def kraus_contract(B: jax.Array, core: np.ndarray) -> jax.Array: ...
+def kraus_contract_single_site(B: jax.Array, core: np.ndarray) -> jax.Array: ...
 
 
-def kraus_contract(
+def kraus_contract_single_site(
     B: np.ndarray | jax.Array, core: np.ndarray | jax.Array
 ) -> np.ndarray | jax.Array:
     if isinstance(B, np.ndarray) and isinstance(core, np.ndarray):
-        return _kraus_contract_np(B, core)
+        return _kraus_contract_single_site_np(B, core)
     elif isinstance(B, jax.Array) and isinstance(core, jax.Array):
-        return _kraus_contract_jax(B, core)
+        return _kraus_contract_single_site_jax(B, core)
     else:
         raise ValueError(f"Invalid backend: {type(B)=} while {type(core)=}")
 
 
-def _kraus_contract_np(B: np.ndarray, A: np.ndarray) -> np.ndarray:
+def _kraus_contract_single_site_np(B: np.ndarray, A: np.ndarray) -> np.ndarray:
     """
       x
       |
@@ -197,7 +202,8 @@ def _kraus_contract_np(B: np.ndarray, A: np.ndarray) -> np.ndarray:
     """
     # 6. concatenate U and S as new A
     A = U * S[np.newaxis, :]
-    np.testing.assert_allclose(A, U @ np.diag(S))
+    if const.pytest_enabled:
+        np.testing.assert_allclose(A, U @ np.diag(S))
     """
     mnx-A-K
     """
@@ -212,77 +218,227 @@ def _kraus_contract_np(B: np.ndarray, A: np.ndarray) -> np.ndarray:
 
 
 @jax.jit
-def _kraus_contract_jax(B: jax.Array, A: jax.Array) -> jax.Array:
-    """
-      x
-      |
-    k-B
-      |
-      d
-
-      dK
-      |
-    m-A-n
-    """
+def _kraus_contract_single_site_jax(B: jax.Array, A: jax.Array) -> jax.Array:
     k, d, x = B.shape
     m, dK, n = A.shape
     K = dK // d
-
     # 1. reshape A to (m, d, K, n)
     A = A.reshape(m, d, K, n)
-    """
-      x
-      |
-    k-B
-      |
-      d
-
-      d
-      |
-    m-A-n
-      |
-      K
-    """
     # 2. contract "d" legs of B and A
     C = jnp.einsum("kxd,mdKn->mnxkK", B, A)
-    r"""
-      x
-      |
-    m-C-n
-      |\
-      k K
-    """
-
     # 3. reshape C to (m, n, x, kK)
     C = C.reshape(m * n * x, k * K)
-    """
-    mnx-C-kK
-    """
-
     # 4. SVD of C
     U, S, _ = jnp.linalg.svd(C, full_matrices=False)
-    """
-    mnx-U-kK kK-S-kK kK-Vh-kK
-    """
     # 5. truncate singular values
     S = S[:K]
     U = U[:, :K]
-    """
-    mnx-U-K K-S-K
-    """
     # 6. concatenate U and S as new A
     A = U * S[jnp.newaxis, :]
-    """
-    mnx-A-K
-    """
     # 7. reshape A to (m, n, xK) and swap indices n and xK
     A = A.reshape(m, n, x * K).swapaxes(1, 2)
-    """
-      xK
-      |
-    m-A-n
-    """
     return A
+
+
+@overload
+def kraus_contract_two_site(
+    B: np.ndarray, core_1: np.ndarray, core_2: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+@overload
+def kraus_contract_two_site(
+    B: jax.Array, core_1: jax.Array, core_2: jax.Array
+) -> tuple[jax.Array, jax.Array]: ...
+
+
+def kraus_contract_two_site(
+    B: np.ndarray | jax.Array,
+    core_1: np.ndarray | jax.Array,
+    core_2: np.ndarray | jax.Array,
+) -> tuple[np.ndarray, np.ndarray] | tuple[jax.Array, jax.Array]:
+    if (
+        isinstance(B, np.ndarray)
+        and isinstance(core_1, np.ndarray)
+        and isinstance(core_2, np.ndarray)
+    ):
+        return _kraus_contract_two_site_np(B, core_1, core_2)
+    elif (
+        isinstance(B, jax.Array)
+        and isinstance(core_1, jax.Array)
+        and isinstance(core_2, jax.Array)
+    ):
+        return _kraus_contract_two_site_jax(B, core_1, core_2)
+    else:
+        raise ValueError(
+            f"Invalid backend: {type(B)=} while {type(core_1)=} and {type(core_2)=}"
+        )
+
+
+def _kraus_contract_two_site_np(
+    B: np.ndarray, A1: np.ndarray, A2: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+      x
+      |
+      B-k
+      |
+      d
+      d      K
+      |      |
+    m-A1-l l-A2-n
+
+    Typically, m=l=n > K >> k=x=d
+    """
+    k, x, d = B.shape
+    assert x == d
+    assert A1.shape[1] == d
+    m, d, l = A1.shape
+    assert A1.shape[2] == A2.shape[0]
+    l, K, n = A2.shape
+    # 0. Contract all B, A1, A2
+    C = contract("kxd,mdl,lKn->mxnkK", B, A1, A2)
+    """
+    mxn-C-kK
+    """
+    C = C.reshape(m * x * n, k * K)
+    # 1. SVD of C
+    U, S, _ = np.linalg.svd(C, full_matrices=False)
+    """
+    mxn-U-kK kK-S-kK
+    """
+    # 2. truncate singular values
+    S = S[:K]
+    U = U[:, :K]
+    """
+    mxn-U-K K-S-K
+    """
+    # 3. concatenate U and S as new C
+    C = U * S[np.newaxis, :]
+    """
+    mxn-C-K
+    """
+    # 4. reshape C to (m, x, n, K) and swap indices n and K
+    C = C.reshape(m, x, n, K).swapaxes(2, 3)
+    r"""
+    x   K
+     \ /
+    m-C-n
+    """
+    # 5. reshape C to (mx, Kn)
+    C = C.reshape(m * x, K * n)
+    """
+    mx-C-Kn
+    """
+    # 6. SVD of C
+    U, S, Vh = np.linalg.svd(C, full_matrices=False)
+    """
+    mx-U-r-S-r-Vh-Kn
+    """
+    # 7. truncate singular values up to l
+    U = U[:, :l]
+    S = S[:l]
+    Vh = Vh[:l, :]
+    """
+    mx-U-l-S-l-Vh-Kn
+    """
+    # 8. concatenate U and S as new A1, Vh as new A2
+    A1 = U * S[np.newaxis, :]
+    A2 = Vh
+    """
+    mx-A1-l l-A2-Kn
+    """
+    # 9. reshape A1 to (m, x, l) and A2 to (l, K, n)
+    A1 = A1.reshape(m, x, l)
+    A2 = A2.reshape(l, K, n)
+    """
+      x      K
+      |      |
+    m-A1-l l-A2-n
+    """
+    return A1, A2
+
+
+@jax.jit
+def _kraus_contract_two_site_jax(
+    B: jax.Array, A1: jax.Array, A2: jax.Array
+) -> tuple[jax.Array, jax.Array]:
+    """
+      x
+      |
+      B-k
+      |
+      d
+      d      K
+      |      |
+    m-A1-l l-A2-n
+
+    Typically, m=l=n > K >> k=x=d
+    """
+    k, x, d = B.shape
+    m, d, l = A1.shape
+    l, K, n = A2.shape
+    # 0. Contract all B, A1, A2
+    C = jnp.einsum("kxd,mdl,lKn->mxnkK", B, A1, A2)
+    """
+    mxn-C-kK
+    """
+    C = C.reshape(m * x * n, k * K)
+    # 1. SVD of C
+    U, S, _ = jnp.linalg.svd(C, full_matrices=False)
+    """
+    mxn-U-kK kK-S-kK
+    """
+    # 2. truncate singular values
+    S = S[:K]
+    U = U[:, :K]
+    """
+    mxn-U-K K-S-K
+    """
+    # 3. concatenate U and S as new C
+    C = U * S[jnp.newaxis, :]
+    """
+    mxn-C-K
+    """
+    # 4. reshape C to (m, x, n, K) and swap indices n and K
+    C = C.reshape(m, x, n, K).swapaxes(2, 3)
+    r"""
+    x   K
+     \ /
+    m-C-n
+    """
+    # 5. reshape C to (mx, Kn)
+    C = C.reshape(m * x, K * n)
+    """
+    mx-C-Kn
+    """
+    # 6. SVD of C
+    U, S, Vh = jnp.linalg.svd(C, full_matrices=False)
+    """
+    mx-U-r-S-r-Vh-Kn
+    """
+    # 7. truncate singular values up to l
+    U = U[:, :l]
+    S = S[:l]
+    Vh = Vh[:l, :]
+    """
+    mx-U-l-S-l-Vh-Kn
+    """
+    # 8. concatenate U and S as new A1, Vh as new A2
+    A1 = U * S[jnp.newaxis, :]
+    A2 = Vh
+    """
+    mx-A1-l l-A2-Kn
+    """
+    # 9. reshape A1 to (m, x, l) and A2 to (l, K, n)
+    A1 = A1.reshape(m, x, l)
+    A2 = A2.reshape(l, K, n)
+    """
+      x      K
+      |      |
+    m-A1-l l-A2-n
+    """
+    return A1, A2
 
 
 def trace_kraus_dim(rdm: np.ndarray, d: int):

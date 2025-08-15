@@ -66,7 +66,7 @@ class Model:
         space: Literal["hilbert", "liouville"] = "hilbert",
         subspace_inds: dict[int, tuple[int, ...]] | None = None,
         one_gate_to_apply: TensorHamiltonian | None = None,
-        kraus_op: dict[int, np.ndarray | jax.Array] | None = None,
+        kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array] | None = None,
     ):
         self.basinfo = basinfo
         self.hamiltonian = operators.pop("hamiltonian")

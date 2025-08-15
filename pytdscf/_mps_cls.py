@@ -44,7 +44,7 @@ from pytdscf.hamiltonian_cls import (
     PolynomialHamiltonian,
     TensorHamiltonian,
 )
-from pytdscf.kraus import kraus_contract
+from pytdscf.kraus import kraus_contract_single_site, kraus_contract_two_site
 from pytdscf.model_cls import Model
 
 logger = _logger.bind(name="main")
@@ -450,6 +450,7 @@ class MPSCoef(ABC):
         ints_spf: SPFInts | None,
         matH: HamiltonianMixin,
         one_gate_to_apply: TensorHamiltonian | None = None,
+        kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array] | None = None,
     ):
         if const.verbose == 4:
             helper._ElpTime.ci_etc -= time()
@@ -480,8 +481,10 @@ class MPSCoef(ABC):
             begin_site=0,
             end_site=nsite - 1,
         )
-        # if one_gate_to_apply is not None:
-        #     self.apply_one_gate(one_gate_to_apply, reorth_center=nsite-1)
+        if one_gate_to_apply is not None:
+            self.apply_one_gate(one_gate_to_apply, reorth_center=nsite - 1)
+        if kraus_op is not None:
+            self.apply_kraus(kraus_op, reorth_center=nsite - 1)
 
         self.propagate_along_sweep(
             self.ints_site,
@@ -2048,19 +2051,47 @@ class MPSCoef(ABC):
         return
 
     def apply_kraus(
-        self, kraus_op: dict[int, np.ndarray | jax.Array], reorth_center: int
+        self,
+        kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array],
+        reorth_center: int,
     ):
         assert len(self.superblock_states) == 1, (
             f"{self.superblock_states=} is not implemented"
         )
         superblock = self.superblock_states[0]
-        for isite, B in kraus_op.items():
-            assert isinstance(isite, int)
-            core = superblock[isite].data
-            core = kraus_contract(B, core) # type: ignore
-            superblock[isite].data = core
-        canonicalizeB(superblock[reorth_center : max(kraus_op.keys()) + 1])
-        canonicalizeA(superblock[min(kraus_op.keys()) : reorth_center + 1])
+        update_sites_min = 10000000000
+        update_sites_max = 0
+        for site_inds, B in kraus_op.items():
+            match len(site_inds):
+                case 1:
+                    isite = site_inds[0]
+                    if isite < update_sites_min:
+                        update_sites_min = isite
+                    if isite > update_sites_max:
+                        update_sites_max = isite
+                    assert isinstance(isite, int)
+                    core = superblock[isite].data
+                    core = kraus_contract_single_site(B, core)  # type: ignore
+                    superblock[isite].data = core
+                case 2:
+                    isite_1 = site_inds[0]
+                    isite_2 = site_inds[1]
+                    assert isite_1 + 1 == isite_2, (
+                        f"{site_inds=} is not nearest neighbour"
+                    )
+                    core_1 = superblock[isite_1].data
+                    core_2 = superblock[isite_2].data
+                    core_1, core_2 = kraus_contract_two_site(B, core_1, core_2)  # type: ignore
+                    superblock[isite_1].data = core_1
+                    superblock[isite_2].data = core_2
+                    if isite_1 < update_sites_min:
+                        update_sites_min = isite_1
+                    if isite_2 > update_sites_max:
+                        update_sites_max = isite_2
+                case _:
+                    raise ValueError(f"{site_inds=} is not yet implemented")
+        canonicalizeB(superblock[reorth_center : update_sites_max + 1])
+        canonicalizeA(superblock[update_sites_min : reorth_center + 1])
         self.op_sys_sites = None
         self.superblock_states = [superblock]
 
