@@ -304,8 +304,8 @@ def _kraus_contract_two_site_np(
     mxn-C-kK
     """
     C = C.reshape(m * x * n, k * K)
-    # U, S, _ = np.linalg.svd(C, full_matrices=False, overwrite=True)
-    U, S, _ = svd(C, full_matrices=False)
+    # U, S, _ = np.linalg.svd(C, full_matrices=False)
+    U, S, _ = svd(C, full_matrices=False, overwrite_a=True)
     if const.pytest_enabled:
         print(f"truncation percentage: {1 - S[:K].sum() / S.sum():.2%}")
     S = S[:K]

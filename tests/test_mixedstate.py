@@ -683,7 +683,6 @@ def test_purified_mps_kraus_single_site(backend: Literal['numpy', 'jax'], scale:
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
 
-@pytest.mark.memory_intensive
 @pytest.mark.parametrize("backend,scale", [
     ('numpy', 2),
     ('jax', 1),
