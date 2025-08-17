@@ -217,7 +217,7 @@ def exact_solution(ini_diag=(0, 0, 1), Lindblad=True, krylov=False):
     return rdms
 
 @pytest.mark.parametrize("backend", ['numpy', 'jax'])
-def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1):
+def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1, integrator='lanczos'):
     rdms_exact = exact_solution(Lindblad=False)
     sx0 = OpSite("sx0", 0, value=Sx)
     sy0 = OpSite("sy0", 0, value=Sy)
@@ -281,7 +281,7 @@ def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1):
             norm=False,
             populations=False,
             conserve_norm=False, # Since Haberkorn relaxation is included
-            integrator='lanczos', # Since H is Hermitian and P = 1 for Haberkorn relaxation
+            integrator=integrator, # Since H is Hermitian and P = 1 for Haberkorn relaxation
         )
         with nc.Dataset(f"{jobname}_prop/reduced_density.nc", "r") as file:
             density_data_real = file.variables[f"rho_({1}, {1})_0"][
@@ -534,7 +534,7 @@ def test_purified_mps(backend: Literal['numpy', 'jax'], scale=1):
         norm=False,
         populations=False,
         conserve_norm=False, # Since Haberkorn relaxation is included
-        integrator='lanczos', # Since H is still skew-Hermitian
+        integrator='arnoldi', # Since H is still skew-Hermitian
     )
     with nc.Dataset(f"{jobname}_prop/reduced_density.nc", "r") as file:
         density_data_real = file.variables[f"rho_({2}, {2})_0"][
@@ -657,7 +657,7 @@ def test_purified_mps_kraus_single_site(backend: Literal['numpy', 'jax'], scale:
         norm=False,
         populations=False,
         conserve_norm=False, # Since Haberkorn relaxation is included
-        integrator='lanczos', # Since H is still skew-Hermitian
+        integrator='arnoldi', # Since H is still skew-Hermitian
     )
     with nc.Dataset(f"{jobname}_prop/reduced_density.nc", "r") as file:
         density_data_real = file.variables[f"rho_({2}, {2})_0"][
@@ -683,11 +683,11 @@ def test_purified_mps_kraus_single_site(backend: Literal['numpy', 'jax'], scale:
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
 
-@pytest.mark.parametrize("backend,scale", [
-    ('numpy', 2),
-    ('jax', 1),
+@pytest.mark.parametrize("backend,scale,integrator", [
+    ('numpy', 2, 'arnoldi'),
+    ('jax', 1, 'lanczos'),
 ])
-def test_purified_mps_kraus_two_site(backend: Literal['numpy', 'jax'], scale: int):
+def test_purified_mps_kraus_two_site(backend: Literal['numpy', 'jax'], scale: int, integrator: Literal['arnoldi', 'lanczos']):
     rdms_exact = exact_solution(Lindblad=True, ini_diag=(0, 1, 1))
     kraus_dim = 32
     sx0 = OpSite("sx0", 1, value=Sx)

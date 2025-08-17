@@ -215,29 +215,46 @@ def _rescale(v: np.ndarray | jax.Array, β0: float):
 
 
 @jax.jit
-def _orth_step_jax(
-    v: jax.Array, V: jax.Array
-) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
+def _orth_step_jax_jittable_part(v: jax.Array, V: jax.Array):
     # V: (k, N), v: (N,)
     # h_i = <V_i, v>
     hcol = jnp.sum(jnp.conj(V) * v[jnp.newaxis, :], axis=1)  # (k,)
     # v' = v - Σ_i h_i V_i
     v -= jnp.sum(hcol[:, jnp.newaxis] * V, axis=0)  # (N,)
     beta = jnp.linalg.norm(v).real
-    v /= beta
-    V = stack_to_cvecs(v, V)
-    return hcol, v, V, beta.astype(jnp.float64)
+    return hcol, v, V, beta
+
+
+def _orth_step_jax(
+    v: jax.Array, V: jax.Array, hessen: np.ndarray, ldim: int
+) -> tuple[float, jax.Array, np.ndarray]:
+    hcol, v, V, beta_jax = _orth_step_jax_jittable_part(v, V)
+    beta = float(beta_jax)
+    hessen[: ldim + 1, ldim] = np.asarray(hcol)
+    if abs(beta) > 1e-15:
+        v /= beta_jax
+        V = stack_to_cvecs(v, V)
+        hessen[ldim + 1, ldim] = beta
+    return (
+        beta,
+        V,
+        hessen,
+    )
 
 
 def _orth_step_np(
-    v: np.ndarray, V: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.float64]:
+    v: np.ndarray, V: np.ndarray, hessen: np.ndarray, ldim: int
+) -> tuple[float, np.ndarray, np.ndarray]:
     hcol: np.ndarray = np.sum(np.conj(V) * v[np.newaxis, :], axis=1)  # (k,)
     v -= np.sum(hcol[:, np.newaxis] * V, axis=0)  # (N,)
-    beta = np.linalg.norm(v)
-    v /= beta
-    V = np.vstack([V, v])
-    return hcol, v, V, beta.astype(np.float64)
+    beta = float(np.linalg.norm(v))
+    hessen[: ldim + 1, ldim] = hcol
+    if abs(beta) > 1e-15:
+        # if beta is sufficiently small, stack is not needed.
+        v /= beta
+        V = np.vstack([V, v])
+        hessen[ldim + 1, ldim] = beta
+    return beta, V, hessen
 
 
 @overload
@@ -343,13 +360,9 @@ def short_iterative_arnoldi(
 
         # --- Orthogonalise ---
         if _is_jax(v0):
-            hcol, _, V, beta_j = _orth_step_jax(v_l, V)  # JIT
-            hessen[: ldim + 1, ldim] = np.asarray(hcol)
+            beta, V, hessen = _orth_step_jax(v_l, V, hessen, ldim)  # type: ignore
         else:
-            hcol, _, V, beta_j = _orth_step_np(v_l, V)  # type: ignore
-            hessen[: ldim + 1, ldim] = hcol
-        beta = float(beta_j)
-        hessen[ldim + 1, ldim] = beta
+            beta, V, hessen = _orth_step_np(v_l, V, hessen, ldim)  # type: ignore
 
         # --- Breakdown: this is the only place that requires eigendecomposition ---
         if is_converged := (beta < 1e-15):
@@ -371,11 +384,11 @@ def short_iterative_arnoldi(
             coeff = eigvecs @ (np.exp(scale * eigvals) * y)
             if _is_jax(v0):
                 psi_next = jnp.tensordot(
-                    jnp.asarray(coeff), V[:-1, :], axes=(0, 0)
+                    jnp.asarray(coeff), V[: coeff.shape[0], :], axes=(0, 0)
                 )
             else:
                 psi_next = np.tensordot(
-                    np.asarray(coeff), V[:-1, :], axes=(0, 0)
+                    coeff, V[: coeff.shape[0], :], axes=(0, 0)
                 )
 
         if is_converged:
