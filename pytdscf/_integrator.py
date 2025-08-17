@@ -371,11 +371,11 @@ def short_iterative_arnoldi(
             beta, V, hessen = _orth_step_np(v_l, V, hessen, ldim)  # type: ignore
 
         # --- Breakdown: this is the only place that requires eigendecomposition ---
-        if is_converged := (beta < 1e-15):
-            pass
-        elif ldim < n_warmup:
+        is_converged = beta < 1e-15
+        if ldim < n_warmup and not is_converged:
             # --- Warmup: skip eigendecomposition and basis expansion ---
             continue
+
         if ldim == 0:
             psi_next = v0 * cmath.exp(scale * hessen[0, 0])
         else:
@@ -397,16 +397,12 @@ def short_iterative_arnoldi(
                     coeff, V[: coeff.shape[0], :], axes=(0, 0)
                 )
 
-        if is_converged:
-            _Debug.niter_krylov[_Debug.site_now] = ldim
-            psi_next = _rescale(psi_next, β0_array)
-            return split(psi_next)
-        elif ldim == maxsize:
+        if is_converged or ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
             psi_next = _rescale(psi_next, β0_array)
-            return multiplyOp.split(psi_next)
+            return split(psi_next)
 
         # --- Convergence check ---
         if psi_next_sv is None:
@@ -560,9 +556,8 @@ def short_iterative_lanczos(
                 logger.warning(
                     "Diagonal element of Hessenberg matrix is complex, it usually means that the Hamiltonian is not Hermitian. but you have set conserve_norm=True."
                 )
-        if is_converged := (beta[-1] < 1e-15):
-            pass
-        elif ldim < n_warmup:
+        is_converged = beta[-1] < 1e-15
+        if ldim < n_warmup and not is_converged:
             continue
 
         if ldim == 0:
@@ -622,18 +617,13 @@ def short_iterative_lanczos(
                 ΦexpAΦᵗ0 = Φ @ expAΦᵗ0
                 # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
-        if is_converged:
-            _Debug.niter_krylov[_Debug.site_now] = ldim
-            psi_next = _rescale(psi_next, β0_array)
-            return split(psi_next)
-        elif ldim == maxsize:
+        if is_converged or ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim
             psi_next = _rescale(psi_next, β0_array)
             return split(psi_next)
-
-        if psi_next_sv is None:
+        elif psi_next_sv is None:
             psi_next_sv = psi_next
         else:
             err = _norm(psi_next - psi_next_sv)
