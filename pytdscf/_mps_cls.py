@@ -1132,12 +1132,22 @@ class MPSCoef(ABC):
             )
 
         if not const.doRelax:
-            svalues_states_new = _integrator.short_iterative_lanczos(
-                +1.0j * stepsize / 2,
-                multiplyK,
-                svalues_states,
-                const.thresh_exp,
-            )
+            if const.integrator == "arnoldi":
+                svalues_states_new = _integrator.short_iterative_arnoldi(
+                    +1.0j * stepsize / 2,
+                    multiplyK,
+                    svalues_states,
+                    const.thresh_exp,
+                )
+            elif const.integrator == "lanczos":
+                svalues_states_new = _integrator.short_iterative_lanczos(
+                    +1.0j * stepsize / 2,
+                    multiplyK,
+                    svalues_states,
+                    const.thresh_exp,
+                )
+            else:
+                raise ValueError(f"Invalid integrator: {const.integrator}")
 
         elif const.doRelax == "improved":
             svalues_states_new = svalues_states
@@ -1287,7 +1297,7 @@ class MPSCoef(ABC):
         center_site = None
         assert const.space == "liouville"
         for i in range(len(remain_nleg) - 1, -1, -1):
-            if remain_nleg[i] == 2:
+            if remain_nleg[i] in (1, 2):
                 center_site = i
                 break
         if center_site is None:
@@ -1300,7 +1310,12 @@ class MPSCoef(ABC):
         ]
         if const.use_jax:
             return np.array(
-                _get_partial_trace_jax(mpdm_reshaped, remain_nleg, center_site)
+                _get_partial_trace_jax(
+                    mpdm_reshaped,
+                    remain_nleg,
+                    center_site,
+                    remain_nleg[center_site],
+                )
             )
 
         nsite = len(mpdm_reshaped)
@@ -2734,11 +2749,14 @@ def _get_pure_reduced_density_jax(
     return density[0, 0, ...]
 
 
-@partial(jax.jit, static_argnames=("remain_nleg", "sys_site"))
+@partial(
+    jax.jit, static_argnames=("remain_nleg", "sys_site", "remain_nleg_sys")
+)
 def _get_partial_trace_jax(
     mpdm_reshaped: list[jax.Array],
     remain_nleg: tuple[int, ...],
     sys_site: int,
+    remain_nleg_sys: int,
 ) -> jax.Array:
     """
     Get partial trace for Liouville space MPS.
@@ -2766,7 +2784,13 @@ def _get_partial_trace_jax(
         data = mpdm_reshaped[isite]
         right_env = jnp.einsum("ijjl,l->i", data, right_env)
     data = mpdm_reshaped[sys_site]
-    dm = jnp.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+    match remain_nleg_sys:
+        case 1:
+            dm = jnp.einsum("...i,ijjl,l->...j", left_env, data, right_env)
+        case 2:
+            dm = jnp.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+        case _:
+            raise ValueError
     return dm
 
 

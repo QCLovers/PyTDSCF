@@ -63,7 +63,9 @@ def lindblad_to_kraus(
 
     dissipator = expm(D * dt)
     # eigenvalues of dissipator should be positive
-    assert np.all(np.linalg.eigvalsh(dissipator) > -1e-14)
+    assert np.all(np.linalg.eigvals(dissipator) > -1e-14), np.linalg.eigvals(
+        dissipator
+    )
 
     # Kraus operators
     def supergate_to_kraus(G, d, tol=1e-14):
