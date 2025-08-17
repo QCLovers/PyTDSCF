@@ -495,7 +495,10 @@ class SplitStack:
             if extend and not self.in_same_as_out:
                 raise NotImplementedError("extend is not implemented")
                 # TODO: implement extend with JIT
-            return _stack(psi_states)
+            if len(psi_states) > 1:
+                return _stack(psi_states)
+            else:
+                return jnp.reshape(psi_states[0], -1)
         else:
             if extend and not self.in_same_as_out:
                 if len(psi_states[0].shape) == 3:
@@ -536,25 +539,31 @@ class SplitStack:
         (1,2n^2m) shape array --> [(n,m,n) shape array,(n,m,n) shape array]
 
         Args:
-            psi (list[np.ndarray]): psi[i] denotes i-electronic states p-site coefficient (3-rank tensor)
+            psi (np.ndarray | jax.Array): flattened psi_states 
 
         Returns:
-            np.ndarray : 3-rank tensor list. psi_states[i] denotes i-electronic states
+            list[np.ndarray] | list[jax.Array] : 3-rank tensor list. psi_states[i] denotes i-electronic states
 
         """
 
         psi_states: list[np.ndarray] | list[jax.Array]
         if const.use_jax:
             # Splitting is difficult to be jit-compiled because of the variable length
-            psi_states = [
-                jnp.reshape(x, self.tensor_shapes_out)
-                for x in jnp.split(psi, self._split_idx_out)
-            ]
+            if len(self._split_idx_out) == 0:
+                psi_states = [jnp.reshape(psi, self.tensor_shapes_out)]
+            else:
+                psi_states = [
+                    jnp.reshape(x, self.tensor_shapes_out)
+                    for x in jnp.split(psi, self._split_idx_out)
+                ]
         else:
-            psi_states = [
-                x.reshape(self.tensor_shapes_out)
-                for x in np.split(psi, self._split_idx_out)
-            ]
+            if len(self._split_idx_out) == 0:
+                psi_states = [psi.reshape(self.tensor_shapes_out)]
+            else:
+                psi_states = [
+                    x.reshape(self.tensor_shapes_out)
+                    for x in np.split(psi, self._split_idx_out)
+                ]
         if truncate and not self.in_same_as_out:
             if len(self.tensor_shapes_in) == 3:
                 psi_states = [
