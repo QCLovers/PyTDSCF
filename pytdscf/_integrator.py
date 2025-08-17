@@ -336,7 +336,10 @@ def short_iterative_arnoldi(
             trial_states = split(V[-1], truncate=True)
         v_l = H(trial_states)
         if not const.conserve_norm and ldim == 0:
-            v_l /= β0
+            if _is_jax(v0):
+                v_l = v_l / β0
+            else:
+                v_l /= β0
 
         # --- Orthogonalise ---
         if _is_jax(v0):
@@ -360,8 +363,12 @@ def short_iterative_arnoldi(
             # --- Ritz update on current subspace ---
             subH = hessen[: ldim + 1, : ldim + 1]
             eigvals, eigvecs = np.linalg.eig(subH)
-            Vinv = np.linalg.inv(eigvecs)
-            coeff = eigvecs @ (np.exp(scale * eigvals) * Vinv[:, 0])
+            # Vinv = np.linalg.inv(eigvecs)
+            # coeff = eigvecs @ (np.exp(scale * eigvals) * Vinv[:, 0])
+            e0 = np.zeros(ldim + 1, dtype=subH.dtype)
+            e0[0] = 1
+            y = np.linalg.solve(eigvecs, e0)
+            coeff = eigvecs @ (np.exp(scale * eigvals) * y)
             if _is_jax(v0):
                 psi_next = jnp.tensordot(
                     jnp.asarray(coeff), V[:-1, :], axes=(0, 0)
@@ -559,13 +566,13 @@ def short_iterative_lanczos(
                         + np.diag(beta[:-1], 1).astype(np.complex128)
                     )
                     Λ, Φ = scipy.linalg.eig(mat)
-                    expAΦᵗ0 = np.exp(scale * Λ) * np.linalg.inv(Φ)[:, 0]
+                    # expAΦᵗ0 = np.exp(scale * Λ) * np.linalg.inv(Φ)[:, 0]
+                    e0 = np.zeros(ldim + 1, dtype=mat.dtype)
+                    e0[0] = 1
+                    y = np.linalg.solve(Φ, e0)
+                    expAΦᵗ0 = np.exp(scale * Λ) * y
                 # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
-                ΦexpAΦᵗ0 = scipy.linalg.blas.zgemv(
-                    alpha=1.0,
-                    a=Φ,
-                    x=expAΦᵗ0,
-                )
+                ΦexpAΦᵗ0 = Φ @ expAΦᵗ0
                 # psi_next = jnp.einsum(
                 #    "kj,k->j",
                 #    cvecs[:-1, :],
@@ -587,16 +594,13 @@ def short_iterative_lanczos(
                         + np.diag(beta[:-1], 1).astype(np.complex128)
                     )
                     Λ, Φ = scipy.linalg.eig(mat)
-                    expAΦᵗ0 = np.exp(scale * Λ) * np.linalg.inv(Φ)[:, 0]
+                    # expAΦᵗ0 = np.exp(scale * Λ) * np.linalg.inv(Φ)[:, 0]
+                    e0 = np.zeros(ldim + 1, dtype=mat.dtype)
+                    e0[0] = 1
+                    y = np.linalg.solve(Φ, e0)
+                    expAΦᵗ0 = np.exp(scale * Λ) * y
                 # eigvec_expLU = np.einsum("ij,j->i", eigvecs, expLU)
-                # NOTE: If scipy backend is MKL, numpy and mpi4py align with MKL.
-                #       Otherwise, parallelization will inefficient.
-                #       We recommend to use OpenBLAS and OpenMPI.
-                ΦexpAΦᵗ0 = scipy.linalg.blas.zgemv(
-                    alpha=1.0,
-                    a=Φ,
-                    x=expAΦᵗ0,
-                )
+                ΦexpAΦᵗ0 = Φ @ expAΦᵗ0
                 # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
         if is_converged:
