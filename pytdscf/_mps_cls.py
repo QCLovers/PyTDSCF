@@ -8,7 +8,9 @@ import copy
 import itertools
 import math
 from abc import ABC, abstractmethod
+from collections import Counter
 from functools import partial
+from itertools import chain
 from time import time
 from typing import Literal
 
@@ -1324,23 +1326,32 @@ class MPSCoef(ABC):
             data: np.ndarray = mpdm_reshaped[isite]
             match remain_nleg[isite]:
                 case 0:
-                    subscript = "...i,ijjl->...l"
+                    # subscript = "...i,ijjl->...l"
+                    _data = np.einsum("ijjl->il", data)
                 case 1:
-                    subscript = "...i,ijjl->...jl"
+                    # subscript = "...i,ijjl->...jl"
+                    _data = np.einsum("ijjl->ijl", data)
                 case 2:
-                    subscript = "...i,ijkj->...jkl"
+                    # subscript = "...i,ijkj->...jkl"
+                    _data = data.copy()
                 case _:
                     raise ValueError(
                         f"Invalid number of legs: {remain_nleg[isite]}"
                     )
-            left_env = np.einsum(subscript, left_env, data)
+            # left_env = np.einsum(subscript, left_env, data)
+            left_env = np.tensordot(left_env, _data, axes=(-1, 0))
 
         right_env = np.array([1.0 + 0.0j])
         for isite in range(nsite - 1, center_site, -1):
             data = mpdm_reshaped[isite]
-            right_env = np.einsum("ijjl,l->i", data, right_env)
+            # right_env = np.einsum("ijjl,l->i", data, right_env)
+            _data = np.einsum("ijjl->il", data)
+            right_env = _data @ right_env
         data = mpdm_reshaped[center_site]
-        dm = np.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+        # dm = np.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+        dm = np.tensordot(
+            left_env, np.tensordot(data, right_env, axes=(-1, 0)), axes=(-1, 0)
+        )
         return dm
 
     def get_reduced_densities(
@@ -2224,13 +2235,15 @@ def svd_conj_mpdo(superblock: list[SiteCoef]) -> list[SiteCoef]:
         else:
             data = _block_diag4d(_core_to_4d(superblock[isite].data), to="diag")
         # data = _core_to_4d(superblock[isite].data)
-        trace = np.einsum("i,ijjl->l", trace, data)
+        # trace = np.einsum("i,ijjl->l", trace, data)
+        trace = trace @ np.einsum("ijjl->il", data)
         superblock[isite].data = _4d_to_core(data)
 
     for isite in range(len(superblock) - 1):
         rho_L = superblock[isite].data
         rho_R = superblock[isite + 1].data
-        B = contract("ijk,klm->ijlm", rho_L, rho_R)
+        # B = contract("ijk,klm->ijlm", rho_L, rho_R)
+        B = np.tensordot(rho_L, rho_R, axes=(2, 0))
         i, j, l, m = B.shape
         chi = bond_dims[isite]
         B = B.reshape(i * j, l * m)
@@ -2380,7 +2393,8 @@ class LatticeInfo:
             if const.use_jax:
                 data = jnp.einsum("abc,cd->abd", matC.data, sval)
             else:
-                data = np.einsum("abc,cd->abd", matC, sval)
+                # data = np.einsum("abc,cd->abd", matC, sval)
+                data = np.tensordot(matC, sval, axes=(2, 0))  # type: ignore
             superblock[isite - 1] = SiteCoef(data, gauge="C", isite=isite - 1)
 
         if const.space == "hilbert":
@@ -2498,7 +2512,7 @@ def superblock_trans_PsiB2APsi_psite(
     if const.use_jax:
         matB.data = jnp.einsum("ij,jbc->ibc", sval, matB.data)
     else:
-        matB.data = np.tensordot(sval, matB.data, axes=1)
+        matB.data = np.tensordot(sval, matB.data, axes=(1, 0))
     matB.gauge = "Psi"
     superblock[psite] = matA
 
@@ -2513,7 +2527,7 @@ def superblock_trans_APsi2PsiB_psite(
     if const.use_jax:
         matA.data = jnp.einsum("ijk,kb->ijb", matA.data, sval)
     else:
-        matA.data = np.tensordot(matA, sval, axes=1)
+        matA.data = np.tensordot(matA, sval, axes=(2, 0))
     matA.gauge = "Psi"
     superblock[psite] = matB
 
@@ -2923,12 +2937,15 @@ def canonicalizeA(
     use_jax = isinstance(superblock[0].data, jax.Array)
     sval: jax.Array | np.ndarray | None = None
     if use_jax:
-        einsum = jnp.einsum
+        # einsum = jnp.einsum
+        tensordot = jnp.tensordot
     else:
-        einsum = np.einsum  # type: ignore
+        # einsum = np.einsum  # type: ignore
+        tensordot = np.tensordot  # type: ignore
     for i, coef in enumerate(superblock):
         if sval is not None:
-            coef.data = einsum("ij,jkl->ikl", sval, coef.data)
+            # coef.data = einsum("ij,jkl->ikl", sval, coef.data)
+            coef.data = tensordot(sval, coef.data, axes=(1, 0))
         coef.gauge = "Psi"
         if i != len(superblock) - 1:
             matA, sval = coef.gauge_trf("Psi2Asigma")
@@ -2951,12 +2968,15 @@ def canonicalizeB(
     use_jax = isinstance(superblock[0].data, jax.Array)
     sval: jax.Array | np.ndarray | None = None
     if use_jax:
-        einsum = jnp.einsum
+        # einsum = jnp.einsum
+        tensordot = jnp.tensordot
     else:
-        einsum = np.einsum  # type: ignore
+        # einsum = np.einsum  # type: ignore
+        tensordot = np.tensordot  # type: ignore
     for i, coef in enumerate(superblock[::-1]):
         if sval is not None:
-            coef.data = einsum("ijk,kl->ijl", coef.data, sval)
+            # coef.data = einsum("ijk,kl->ijl", coef.data, sval)
+            coef.data = tensordot(coef.data, sval, axes=(2, 0))
         coef.gauge = "Psi"
         if i != len(superblock) - 1:
             matB, sval = coef.gauge_trf("Psi2sigmaB")
@@ -3011,11 +3031,15 @@ def contract_all_superblock(
     core = superblock[-1].data[:, :, 0]
     use_jax = isinstance(core, jax.Array)
     if use_jax:
-        einsum = jnp.einsum
+        # einsum = jnp.einsum
+        tensordot = jnp.tensordot
     else:
-        einsum = np.einsum  # type: ignore
+        # einsum = np.einsum  # type: ignore
+        tensordot = np.tensordot  # type: ignore
+
     for coef in superblock[-2::-1]:
-        core = einsum("ijk,k...->ij...", coef.data, core)
+        # core = einsum("ijk,k...->ij...", coef.data, core)
+        core = tensordot(coef.data, core, axes=(2, 0))
     return core[0, ...]
 
 
@@ -3153,8 +3177,6 @@ def _exp_liouville(
         i, j, k = core.data.shape
         j_sqrt = math.isqrt(j)
         dm.append(core.data.reshape(i, j_sqrt, j_sqrt, k))
-    from collections import Counter
-    from itertools import chain
 
     exp_val = 0.0
     for key, mpo in mpos.operators.items():  # type: ignore
@@ -3184,7 +3206,7 @@ def _exp_liouville(
                     operand = (left_tensor, dm[isite])  # type: ignore
                 case _:
                     raise ValueError(f"{count[isite]=} is not valid")
-            left_tensor = np.einsum(subscript, *operand)
+            left_tensor = contract(subscript, *operand)
         assert j_core == len(mpo), f"{j_core=}, {len(mpo)=}"
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]

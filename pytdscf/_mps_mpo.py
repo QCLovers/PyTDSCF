@@ -1024,9 +1024,8 @@ class MPSCoefMPO(MPSCoef):
         nsite = len(superblock)
         pop = superblock[0].data.numpy()[:, J[0], :]
         for isite in range(1, nsite):
-            pop = np.einsum(
-                "ab,bc->ac", pop, superblock[isite].data.numpy()[:, J[isite], :]
-            )
+            # "ab,bc->ac",
+            pop = pop @ superblock[isite].data.numpy()[:, J[isite], :]
         return float(np.linalg.norm(pop)) ** 2
 
 

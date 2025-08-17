@@ -558,7 +558,7 @@ class SplitStack:
                 ]
         else:
             if len(self._split_idx_out) == 0:
-                psi_states = [psi.reshape(self.tensor_shapes_out)]
+                psi_states = [psi.reshape(self.tensor_shapes_out)]  # type: ignore
             else:
                 psi_states = [
                     x.reshape(self.tensor_shapes_out)
