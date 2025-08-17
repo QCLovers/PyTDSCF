@@ -539,7 +539,7 @@ class SplitStack:
         (1,2n^2m) shape array --> [(n,m,n) shape array,(n,m,n) shape array]
 
         Args:
-            psi (np.ndarray | jax.Array): flattened psi_states 
+            psi (np.ndarray | jax.Array): flattened psi_states
 
         Returns:
             list[np.ndarray] | list[jax.Array] : 3-rank tensor list. psi_states[i] denotes i-electronic states
