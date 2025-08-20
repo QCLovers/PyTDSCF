@@ -128,7 +128,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         psi_next = (
             np.array(cveclist).T @ eigvecs[:, root].reshape(i_iter + 1, 1)
         ).reshape(ndim)
-        if scipy.linalg.norm(beta[-1]) < 1e-15:
+        if scipy.linalg.norm(beta[-1]) < 1e-14:
             next_psi_states = multiplyOp.split(psi_next)
             _Debug.niter_krylov[_Debug.site_now] = i_iter
             return next_psi_states
@@ -237,7 +237,7 @@ def _orth_step_jax(
     hcol, v, V, beta_jax = _orth_step_jax_jittable_part(v, V)
     beta = float(beta_jax)
     hessen[: ldim + 1, ldim] = np.asarray(hcol)
-    if abs(beta) > 1e-15:
+    if abs(beta) > 1e-14:
         v /= beta_jax
         V = stack_to_cvecs(v, V)
         hessen[ldim + 1, ldim] = beta
@@ -255,7 +255,7 @@ def _orth_step_np(
     v -= np.sum(hcol[:, np.newaxis] * V, axis=0)  # (N,)
     beta = float(np.linalg.norm(v))
     hessen[: ldim + 1, ldim] = hcol
-    if abs(beta) > 1e-15:
+    if abs(beta) > 1e-14:
         # if beta is sufficiently small, stack is not needed.
         v /= beta
         V = np.vstack([V, v])
@@ -371,7 +371,7 @@ def short_iterative_arnoldi(
             beta, V, hessen = _orth_step_np(v_l, V, hessen, ldim)  # type: ignore
 
         # --- Breakdown: this is the only place that requires eigendecomposition ---
-        is_converged = beta < 1e-15
+        is_converged = beta < 1e-14
         if ldim < n_warmup and not is_converged:
             # --- Warmup: skip eigendecomposition and basis expansion ---
             continue
@@ -544,7 +544,7 @@ def short_iterative_lanczos(
                 v_l -= V[-2] * β_l  # noqa: F821
             β_l = scipy.linalg.norm(v_l)
             beta.append(float(β_l))
-            if beta[-1] >= 1e-15:
+            if beta[-1] >= 1e-14:
                 v_l /= β_l
             else:
                 # Krylov space exhausted
@@ -556,7 +556,7 @@ def short_iterative_lanczos(
                 logger.warning(
                     "Diagonal element of Hessenberg matrix is complex, it usually means that the Hamiltonian is not Hermitian. but you have set conserve_norm=True."
                 )
-        is_converged = beta[-1] < 1e-15
+        is_converged = beta[-1] < 1e-14
         if ldim < n_warmup and not is_converged:
             continue
 
