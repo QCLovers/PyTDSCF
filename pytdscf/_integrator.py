@@ -240,7 +240,9 @@ def _orth_step_jax(
     if abs(beta) > 1e-14:
         v /= beta_jax
         V = stack_to_cvecs(v, V)
-        hessen[ldim + 1, ldim] = beta
+        if hessen.shape[0] > ldim + 1:
+            hessen[ldim + 1, ldim] = beta
+            # otherwise Krylov subspace = full space
     return (
         beta,
         V,
@@ -259,7 +261,8 @@ def _orth_step_np(
         # if beta is sufficiently small, stack is not needed.
         v /= beta
         V = np.vstack([V, v])
-        hessen[ldim + 1, ldim] = beta
+        if hessen.shape[0] > ldim + 1:
+            hessen[ldim + 1, ldim] = beta
     return beta, V, hessen
 
 
