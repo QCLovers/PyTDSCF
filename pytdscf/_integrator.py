@@ -19,6 +19,7 @@ from pytdscf._contraction import SplitStack
 from pytdscf._helper import _Debug
 
 logger = _logger.bind(name="main")
+EPS = 1e-13  # Threshold for whether Krylov subspace is exausted or not
 
 
 @overload
@@ -128,7 +129,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         psi_next = (
             np.array(cveclist).T @ eigvecs[:, root].reshape(i_iter + 1, 1)
         ).reshape(ndim)
-        if scipy.linalg.norm(beta[-1]) < 1e-14:
+        if scipy.linalg.norm(beta[-1]) < EPS:
             next_psi_states = multiplyOp.split(psi_next)
             _Debug.niter_krylov[_Debug.site_now] = i_iter
             return next_psi_states
@@ -195,7 +196,7 @@ def _iter_info(
 
 def _normalize(
     v: np.ndarray | jax.Array,
-) -> tuple(np.ndarray | jax.Array, float, np.ndarray | jax.Array):
+) -> tuple[np.ndarray | jax.Array, float, np.ndarray | jax.Array]:
     if const.conserve_norm:
         return v, 1.0, jnp.ones(1) if _is_jax(v) else np.ones(1)
     else:
@@ -233,11 +234,11 @@ def _orth_step_jax_jittable_part(v: jax.Array, V: jax.Array):
 
 def _orth_step_jax(
     v: jax.Array, V: jax.Array, hessen: np.ndarray, ldim: int
-) -> tuple[float, jax.Array, np.ndarray]:
+) -> tuple[float, jax.Array, jax.Array, np.ndarray]:
     hcol, v, V, beta_jax = _orth_step_jax_jittable_part(v, V)
     beta = float(beta_jax)
     hessen[: ldim + 1, ldim] = np.asarray(hcol)
-    if abs(beta) > 1e-14:
+    if beta > EPS:
         v /= beta_jax
         V = stack_to_cvecs(v, V)
         if hessen.shape[0] > ldim + 1:
@@ -245,6 +246,7 @@ def _orth_step_jax(
             # otherwise Krylov subspace = full space
     return (
         beta,
+        v,
         V,
         hessen,
     )
@@ -252,18 +254,18 @@ def _orth_step_jax(
 
 def _orth_step_np(
     v: np.ndarray, V: np.ndarray, hessen: np.ndarray, ldim: int
-) -> tuple[float, np.ndarray, np.ndarray]:
+) -> tuple[float, np.ndarray, np.ndarray, np.ndarray]:
     hcol: np.ndarray = np.sum(np.conj(V) * v[np.newaxis, :], axis=1)  # (k,)
     v -= np.sum(hcol[:, np.newaxis] * V, axis=0)  # (N,)
     beta = float(np.linalg.norm(v))
     hessen[: ldim + 1, ldim] = hcol
-    if abs(beta) > 1e-14:
+    if beta > EPS:
         # if beta is sufficiently small, stack is not needed.
         v /= beta
         V = np.vstack([V, v])
         if hessen.shape[0] > ldim + 1:
             hessen[ldim + 1, ldim] = beta
-    return beta, V, hessen
+    return beta, v, V, hessen
 
 
 @overload
@@ -341,40 +343,61 @@ def short_iterative_arnoldi(
     split = partial(_split, multiplyOp=multiplyOp)
     H = partial(_H, multiplyOp=multiplyOp)
 
+    if const.use_jax:
+        _orth_step = _orth_step_jax
+
+        def tensordot(coeff: np.ndarray, V: jax.Array) -> jax.Array:
+            _coeff = jnp.asarray(coeff, dtype=jnp.complex128)
+
+            @jax.jit
+            def tensordot_jit(coeff: jax.Array, V: jax.Array):
+                size = coeff.shape[0]
+                return jnp.tensordot(coeff, V[:size,], axes=(0, 0))
+
+            psi_next = tensordot_jit(_coeff, V)
+            return psi_next
+    else:
+        _orth_step = _orth_step_np  # type:ignore
+
+        def tensordot(coeff: np.ndarray, V: np.ndarray) -> np.ndarray:  # type: ignore
+            psi_next = np.tensordot(coeff, V[: coeff.shape[0], :], axes=(0, 0))
+            return psi_next
+
     # --- Parameters / warmup gating ---
     psi_next_sv = None
     maxsize, ndim, n_warmup = _iter_info(psi_states)
-    hessen = np.zeros((ndim + 1, ndim + 1), dtype=np.complex128)  # CPU
+    # Hessenberg matrix `hessen` is a A (operator) in Krylov subspace V
+    # `hessen` is always stored in CPU because its shape < (21, 20)
+    # while `V` is stored in GPU (as needed) because its shape reaches (20, Nm^2)
+    # where m is a bond dimension.
+    hessen = np.zeros((ndim + 1, ndim), dtype=np.complex128)
 
     # --- Initial vector ---
     v0 = stack(psi_states, extend=True)
     v0, β0, β0_array = _normalize(v0)
-    if _is_jax(v0):
+    v: np.ndarray | jax.Array
+    if const.use_jax:
         V = stack_to_cvecs(v0)
     else:
         V = np.vstack([v0])
 
-    for ldim in range(ndim + 1):
+    for ldim in range(ndim):
         # --- Arnoldi step: v = A @ v_k ---
         if ldim == 0:
             trial_states = psi_states
         else:
-            trial_states = split(V[-1], truncate=True)
+            # v = V[-1].
+            trial_states = split(v, truncate=True)  # noqa F841
         v_l = H(trial_states)
         if not const.conserve_norm and ldim == 0:
-            if _is_jax(v0):
-                v_l = v_l / β0_array
-            else:
-                v_l /= β0_array
+            # v_1 = H (v_0 / |v_0|) = (H v_0) / |v_0|
+            v_l /= β0_array
 
         # --- Orthogonalise ---
-        if _is_jax(v0):
-            beta, V, hessen = _orth_step_jax(v_l, V, hessen, ldim)  # type: ignore
-        else:
-            beta, V, hessen = _orth_step_np(v_l, V, hessen, ldim)  # type: ignore
+        beta, v, V, hessen = _orth_step(v_l, V, hessen, ldim)  # type: ignore
 
         # --- Breakdown: this is the only place that requires eigendecomposition ---
-        is_converged = beta < 1e-14
+        is_converged = beta < EPS
         if ldim < n_warmup and not is_converged:
             # --- Warmup: skip eigendecomposition and basis expansion ---
             continue
@@ -391,14 +414,7 @@ def short_iterative_arnoldi(
             e0[0] = 1
             y = np.linalg.solve(eigvecs, e0)
             coeff = eigvecs @ (np.exp(scale * eigvals) * y)
-            if _is_jax(v0):
-                psi_next = jnp.tensordot(
-                    jnp.asarray(coeff), V[: coeff.shape[0], :], axes=(0, 0)
-                )
-            else:
-                psi_next = np.tensordot(
-                    coeff, V[: coeff.shape[0], :], axes=(0, 0)
-                )
+            psi_next = tensordot(coeff, V)
 
         if is_converged or ldim == maxsize:
             # When Krylov subspace is the same as the whole space,
@@ -547,7 +563,7 @@ def short_iterative_lanczos(
                 v_l -= V[-2] * β_l  # noqa: F821
             β_l = scipy.linalg.norm(v_l)
             beta.append(float(β_l))
-            if beta[-1] >= 1e-14:
+            if beta[-1] >= EPS:
                 v_l /= β_l
             else:
                 # Krylov space exhausted
@@ -559,7 +575,7 @@ def short_iterative_lanczos(
                 logger.warning(
                     "Diagonal element of Hessenberg matrix is complex, it usually means that the Hamiltonian is not Hermitian. but you have set conserve_norm=True."
                 )
-        is_converged = beta[-1] < 1e-14
+        is_converged = beta[-1] < EPS
         if ldim < n_warmup and not is_converged:
             continue
 
