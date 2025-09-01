@@ -2461,7 +2461,7 @@ wheels = [
 
 [[package]]
 name = "radicalpy"
-version = "0.8.1"
+version = "0.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "dot2tex" },
@@ -2476,9 +2476,9 @@ dependencies = [
     { name = "sympy" },
     { name = "tqdm" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bd/a2/ce0db4a33da7e33cf30207739a1b14f66ed149eef7e469d0009eada90b8d/radicalpy-0.8.1.tar.gz", hash = "sha256:b8b6a11e32aa663fd529d367d617f4016df205ff14bb4b16ed79289b9666b391", size = 50251, upload-time = "2024-08-17T14:56:27.637Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/53/da736d8def7933a3f1f28483e8d38c0ad2603124ed5bc2a8ca4ddf3c7e5f/radicalpy-0.9.2.tar.gz", hash = "sha256:7b17019ac7d16bb288e2ca913a1d4f5875421ef79f43179ef926f20b9e0016d5", size = 59758, upload-time = "2025-08-26T01:14:52.888Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f8/69/47231918b268787ca796230511cc3d3449513cf63fef628babec62b65a68/radicalpy-0.8.1-py3-none-any.whl", hash = "sha256:950588acabc9be466bc21f786cb4eb1d82f98637634d6ae36b2d8fc16bf0fd6a", size = 48687, upload-time = "2024-08-17T14:56:26.051Z" },
+    { url = "https://files.pythonhosted.org/packages/61/c1/e55b1e52076d0aa55a68f46168c99b6a48c28d113749701d7d19a44e77d3/radicalpy-0.9.2-py3-none-any.whl", hash = "sha256:fec958711c3b9c0da47216daddd675f207b3e535f74cbc38318e3d782506718f", size = 56374, upload-time = "2025-08-26T01:14:51.689Z" },
 ]
 
 [[package]]
