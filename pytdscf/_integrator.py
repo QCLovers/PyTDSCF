@@ -19,7 +19,7 @@ from pytdscf._contraction import SplitStack
 from pytdscf._helper import _Debug
 
 logger = _logger.bind(name="main")
-EPS = 1e-13  # Threshold for whether Krylov subspace is exausted or not
+EPS = 1e-12  # Threshold for whether Krylov subspace is exausted or not
 
 
 @overload
@@ -569,13 +569,15 @@ def short_iterative_lanczos(
                 # Krylov space exhausted
                 v_l = np.empty_like(v_l)
             V = np.vstack([V, v_l])
+        is_converged = beta[-1] < EPS
         if alpha_is_real and np.abs(alpha[-1].imag) > 1e-12:
             alpha_is_real = False
             if const.conserve_norm:
                 logger.warning(
-                    "Diagonal element of Hessenberg matrix is complex, it usually means that the Hamiltonian is not Hermitian. but you have set conserve_norm=True."
+                    f"{ldim=} {ndim=} {maxsize=} {is_converged=}"
+                    + f"Diagonal element of Hessenberg matrix is complex, {alpha},"
+                    + " it usually means that the Hamiltonian is not Hermitian. but you have set conserve_norm=True."
                 )
-        is_converged = beta[-1] < EPS
         if ldim < n_warmup and not is_converged:
             continue
 
