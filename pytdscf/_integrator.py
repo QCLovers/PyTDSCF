@@ -267,6 +267,11 @@ def _orth_step_np(
             hessen[ldim + 1, ldim] = beta
     return beta, v, V, hessen
 
+@jax.jit
+def tensordot_jit(coeff: jax.Array, V: jax.Array):
+    size = coeff.shape[0]
+    return jnp.tensordot(coeff, V[:size,], axes=(0, 0))
+
 
 @overload
 def short_iterative_arnoldi(
@@ -348,12 +353,6 @@ def short_iterative_arnoldi(
 
         def tensordot(coeff: np.ndarray, V: jax.Array) -> jax.Array:
             _coeff = jnp.asarray(coeff, dtype=jnp.complex128)
-
-            @jax.jit
-            def tensordot_jit(coeff: jax.Array, V: jax.Array):
-                size = coeff.shape[0]
-                return jnp.tensordot(coeff, V[:size,], axes=(0, 0))
-
             psi_next = tensordot_jit(_coeff, V)
             return psi_next
     else:
