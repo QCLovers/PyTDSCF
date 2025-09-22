@@ -131,7 +131,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         ).reshape(ndim)
         if scipy.linalg.norm(beta[-1]) < EPS:
             next_psi_states = multiplyOp.split(psi_next)
-            _Debug.niter_krylov[_Debug.site_now] = i_iter
+            _Debug.niter_krylov[_Debug.site_now] = i_iter + 1
             return next_psi_states
         elif i_iter == 0:
             psi_next_sv = psi_next
@@ -139,7 +139,7 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
             err = scipy.linalg.norm(psi_next - psi_next_sv)
             if err < thresh or i_iter == ndim:
                 next_psi_states = multiplyOp.split(psi_next)
-                _Debug.niter_krylov[_Debug.site_now] = i_iter
+                _Debug.niter_krylov[_Debug.site_now] = i_iter + 1
                 return next_psi_states
             psi_next_sv = psi_next
         cveclist.append(sigvec)
@@ -415,10 +415,10 @@ def short_iterative_arnoldi(
             coeff = eigvecs @ (np.exp(scale * eigvals) * y)
             psi_next = tensordot(coeff, V)
 
-        if is_converged or ldim == maxsize:
+        if is_converged or ldim + 1 == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
-            _Debug.niter_krylov[_Debug.site_now] = ldim
+            _Debug.niter_krylov[_Debug.site_now] = ldim + 1
             psi_next = _rescale(psi_next, β0_array)
             return split(psi_next)
 
@@ -428,13 +428,13 @@ def short_iterative_arnoldi(
         else:
             err = _norm(psi_next - psi_next_sv)
             if err < thresh:
-                _Debug.niter_krylov[_Debug.site_now] = ldim
+                _Debug.niter_krylov[_Debug.site_now] = ldim + 1
                 psi_next = _rescale(psi_next, β0_array)
                 _maybe_warn_tridiag(subH)
                 return split(psi_next)
             psi_next_sv = psi_next
 
-    raise ValueError("Short Iterative Arnoldi is not converged in 20 basis")
+    raise ValueError(f"Short Iterative Arnoldi is not converged in 20 basis: {beta=} {maxsize=} {ndim=} {n_warmup=}. Try shorter time interval or larger Krylov")
 
 
 @overload
@@ -537,7 +537,7 @@ def short_iterative_lanczos(
         v0_conj = np.conj(v0)
         V = np.vstack([v0])
 
-    for ldim in range(ndim + 1):
+    for ldim in range(ndim):
         """Hessenberg matrix by Lanczos algorithm"""
         if ldim == 0:
             trial_states = psi_states
@@ -637,10 +637,10 @@ def short_iterative_lanczos(
                 ΦexpAΦᵗ0 = Φ @ expAΦᵗ0
                 # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
-        if is_converged or ldim == maxsize:
+        if is_converged or ldim + 1 == maxsize:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
-            _Debug.niter_krylov[_Debug.site_now] = ldim
+            _Debug.niter_krylov[_Debug.site_now] = ldim + 1
             psi_next = _rescale(psi_next, β0_array)
             return split(psi_next)
         elif psi_next_sv is None:
@@ -648,7 +648,7 @@ def short_iterative_lanczos(
         else:
             err = _norm(psi_next - psi_next_sv)
             if err < thresh:
-                _Debug.niter_krylov[_Debug.site_now] = ldim
+                _Debug.niter_krylov[_Debug.site_now] = ldim + 1
                 psi_next = _rescale(psi_next, β0_array)
                 return split(psi_next)
             psi_next_sv = psi_next

@@ -38,7 +38,7 @@ mpi = [
     "pytest-mpi>=0.6",
 ]
 radicalpy = [
-    "radicalpy>=0.8.1",
+    "radicalpy>=0.9.2",
 ]
 
 [build-system]
