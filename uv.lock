@@ -2877,7 +2877,7 @@ requires-dist = [
     { name = "polars", specifier = ">=1.10.0" },
     { name = "pympo", git = "https://github.com/KenHino/PyMPO.git" },
     { name = "pytest-mpi", marker = "extra == 'mpi'", specifier = ">=0.6" },
-    { name = "radicalpy", marker = "extra == 'radicalpy'", specifier = ">=0.8.1" },
+    { name = "radicalpy", marker = "extra == 'radicalpy'", specifier = ">=0.9.6" },
     { name = "scipy", specifier = ">=1.14.1" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.1.3" },
     { name = "sphinx-rtd-theme", marker = "extra == 'docs'", specifier = ">=3.0.1" },
