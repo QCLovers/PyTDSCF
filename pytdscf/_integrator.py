@@ -267,6 +267,7 @@ def _orth_step_np(
             hessen[ldim + 1, ldim] = beta
     return beta, v, V, hessen
 
+
 @jax.jit
 def tensordot_jit(coeff: jax.Array, V: jax.Array):
     size = coeff.shape[0]
@@ -396,7 +397,7 @@ def short_iterative_arnoldi(
         beta, v, V, hessen = _orth_step(v_l, V, hessen, ldim)  # type: ignore
 
         # --- Breakdown: this is the only place that requires eigendecomposition ---
-        is_converged = beta < EPS
+        is_converged = beta < EPS or ldim + 1 == maxsize
         if ldim < n_warmup and not is_converged:
             # --- Warmup: skip eigendecomposition and basis expansion ---
             continue
@@ -415,7 +416,7 @@ def short_iterative_arnoldi(
             coeff = eigvecs @ (np.exp(scale * eigvals) * y)
             psi_next = tensordot(coeff, V)
 
-        if is_converged or ldim + 1 == maxsize:
+        if is_converged:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim + 1
@@ -434,7 +435,9 @@ def short_iterative_arnoldi(
                 return split(psi_next)
             psi_next_sv = psi_next
 
-    raise ValueError(f"Short Iterative Arnoldi is not converged in 20 basis: {beta=} {maxsize=} {ndim=} {n_warmup=}. Try shorter time interval or larger Krylov")
+    raise ValueError(
+        f"Short Iterative Arnoldi is not converged in 20 basis: {beta=} {maxsize=} {ndim=} {n_warmup=}. Try shorter time interval or larger Krylov"
+    )
 
 
 @overload
@@ -568,7 +571,7 @@ def short_iterative_lanczos(
                 # Krylov space exhausted
                 v_l = np.empty_like(v_l)
             V = np.vstack([V, v_l])
-        is_converged = beta[-1] < EPS
+        is_converged = beta[-1] < EPS or ldim + 1 == maxsize
         if alpha_is_real and np.abs(alpha[-1].imag) > 1e-12:
             alpha_is_real = False
             if const.conserve_norm:
@@ -637,7 +640,7 @@ def short_iterative_lanczos(
                 ΦexpAΦᵗ0 = Φ @ expAΦᵗ0
                 # psi_next = np.einsum("kj,k->j", cvecs[:-1, :], eigvec_expLU)
                 psi_next = np.dot(ΦexpAΦᵗ0, V[:-1, :])
-        if is_converged or ldim + 1 == maxsize:
+        if is_converged:
             # When Krylov subspace is the same as the whole space,
             # calculated psi_next must be the exact solution.
             _Debug.niter_krylov[_Debug.site_now] = ldim + 1
