@@ -76,14 +76,14 @@ class multiplyH_CI(object):
             )
         return sigvec
 
-    def stack(self, ci_coef):
+    def stack(self, ci_coef, **kwargs):
         ci_flat_states = [
             ci_coef[istate].flatten() for istate in range(self.nstate)
         ]
         ci_flat = np.hstack([x for x in ci_flat_states])
         return ci_flat
 
-    def split(self, ci_flat):
+    def split(self, ci_flat, **kwargs):
         data = []
         ci_flat_states = np.split(ci_flat, self.split_idx)
         for istate in range(self.nstate):

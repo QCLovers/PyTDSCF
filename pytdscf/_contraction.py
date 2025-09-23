@@ -185,7 +185,10 @@ def contract_with_site_mpo(
         assert len(op_site.shape) == 2, f"op_site.shape = {op_site.shape}"
         op_site_mode = 2
     elif isinstance(op_site, OperatorCore):
-        op_site_mode = 3
+        if isinstance(op_site.data, int):
+            op_site_mode = 1
+        else:
+            op_site_mode = 3
     else:
         raise AssertionError(f"Invalid op_site type: {type(op_site)}")
 
@@ -357,7 +360,7 @@ def contract_with_site_mpo(
         case ("B", 3, 2):
             assert isinstance(op_site, OperatorCore)
             data = op_site.data
-            assert isinstance(data, np.ndarray | jax.Array)
+            assert isinstance(data, np.ndarray | jax.Array), type(data)
             if op_site.only_diag:
                 #   i-|-m m
                 #     r   |
@@ -492,7 +495,10 @@ class SplitStack:
             if extend and not self.in_same_as_out:
                 raise NotImplementedError("extend is not implemented")
                 # TODO: implement extend with JIT
-            return _stack(psi_states)
+            if len(psi_states) > 1:
+                return _stack(psi_states)
+            else:
+                return jnp.reshape(psi_states[0], -1)
         else:
             if extend and not self.in_same_as_out:
                 if len(psi_states[0].shape) == 3:
@@ -533,25 +539,31 @@ class SplitStack:
         (1,2n^2m) shape array --> [(n,m,n) shape array,(n,m,n) shape array]
 
         Args:
-            psi (list[np.ndarray]): psi[i] denotes i-electronic states p-site coefficient (3-rank tensor)
+            psi (np.ndarray | jax.Array): flattened psi_states
 
         Returns:
-            np.ndarray : 3-rank tensor list. psi_states[i] denotes i-electronic states
+            list[np.ndarray] | list[jax.Array] : 3-rank tensor list. psi_states[i] denotes i-electronic states
 
         """
 
         psi_states: list[np.ndarray] | list[jax.Array]
         if const.use_jax:
             # Splitting is difficult to be jit-compiled because of the variable length
-            psi_states = [
-                jnp.reshape(x, self.tensor_shapes_out)
-                for x in jnp.split(psi, self._split_idx_out)
-            ]
+            if len(self._split_idx_out) == 0:
+                psi_states = [jnp.reshape(psi, self.tensor_shapes_out)]
+            else:
+                psi_states = [
+                    jnp.reshape(x, self.tensor_shapes_out)
+                    for x in jnp.split(psi, self._split_idx_out)
+                ]
         else:
-            psi_states = [
-                x.reshape(self.tensor_shapes_out)
-                for x in np.split(psi, self._split_idx_out)
-            ]
+            if len(self._split_idx_out) == 0:
+                psi_states = [psi.reshape(self.tensor_shapes_out)]  # type: ignore
+            else:
+                psi_states = [
+                    x.reshape(self.tensor_shapes_out)
+                    for x in np.split(psi, self._split_idx_out)
+                ]
         if truncate and not self.in_same_as_out:
             if len(self.tensor_shapes_in) == 3:
                 psi_states = [
@@ -1028,6 +1040,8 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
             op_c_mode = 1
         elif len(_op_c.shape) == 2:
             op_c_mode = 2
+        elif isinstance(_op_c.data, int):
+            op_c_mode = 1
         elif _op_c.only_diag:
             op_c_mode = 3
         else:

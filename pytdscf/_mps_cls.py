@@ -8,13 +8,16 @@ import copy
 import itertools
 import math
 from abc import ABC, abstractmethod
+from collections import Counter
 from functools import partial
+from itertools import chain
 from time import time
 from typing import Literal
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import scipy
 import scipy.linalg as linalg
 from loguru import logger as _logger
 from opt_einsum import contract
@@ -30,6 +33,7 @@ from pytdscf._contraction import (
     multiplyK_MPS_direct,
     multiplyK_MPS_direct_MPO,
 )
+from pytdscf._mpo_cls import OperatorCore
 from pytdscf._site_cls import (
     SiteCoef,
     truncate_sigvec,
@@ -42,6 +46,7 @@ from pytdscf.hamiltonian_cls import (
     PolynomialHamiltonian,
     TensorHamiltonian,
 )
+from pytdscf.kraus import kraus_contract_single_site, kraus_contract_two_site
 from pytdscf.model_cls import Model
 
 logger = _logger.bind(name="main")
@@ -144,8 +149,6 @@ class MPSCoef(ABC):
         ndof = model.get_ndof()
         if (m_aux_max := model.m_aux_max) is None:
             m_aux_max = 10**9
-        lattice_info_states = []
-        superblock_states = []
 
         if (weight_estate := model.init_weight_ESTATE) is None:
             weight_estate = np.array([1.0] + [0.0] * (nstate - 1))
@@ -210,8 +213,6 @@ class MPSCoef(ABC):
                     )
         return (
             nstate,
-            lattice_info_states,
-            superblock_states,
             weight_estate,
             weight_vib,
             m_aux_max,
@@ -446,7 +447,12 @@ class MPSCoef(ABC):
         return norm
 
     def propagate(
-        self, stepsize: float, ints_spf: SPFInts | None, matH: HamiltonianMixin
+        self,
+        stepsize: float,
+        ints_spf: SPFInts | None,
+        matH: HamiltonianMixin,
+        one_gate_to_apply: TensorHamiltonian | None = None,
+        kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array] | None = None,
     ):
         if const.verbose == 4:
             helper._ElpTime.ci_etc -= time()
@@ -477,6 +483,11 @@ class MPSCoef(ABC):
             begin_site=0,
             end_site=nsite - 1,
         )
+        if one_gate_to_apply is not None:
+            self.apply_one_gate(one_gate_to_apply, reorth_center=nsite - 1)
+        if kraus_op is not None:
+            self.apply_kraus(kraus_op, reorth_center=nsite - 1)
+
         self.propagate_along_sweep(
             self.ints_site,
             self.matH_sweep,
@@ -484,6 +495,9 @@ class MPSCoef(ABC):
             begin_site=nsite - 1,
             end_site=0,
         )
+        if const.space == "liouville":
+            pass
+            # self.hermitise()
 
     def construct_mfop_TEMP4DIPOLE(self, ints_spf: SPFInts, matO, ci_coef_ket):
         mps_copy_bra = copy.deepcopy(self)
@@ -915,7 +929,6 @@ class MPSCoef(ABC):
                     f"{psite=} {to=} {tensor_shapes_out=} {superblock_states[0][psite].data.shape=}"
                 )
                 raise
-
             if psite != end_site:
                 svalues, op_sys = self.trans_next_psite_AsigmaB(
                     psite=psite,
@@ -1073,7 +1086,7 @@ class MPSCoef(ABC):
                 # In Hilbert space and Hamiltonian is Hermitian,
                 # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(matPsi_states_new)
-                matPsi_states_new = [x / norm for x in matPsi_states_new]
+                matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
 
         """update(over-write) matPsi(psite)"""
         for istate, superblock in enumerate(superblock_states):
@@ -1121,12 +1134,22 @@ class MPSCoef(ABC):
             )
 
         if not const.doRelax:
-            svalues_states_new = _integrator.short_iterative_lanczos(
-                +1.0j * stepsize / 2,
-                multiplyK,
-                svalues_states,
-                const.thresh_exp,
-            )
+            if const.integrator == "arnoldi":
+                svalues_states_new = _integrator.short_iterative_arnoldi(
+                    +1.0j * stepsize / 2,
+                    multiplyK,
+                    svalues_states,
+                    const.thresh_exp,
+                )
+            elif const.integrator == "lanczos":
+                svalues_states_new = _integrator.short_iterative_lanczos(
+                    +1.0j * stepsize / 2,
+                    multiplyK,
+                    svalues_states,
+                    const.thresh_exp,
+                )
+            else:
+                raise ValueError(f"Invalid integrator: {const.integrator}")
 
         elif const.doRelax == "improved":
             svalues_states_new = svalues_states
@@ -1177,7 +1200,7 @@ class MPSCoef(ABC):
                     matA.data = np.tensordot(matA.data, sval, axes=(2, 0))
                 matA.gauge = "Psi"
 
-    def _get_normalized_reduced_density(
+    def _get_pure_reduced_density(
         self, istate: int, remain_nleg: tuple[int, ...]
     ) -> np.ndarray | jax.Array:
         """
@@ -1200,12 +1223,16 @@ class MPSCoef(ABC):
             self.superblock_states[istate][isite].data
             for isite in range(len(remain_nleg))
         ]
+        # If MPS is not canonicalised, all cores are explicitly contracted.
+        # cores = [core.copy() for core in cores]
+        # remain_nleg = remain_nleg + (0,) * (len(cores) - len(remain_nleg))
         if isinstance(cores[0], jax.Array):
-            return _get_normalized_reduced_density_jax(cores, remain_nleg)
+            return _get_pure_reduced_density_jax(cores, remain_nleg)
         else:
             core = cores.pop()
             nleg = remain_nleg[-1]
             if nleg == 0:
+                subscript = "ijk,ajk->ia"
                 raise ValueError("The number of legs must be greater than 0.")
             elif nleg == 1:
                 """
@@ -1224,7 +1251,7 @@ class MPSCoef(ABC):
                 subscript = "ijk,alk->iajl"
             else:
                 raise ValueError("The number of legs must be less than 3.")
-            density = np.einsum(subscript, np.conj(core), core)
+            density = np.einsum(subscript, core, np.conj(core))
             isite = len(remain_nleg) - 1
             while cores:
                 isite -= 1
@@ -1250,7 +1277,7 @@ class MPSCoef(ABC):
                     subscript = "lmi,bma,ia...->lb..."
                 else:
                     raise ValueError("The number of legs must be less than 3.")
-                density = contract(subscript, np.conj(core), core, density)
+                density = contract(subscript, core, np.conj(core), density)
             assert isite == 0
             return density[0, 0, ...]
 
@@ -1272,45 +1299,59 @@ class MPSCoef(ABC):
         center_site = None
         assert const.space == "liouville"
         for i in range(len(remain_nleg) - 1, -1, -1):
-            if remain_nleg[i] == 2:
+            if remain_nleg[i] in (1, 2):
                 center_site = i
                 break
         if center_site is None:
             raise ValueError("No site with 2 legs found in remain_nleg")
-        mps = [core.data for core in self.superblock_states[istate]]
+        if not hasattr(self, "reshape_mat"):
+            raise ValueError("reshape_mat is not defined")
+        mpdm_reshaped = [
+            self.reshape_mat[isite](core.data)
+            for isite, core in enumerate(self.superblock_states[istate])
+        ]
         if const.use_jax:
             return np.array(
-                _get_partial_trace_jax(mps, remain_nleg, center_site)
+                _get_partial_trace_jax(
+                    mpdm_reshaped,
+                    remain_nleg,
+                    center_site,
+                    remain_nleg[center_site],
+                )
             )
 
-        def reshape_mat(mat) -> np.ndarray:
-            i, j, k = mat.shape
-            j_sqrt = math.isqrt(j)
-            return mat.reshape(i, j_sqrt, j_sqrt, k, order="C")
-
-        nsite = len(mps)
+        nsite = len(mpdm_reshaped)
         left_env = np.array([1.0 + 0.0j])
         for isite in range(center_site):
-            data: np.ndarray = reshape_mat(mps[isite])
+            data: np.ndarray = mpdm_reshaped[isite]
             match remain_nleg[isite]:
                 case 0:
-                    subscript = "...i,ijjl->...l"
+                    # subscript = "...i,ijjl->...l"
+                    _data = np.einsum("ijjl->il", data)
                 case 1:
-                    subscript = "...i,ijjl->...jl"
+                    # subscript = "...i,ijjl->...jl"
+                    _data = np.einsum("ijjl->ijl", data)
                 case 2:
-                    subscript = "...i,ijkj->...jkl"
+                    # subscript = "...i,ijkj->...jkl"
+                    _data = data.copy()
                 case _:
                     raise ValueError(
                         f"Invalid number of legs: {remain_nleg[isite]}"
                     )
-            left_env = np.einsum(subscript, left_env, data)
+            # left_env = np.einsum(subscript, left_env, data)
+            left_env = np.tensordot(left_env, _data, axes=(-1, 0))
 
         right_env = np.array([1.0 + 0.0j])
         for isite in range(nsite - 1, center_site, -1):
-            data = reshape_mat(mps[isite])
-            right_env = np.einsum("ijjl,l->i", data, right_env)
-        data = reshape_mat(mps[center_site])
-        dm = np.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+            data = mpdm_reshaped[isite]
+            # right_env = np.einsum("ijjl,l->i", data, right_env)
+            _data = np.einsum("ijjl->il", data)
+            right_env = _data @ right_env
+        data = mpdm_reshaped[center_site]
+        # dm = np.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+        dm = np.tensordot(
+            left_env, np.tensordot(data, right_env, axes=(-1, 0)), axes=(-1, 0)
+        )
         return dm
 
     def get_reduced_densities(
@@ -1324,7 +1365,7 @@ class MPSCoef(ABC):
             )
         match const.space:
             case "hilbert":
-                _reduced_density = self._get_normalized_reduced_density(
+                _reduced_density = self._get_pure_reduced_density(
                     0, remain_nleg
                 )
             case "liouville":
@@ -1949,6 +1990,282 @@ class MPSCoef(ABC):
                 ][psite - 1].data[:, :, :newD]
         return newD, error, op_env_D_bra, op_env_D_braket
 
+    def hermitise(self):
+        """
+        Hermitise MPDO
+
+        1. rho <- svd(rho)
+        2. rho <- 1/2 (rho + rho^dagger)
+        """
+        assert const.space == "liouville"
+        superblock = self.superblock_states[0]
+
+        if len(superblock) == 1:
+            rho = _core_to_4d(superblock[0].data)
+            rho = 0.5 * (rho + rho.conj().transpose(0, 2, 1, 3))
+            superblock[0].data = _4d_to_core(rho)
+            return
+
+        if isinstance(superblock[0].data, jax.Array):
+            raise NotImplementedError("jax not supported")
+        else:
+            superblock = svd_conj_mpdo(superblock)
+
+        # Reset op_sys_sites to update environment block
+        self.op_sys_sites = None
+        return
+
+    def apply_one_gate(
+        self,
+        matOp: HamiltonianMixin,
+        reorth_center: int,
+        conj: bool = False,
+        power: int = 1,
+    ):
+        """
+        Apply one-site operator to MPS.
+
+        Tensor network diagram:
+            |
+            U
+         |  | | | |
+        Psi-B-B-B-B
+
+        => contract U with B
+
+         |  | | | |
+        Psi-C-B-B-B
+
+        => canonicalize
+
+         |  | | | |
+        Psi-B-B-B-B
+        """
+        assert isinstance(matOp, TensorHamiltonian)
+        assert len(matOp.mpo) == 1
+        assert len(self.superblock_states) == 1
+        mpo = matOp.mpo[0][0]
+        assert mpo is not None
+        superblock = self.superblock_states[0]
+        gauge_changed_sites = []
+        for isite in range(len(superblock)):
+            if len(mpo.calc_point[isite]) == 0:
+                continue
+            elif len(mpo.calc_point[isite]) >= 2:
+                raise ValueError(
+                    "Multiple one gate on same site is not supported. Contract gates in advance!"
+                )
+            self._apply_one_gate_isite(
+                isite,
+                mpo.calc_point[isite][0],
+                superblock,
+                conj=conj,
+                power=power,
+            )
+            if superblock[isite].gauge != "Psi":
+                superblock[isite].gauge = "C"
+                gauge_changed_sites.append(isite)
+        if len(gauge_changed_sites) > 0:
+            canonicalizeB(
+                superblock[reorth_center : max(gauge_changed_sites) + 1]
+            )
+            canonicalizeA(
+                superblock[min(gauge_changed_sites) : reorth_center + 1]
+            )
+            self.op_sys_sites = None
+        self.superblock_states = [superblock]
+        return
+
+    def apply_kraus(
+        self,
+        kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array],
+        reorth_center: int,
+    ):
+        assert len(self.superblock_states) == 1, (
+            f"{self.superblock_states=} is not implemented"
+        )
+        superblock = self.superblock_states[0]
+        update_sites_min = 10000000000
+        update_sites_max = 0
+        for site_inds, B in kraus_op.items():
+            match len(site_inds):
+                case 1:
+                    isite = site_inds[0]
+                    if isite < update_sites_min:
+                        update_sites_min = isite
+                    if isite > update_sites_max:
+                        update_sites_max = isite
+                    assert isinstance(isite, int)
+                    core = superblock[isite].data
+                    core = kraus_contract_single_site(B, core)  # type: ignore
+                    superblock[isite].data = core
+                case 2:
+                    isite_1 = site_inds[0]
+                    isite_2 = site_inds[1]
+                    assert isite_1 + 1 == isite_2, (
+                        f"{site_inds=} is not nearest neighbour"
+                    )
+                    core_1 = superblock[isite_1].data
+                    core_2 = superblock[isite_2].data
+                    core_1, core_2 = kraus_contract_two_site(B, core_1, core_2)  # type: ignore
+                    superblock[isite_1].data = core_1
+                    superblock[isite_2].data = core_2
+                    if isite_1 < update_sites_min:
+                        update_sites_min = isite_1
+                    if isite_2 > update_sites_max:
+                        update_sites_max = isite_2
+                case _:
+                    raise ValueError(f"{site_inds=} is not yet implemented")
+        canonicalizeB(superblock[reorth_center : update_sites_max + 1])
+        canonicalizeA(superblock[update_sites_min : reorth_center + 1])
+        self.op_sys_sites = None
+        self.superblock_states = [superblock]
+
+    def _apply_one_gate_isite(
+        self,
+        isite,
+        op_core,
+        superblock,
+        conj: bool = False,
+        power: int = 1,
+    ):
+        assert isinstance(op_core, OperatorCore), f"{op_core=}"
+        assert op_core.key in [(isite,), ((isite, isite),)], f"{op_core.key=}"
+        if op_core.backend == "jax":
+            einsum = jnp.einsum
+            matrix_power = jax.numpy.linalg.matrix_power
+            diag = jax.numpy.diag
+        else:
+            einsum = np.einsum  # type: ignore
+            matrix_power = np.linalg.matrix_power  # type: ignore
+            diag = np.diag  # type: ignore
+        assert not isinstance(op_core.data, int)
+        if op_core.key == (isite,):
+            U = diag(op_core.data[0, :, 0])
+        elif op_core.key == ((isite, isite),):
+            U = op_core.data[0, :, :, 0]  # type: ignore
+        else:
+            raise ValueError(f"{op_core=}")
+        if conj:
+            U = U.conj()
+        if power != 1:
+            U = matrix_power(U, power)
+        superblock[isite].data = einsum(
+            "abc,db->adc", superblock[isite].data, U
+        )
+
+
+def _core_to_4d(data):
+    assert data.ndim == 3
+    i, j, k = data.shape
+    j_sqrt = math.isqrt(j)
+    return data.reshape(i, j_sqrt, j_sqrt, k)
+
+
+def _4d_to_core(data):
+    assert data.ndim == 4
+    i, j, k, l = data.shape
+    assert j == k
+    return data.reshape(i, j * k, l)
+
+
+def _block_diag4d(
+    tensor: np.ndarray, *, to: Literal["row", "col", "diag"] = "diag"
+) -> np.ndarray:
+    """Create a 4-D block-diagonal tensor with its hermitian conjugate.
+
+    If ``add_dagger_to_row`` is ``True``:
+        returns concatenation along the last axis (shape: a,b,c,2d).
+        [[tensor, tensor†]]
+
+    If ``add_dagger_to_col`` is ``True``:
+        returns concatenation along the second axis (shape: 2*a,b,c,d).
+        [[tensor],
+         [tensor†]]
+
+    Else:
+        returns full block-diagonal along first & last axes (shape: 2a,b,c,2d)
+        [[tensor,      0  ],
+         [   0  , tensor†]]
+    """
+    rho = tensor
+    a, b, c, d = rho.shape
+    rho_dag = np.transpose(rho.conj(), (0, 2, 1, 3))
+    assert rho_dag.shape == (a, c, b, d)
+    match to:
+        case "row":
+            # Only extend along the last axis – no new leading blocks
+            _ = np.concatenate((rho, rho_dag), axis=0)
+            assert _.shape == (2 * a, b, c, d)
+            return _
+        case "col":
+            _ = np.concatenate((rho, rho_dag), axis=3)
+            assert _.shape == (a, b, c, 2 * d)
+            return _
+        case "diag":
+            # Allocate the full output once and fill by slice assignment
+            out = np.zeros((2 * a, b, c, 2 * d), dtype=rho.dtype)
+            out[:a, ..., :d] = rho  # upper-left
+            out[a:, ..., d:] = rho_dag  # lower-right
+            zeros = np.zeros((a, b, c, d), dtype=rho.dtype)
+            out1 = np.concatenate((rho, zeros), axis=3)
+            out2 = np.concatenate((zeros, rho_dag), axis=3)
+            np.testing.assert_array_equal(
+                out, np.concatenate((out1, out2), axis=0)
+            )
+            assert out.shape == (2 * a, b, c, 2 * d)
+            return out
+
+
+def svd_conj_mpdo(superblock: list[SiteCoef]) -> list[SiteCoef]:
+    """
+    SVD MPDO
+    """
+    assert len(superblock) > 1
+    assert isinstance(superblock[0].data, np.ndarray)
+    bond_dims = [core.shape[-1] for core in superblock[:-1]]
+    trace = np.array([1.0 + 0.0j])
+    for isite in range(len(superblock)):
+        if isite == 0:
+            data = _block_diag4d(
+                0.5 * _core_to_4d(superblock[isite].data), to="col"
+            )
+        elif isite == len(superblock) - 1:
+            data = _block_diag4d(_core_to_4d(superblock[isite].data), to="row")
+        else:
+            data = _block_diag4d(_core_to_4d(superblock[isite].data), to="diag")
+        # data = _core_to_4d(superblock[isite].data)
+        # trace = np.einsum("i,ijjl->l", trace, data)
+        trace = trace @ np.einsum("ijjl->il", data)
+        superblock[isite].data = _4d_to_core(data)
+
+    for isite in range(len(superblock) - 1):
+        rho_L = superblock[isite].data
+        rho_R = superblock[isite + 1].data
+        # B = contract("ijk,klm->ijlm", rho_L, rho_R)
+        B = np.tensordot(rho_L, rho_R, axes=(2, 0))
+        i, j, l, m = B.shape
+        chi = bond_dims[isite]
+        B = B.reshape(i * j, l * m)
+        try:
+            U, S, Vh = scipy.linalg.svd(B, full_matrices=False)
+        except np.linalg.LinAlgError:
+            U, S, Vh = scipy.linalg.svd(
+                B, full_matrices=False, lapack_driver="gesvd"
+            )
+        # truncate up to k
+        U = U[:, :chi]
+        S = S[:chi]
+        Vh = Vh[:chi, :]
+        sqrt_S = np.sqrt(S)
+        rho_L = (U @ np.diag(sqrt_S)).reshape(i, j, chi)
+        rho_R = (np.diag(sqrt_S) @ Vh).reshape(chi, l, m)
+        superblock[isite].data = rho_L
+        superblock[isite + 1].data = rho_R
+    canonicalize(superblock, orthogonal_center=0, incremental=False)
+
+    return superblock
+
 
 def _prod(arr: list[int] | np.ndarray) -> int:
     """Numpy.ndarray.prod induces overflow. This is alternative."""
@@ -2001,12 +2318,29 @@ class LatticeInfo:
         ]
         return LatticeInfo(nspf_list_sites)
 
+    def get_bond_dim(self, isite: int, m_aux_max: int) -> tuple[int, int]:
+        is_lend = isite == 0
+        is_rend = isite == self.nsite - 1
+        dim_centr = self.dim_of_sites[isite]
+        if is_lend:
+            dim_left = 1
+        else:
+            dim_left = min(m_aux_max, _prod(self.dim_of_sites[:isite]))
+        if is_rend:
+            dim_right = 1
+        else:
+            dim_right = min(m_aux_max, _prod(self.dim_of_sites[isite + 1 :]))
+        """A(l,n,r)"""
+        m_aux_l = min(dim_left, dim_centr * dim_right, m_aux_max)
+        m_aux_r = min(dim_left * dim_centr, dim_right, m_aux_max)
+        return m_aux_l, m_aux_r
+
     @helper.rank0_only
     def alloc_superblock_random(
         self,
         m_aux_max: int,
         scale: float,
-        weight_vib: list[list[float]],
+        core_weight: list[list[float] | np.ndarray],
         *,
         site_unitary: list[np.ndarray] | None = None,
     ) -> list[SiteCoef]:
@@ -2015,36 +2349,24 @@ class LatticeInfo:
         Args:
             m_aux_max (int): Bond dimension = Max rank of MPS after renormalization.
             scale (float, optional): Normalization scale. Defaults to 1.0.
-            weight_vib (List[List[float]]): Weight of each DOFs for each sites.
+            core_weight (List[List[float] | np.ndarray]): Weight of each DOFs for each sites.
             dvr_unitary (List[np.ndarray], optional): Unitary matrix which translate φ to χ.
 
         Returns:
             List[SiteCoef]: site coefficient for each sites
         """
         superblock: list[SiteCoef] = []
+
         for isite in range(self.nsite):
+            m_aux_l, m_aux_r = self.get_bond_dim(isite, m_aux_max)
             is_lend = isite == 0
             is_rend = isite == self.nsite - 1
-            dim_centr = self.dim_of_sites[isite]
-            if is_lend:
-                dim_left = 1
-            else:
-                dim_left = min(m_aux_max, _prod(self.dim_of_sites[:isite]))
-            if is_rend:
-                dim_right = 1
-            else:
-                dim_right = min(
-                    m_aux_max, _prod(self.dim_of_sites[isite + 1 :])
-                )
-            """A(l,n,r)"""
-            m_aux_l = min(dim_left, dim_centr * dim_right, m_aux_max)
-            m_aux_r = min(dim_left * dim_centr, dim_right, m_aux_max)
             matC = SiteCoef.init_random(
                 isite=isite,
                 ndim=self.dim_of_sites[isite],
                 m_aux_l=m_aux_l,
                 m_aux_r=m_aux_r,
-                vibstate=weight_vib[isite],
+                init_state=core_weight[isite],
                 is_lend=is_lend,
                 is_rend=is_rend,
             )
@@ -2071,7 +2393,8 @@ class LatticeInfo:
             if const.use_jax:
                 data = jnp.einsum("abc,cd->abd", matC.data, sval)
             else:
-                data = np.einsum("abc,cd->abd", matC, sval)
+                # data = np.einsum("abc,cd->abd", matC, sval)
+                data = np.tensordot(matC, sval, axes=(2, 0))  # type: ignore
             superblock[isite - 1] = SiteCoef(data, gauge="C", isite=isite - 1)
 
         if const.space == "hilbert":
@@ -2189,7 +2512,7 @@ def superblock_trans_PsiB2APsi_psite(
     if const.use_jax:
         matB.data = jnp.einsum("ij,jbc->ibc", sval, matB.data)
     else:
-        matB.data = np.tensordot(sval, matB.data, axes=1)
+        matB.data = np.tensordot(sval, matB.data, axes=(1, 0))
     matB.gauge = "Psi"
     superblock[psite] = matA
 
@@ -2204,7 +2527,7 @@ def superblock_trans_APsi2PsiB_psite(
     if const.use_jax:
         matA.data = jnp.einsum("ijk,kb->ijb", matA.data, sval)
     else:
-        matA.data = np.tensordot(matA, sval, axes=1)
+        matA.data = np.tensordot(matA, sval, axes=(2, 0))
     matA.gauge = "Psi"
     superblock[psite] = matB
 
@@ -2373,7 +2696,7 @@ def print_gauge(superblock_states: list[list[SiteCoef]]):
 
 
 @partial(jax.jit, static_argnames=("remain_nleg",))
-def _get_normalized_reduced_density_jax(
+def _get_pure_reduced_density_jax(
     cores: list[jax.Array],
     remain_nleg: tuple[int, ...],
 ) -> jax.Array:
@@ -2410,7 +2733,7 @@ def _get_normalized_reduced_density_jax(
         raise ValueError(
             "The number of legs must be either 1 or 2 at the last site."
         )
-    density = jnp.einsum(subscript, jnp.conj(core), core)
+    density = jnp.einsum(subscript, core, jnp.conj(core))
     isite = len(remain_nleg) - 1
     while cores:
         core = cores.pop()
@@ -2435,30 +2758,28 @@ def _get_normalized_reduced_density_jax(
             subscript = "lmi,bma,ia...->lb..."
         else:
             raise ValueError("The number of legs must be less than 3.")
-        density = jnp.einsum(subscript, jnp.conj(core), core, density)
+        density = jnp.einsum(subscript, core, jnp.conj(core), density)
     assert isite == 0
     return density[0, 0, ...]
 
 
-@partial(jax.jit, static_argnames=("remain_nleg", "sys_site"))
+@partial(
+    jax.jit, static_argnames=("remain_nleg", "sys_site", "remain_nleg_sys")
+)
 def _get_partial_trace_jax(
-    mps: list[jax.Array],
+    mpdm_reshaped: list[jax.Array],
     remain_nleg: tuple[int, ...],
     sys_site: int,
+    remain_nleg_sys: int,
 ) -> jax.Array:
     """
     Get partial trace for Liouville space MPS.
     """
 
-    def reshape_mat(mat: jax.Array) -> jax.Array:
-        i, j, k = mat.shape
-        j_sqrt = math.isqrt(j)
-        return mat.reshape(i, j_sqrt, j_sqrt, k)
-
-    nsite = len(mps)
+    nsite = len(mpdm_reshaped)
     left_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
     for isite in range(sys_site):
-        data = reshape_mat(mps[isite])
+        data = mpdm_reshaped[isite]
         match remain_nleg[isite]:
             case 0:
                 subscript = "...i,ijjl->...l"
@@ -2474,10 +2795,16 @@ def _get_partial_trace_jax(
 
     right_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
     for isite in range(nsite - 1, sys_site, -1):
-        data = reshape_mat(mps[isite])
+        data = mpdm_reshaped[isite]
         right_env = jnp.einsum("ijjl,l->i", data, right_env)
-    data = reshape_mat(mps[sys_site])
-    dm = jnp.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+    data = mpdm_reshaped[sys_site]
+    match remain_nleg_sys:
+        case 1:
+            dm = jnp.einsum("...i,ijjl,l->...j", left_env, data, right_env)
+        case 2:
+            dm = jnp.einsum("...i,ijkl,l->...jk", left_env, data, right_env)
+        case _:
+            raise ValueError
     return dm
 
 
@@ -2605,15 +2932,20 @@ def canonicalizeA(
     Args:
         superblock (List[SiteCoef]): MPS converted into A(1)A(2),...,A(end-1)Psi(end). The given MPS will be updated.
     """
+    if len(superblock) == 0:
+        return
     use_jax = isinstance(superblock[0].data, jax.Array)
     sval: jax.Array | np.ndarray | None = None
     if use_jax:
-        einsum = jnp.einsum
+        # einsum = jnp.einsum
+        tensordot = jnp.tensordot
     else:
-        einsum = np.einsum  # type: ignore
+        # einsum = np.einsum  # type: ignore
+        tensordot = np.tensordot  # type: ignore
     for i, coef in enumerate(superblock):
         if sval is not None:
-            coef.data = einsum("ij,jkl->ikl", sval, coef.data)
+            # coef.data = einsum("ij,jkl->ikl", sval, coef.data)
+            coef.data = tensordot(sval, coef.data, axes=(1, 0))
         coef.gauge = "Psi"
         if i != len(superblock) - 1:
             matA, sval = coef.gauge_trf("Psi2Asigma")
@@ -2631,15 +2963,20 @@ def canonicalizeB(
     Args:
         superblock (List[SiteCoef]): MPS converted into Psi(1)B(2),...,B(end-1)B(end). The given MPS will be updated.
     """
+    if len(superblock) == 0:
+        return
     use_jax = isinstance(superblock[0].data, jax.Array)
     sval: jax.Array | np.ndarray | None = None
     if use_jax:
-        einsum = jnp.einsum
+        # einsum = jnp.einsum
+        tensordot = jnp.tensordot
     else:
-        einsum = np.einsum  # type: ignore
+        # einsum = np.einsum  # type: ignore
+        tensordot = np.tensordot  # type: ignore
     for i, coef in enumerate(superblock[::-1]):
         if sval is not None:
-            coef.data = einsum("ijk,kl->ijl", coef.data, sval)
+            # coef.data = einsum("ijk,kl->ijl", coef.data, sval)
+            coef.data = tensordot(coef.data, sval, axes=(2, 0))
         coef.gauge = "Psi"
         if i != len(superblock) - 1:
             matB, sval = coef.gauge_trf("Psi2sigmaB")
@@ -2694,11 +3031,15 @@ def contract_all_superblock(
     core = superblock[-1].data[:, :, 0]
     use_jax = isinstance(core, jax.Array)
     if use_jax:
-        einsum = jnp.einsum
+        # einsum = jnp.einsum
+        tensordot = jnp.tensordot
     else:
-        einsum = np.einsum  # type: ignore
+        # einsum = np.einsum  # type: ignore
+        tensordot = np.tensordot  # type: ignore
+
     for coef in superblock[-2::-1]:
-        core = einsum("ijk,k...->ij...", coef.data, core)
+        # core = einsum("ijk,k...->ij...", coef.data, core)
+        core = tensordot(coef.data, core, axes=(2, 0))
     return core[0, ...]
 
 
@@ -2836,8 +3177,6 @@ def _exp_liouville(
         i, j, k = core.data.shape
         j_sqrt = math.isqrt(j)
         dm.append(core.data.reshape(i, j_sqrt, j_sqrt, k))
-    from collections import Counter
-    from itertools import chain
 
     exp_val = 0.0
     for key, mpo in mpos.operators.items():  # type: ignore
@@ -2867,7 +3206,7 @@ def _exp_liouville(
                     operand = (left_tensor, dm[isite])  # type: ignore
                 case _:
                     raise ValueError(f"{count[isite]=} is not valid")
-            left_tensor = np.einsum(subscript, *operand)
+            left_tensor = contract(subscript, *operand)
         assert j_core == len(mpo), f"{j_core=}, {len(mpo)=}"
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]

@@ -11,7 +11,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.linalg
-from loguru import logger
+from loguru import logger as _logger
 from numpy.typing import NDArray
 from scipy.linalg import LinAlgError
 from scipy.sparse import csr_matrix, lil_matrix
@@ -21,7 +21,7 @@ import pytdscf
 from pytdscf._const_cls import const
 from pytdscf._helper import get_tensornetwork_diagram_MPO
 
-logger = logger.bind(name="main")
+logger = _logger.bind(name="main")
 
 CoreMxNxM = Annotated[NDArray[np.float64], "shape=(M_{p-1}, N_{p}, M_{p})"]
 CoreMxNxNxM = Annotated[
@@ -189,6 +189,7 @@ class OperatorCore:
         self.only_diag = (
             True if isinstance(data, int) or len(data.shape) == 3 else False
         )
+        self.backend = backend
 
         if isinstance(data, np.ndarray | jax.Array):
             self.shape = data.shape
@@ -202,6 +203,18 @@ class OperatorCore:
         message += f"diag : {self.only_diag} \n"
         message += f"data : {self.data}"
         return message
+
+    def is_hermitian(self) -> bool:
+        if isinstance(self.data, int):
+            return True
+        if self.only_diag:
+            return True
+        else:
+            triu_inds = np.triu_indices(self.data.shape[1], k=1)
+            tril_inds = np.tril_indices(self.data.shape[1], k=-1)
+            return np.allclose(
+                self.data[:, triu_inds, :], self.data[:, tril_inds, :].conj()
+            )
 
 
 def decompose_and_fill_nMR(

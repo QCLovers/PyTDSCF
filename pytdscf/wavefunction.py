@@ -355,6 +355,8 @@ class WFunc:
         matH: HamiltonianMixin,
         stepsize: float,
         istep: int,
+        one_gate_to_apply: TensorHamiltonian | None = None,
+        kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array] | None = None,
     ):
         """
 
@@ -393,7 +395,21 @@ class WFunc:
                 load_balance=(istep - 1) % const.load_balance_interval == 0,
             )
         else:
-            self.ci_coef.propagate(stepsize, self.ints_spf, matH)
+            if one_gate_to_apply is not None or kraus_op is not None:
+                assert isinstance(matH, TensorHamiltonian)
+                self.ci_coef.propagate(
+                    stepsize,
+                    self.ints_spf,
+                    matH,
+                    one_gate_to_apply=one_gate_to_apply,
+                    kraus_op=kraus_op,
+                )
+            else:
+                self.ci_coef.propagate(
+                    stepsize,
+                    self.ints_spf,
+                    matH,
+                )
         if const.verbose == 4:
             helper._ElpTime.ci += time()
         spf_occ = None
@@ -568,3 +584,15 @@ class WFunc:
         ]
 
         return (g, spf_occ, stepsize, stepsize_next)
+
+    def apply_one_gate(self, matOp: HamiltonianMixin, reorth_center: int = 0):
+        """
+        Apply one-site operator to the wavefunction.
+
+        Args:
+            matOp (hamiltonian_cls.HamiltonianMixin) : One-site operator
+        """
+        assert isinstance(matOp, TensorHamiltonian)
+        assert len(matOp.mpo) == 1
+        assert isinstance(self.ci_coef, MPSCoef)
+        self.ci_coef.apply_one_gate(matOp, reorth_center)

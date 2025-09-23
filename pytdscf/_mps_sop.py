@@ -11,7 +11,7 @@ from time import time
 import jax
 import jax.numpy as jnp
 import numpy as np
-from loguru import logger
+from loguru import logger as _logger
 
 import pytdscf._helper as helper
 from pytdscf._const_cls import const
@@ -40,7 +40,7 @@ from pytdscf.hamiltonian_cls import (
 )
 from pytdscf.model_cls import Model
 
-logger = logger.bind(name="main")
+logger = _logger.bind(name="main")
 
 
 def construct_matH_general_at_psite(matH, psite: int, A_is_sys):
@@ -141,12 +141,13 @@ class MPSCoefSoP(MPSCoef):
 
         (
             nstate,
-            lattice_info_states,
-            superblock_states,
             weight_estate,
             weight_vib,
             m_aux_max,
         ) = super()._get_initial_condition(model)
+
+        lattice_info_states = []
+        superblock_states = []
 
         mps_coef = cls()
         if "enable_tdh_dofs" in const.keys:
@@ -177,7 +178,7 @@ class MPSCoefSoP(MPSCoef):
             )
             weight = weight_estate[istate]
             superblock = lattice_info.alloc_superblock_random(
-                m_aux_max, math.sqrt(weight), weight_vib[istate]
+                m_aux_max, math.sqrt(weight), core_weight=weight_vib[istate]
             )
 
             superblock_states.append(superblock)

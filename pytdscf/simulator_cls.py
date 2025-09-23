@@ -52,7 +52,7 @@ class Simulator:
     """
 
     backup_interval: int
-    stepsize: float
+    stepsize_au: float
     maxstep: int
 
     def __init__(
@@ -104,11 +104,12 @@ class Simulator:
         populations: bool = True,
         observables: bool = False,
         integrator: Literal["lanczos", "arnoldi"] = "lanczos",
+        display_time_unit: Literal["fs", "ps", "au"] = "fs",
     ) -> tuple[float, WFunc]:
         """Relaxation
 
         Args:
-            stepsize (float, optional): Step size in fs. Defaults to ``0.1``.\
+            stepsize (float, optional): Step size in "fs". Defaults to ``0.1``.\
                 This is used only when imaginary time propagation is used.
             maxstep (int, optional): Maximum number of steps. Defaults to ``20``.
             improved (bool, optional): Use improved relaxation. Defaults to ``True``.
@@ -121,12 +122,14 @@ class Simulator:
             norm (bool, optional): Calculate norm. Defaults to ``True``.
             populations (bool, optional): Calculate populations. Defaults to ``True``.
             observables (bool, optional): Calculate observables. Defaults to ``False``.
+            integrator (Literal["lanczos", "arnoldi"], optional): Krylov subspace integrator type. Defaults to ``'lanczos'``.
+            display_time_unit (Literal["fs", "ps", "au"], optional): Time unit. Defaults to ``'fs'``.
 
         Returns:
             Tuple[float, WFunc]: Energy after relaxation in Eh, and Wavefunction after relaxation.
 
         """
-        self.stepsize = stepsize
+        self.stepsize_au = stepsize / units.au_in_fs
         self.maxstep = maxstep
         self.backup_interval = backup_interval
         autocorr = False
@@ -149,6 +152,7 @@ class Simulator:
             use_mpo=self.model.use_mpo,
             space=self.model.space,
             integrator=integrator,
+            display_time_unit=display_time_unit,
         )
         return self._execute(autocorr, energy, norm, populations, observables)
 
@@ -180,13 +184,13 @@ class Simulator:
         adaptive_p_proj: float = 1.0e-04,
         adaptive_p_svd: float = 1.0e-07,
         integrator: Literal["lanczos", "arnoldi"] = "lanczos",
-        step_size_is_fs: bool = True,
+        display_time_unit: Literal["fs", "ps", "au"] = "fs",
         conserve_norm: bool = True,
     ) -> tuple[float, WFunc]:
         r"""Propagation
 
         Args:
-            stepsize (float, optional): Step size in fs. Defaults to ``0.1``.
+            stepsize (float, optional): Step size in "fs". Defaults to ``0.1``.
             maxstep (int, optional): Maximum number of steps. Defaults to ``5000``., \
                 i.e. 500 fs.
             restart (bool, optional): Restart from the previous wavefunction. \
@@ -214,7 +218,20 @@ class Simulator:
                 you need to set like ``([(0, 0), ], 10)``.
             Δt (float, optional): Same as ``stepsize``
             thresh_sil (float): Convergence threshold of short iterative Lanczos. Defaults to 1.e-09.
-            step_size_is_fs (bool, optional): If ``True``, ``stepsize`` is in fs. Defaults to ``True``.
+            autocorr_per_step (int, optional): Interval of steps between autocorrelation evaluations. Defaults to ``1``.
+            observables_per_step (int, optional): Interval of steps between observables evaluations. Defaults to ``1``.
+            energy_per_step (int, optional): Interval of steps between energy evaluations. Defaults to ``1``.
+            norm_per_step (int, optional): Interval of steps between norm evaluations. Defaults to ``1``.
+            populations_per_step (int, optional): Interval of steps between population evaluations. Defaults to ``1``.
+            parallel_split_indices (List[Tuple[int, int]], optional): Split indices for parallel (MPI) computation. Defaults to ``None``.
+            adaptive (bool, optional): Use adaptive bond dimension algorithm. Defaults to ``False``.
+            adaptive_Dmax (int, optional): Maximum bond dimension for adaptive algorithm. Defaults to ``20``.
+            adaptive_dD (int, optional): Increment of bond dimension for adaptive algorithm. Defaults to ``5``.
+            adaptive_p_proj (float, optional): Projection threshold for adaptive algorithm. Defaults to ``1.0e-4``.
+            adaptive_p_svd (float, optional): SVD truncation threshold for adaptive algorithm. Defaults to ``1.0e-7``.
+            integrator (Literal["lanczos", "arnoldi"], optional): Krylov subspace integrator type. Defaults to ``'lanczos'``.
+            display_time_unit (Literal["fs", "ps", "au"], optional): Time unit. Defaults to ``'fs'``.
+            conserve_norm (bool, optional): Keep norm constant during propagation. Defaults to ``True``.
 
 
         Returns:
@@ -223,11 +240,9 @@ class Simulator:
         """
         self.maxstep = maxstep
         if Δt is not None:
-            self.stepsize = Δt
+            self.stepsize_au = Δt / units.au_in_fs
         else:
-            self.stepsize = stepsize
-        if not step_size_is_fs:
-            self.stepsize *= units.au_in_fs
+            self.stepsize_au = stepsize / units.au_in_fs
         self.backup_interval = backup_interval
         const.set_runtype(
             jobname=self.jobname + "_prop",
@@ -251,6 +266,7 @@ class Simulator:
             space=self.model.space,
             integrator=integrator,
             conserve_norm=conserve_norm,
+            display_time_unit=display_time_unit,
         )
 
         return self._execute(
@@ -280,7 +296,6 @@ class Simulator:
         Args:
             maxstep (int, optional): Maximum number of iteration. Defaults to ``10``.
             restart (bool, optional): Restart from the previous wavefunction. Defaults to ``False``.
-            backend (str, optional): JAX or Numpy. Defaults to ``'jax'``.
             savefile_ext (str, optional): Extension of the save file. Defaults to ``'_operate'``.
             loadfile_ext (str, optional): Extension of the load file. Defaults to ``'_gs'``. \
                 When ``restart=False``, ``loadfile_ext`` is ignored.
@@ -334,7 +349,7 @@ class Simulator:
 
         """
 
-        time_fs = const.time_fs_init
+        time_au = const.time_au_init
         ints_prim = self.get_primitive_integrals()
         wf = self.get_initial_wavefunction(ints_prim)
 
@@ -357,22 +372,25 @@ class Simulator:
             properties = Properties(
                 wf,
                 self.model,
-                time=time_fs / units.au_in_fs,
+                time=time_au,
                 reduced_density=reduced_density,
             )
         else:
-            assert time_fs == 0.0
+            assert time_au == 0.0, f"time_au is not 0.0 but {time_au}"
             properties = Properties(
                 wf,
                 self.model,
-                time=time_fs / units.au_in_fs,
+                time=time_au,
                 t2_trick=False,
                 wf_init=deepcopy(wf),
                 reduced_density=reduced_density,
             )
 
-        logger.info(f"Start initial step {time_fs:8.3f} [fs]")
-        stepsize_guess = (
+        time_display = properties.get_time_display()
+        logger.info(
+            f"Start initial step {time_display:8.3f} [{const.display_time_unit}]"
+        )
+        stepsize_guess_au = (
             1.0e-3 / units.au_in_fs
         )  # a.u. [typical values in MCTDH]
         if const.mpi_rank == 0:
@@ -380,20 +398,23 @@ class Simulator:
         else:
             iterator = range(self.maxstep)
         for istep in iterator:
-            time_fs = properties.time * units.au_in_fs
+            # time_fs = properties.time * units.au_in_fs
+            time_display = properties.get_time_display()
             if istep % 100 == 1:
                 niter_krylov_list = list(helper._Debug.niter_krylov.values())
                 niter_krylov_total = sum(niter_krylov_list)
                 ncall_krylov_total = len(niter_krylov_list)
                 message = (
                     f"End {istep - 1:5d} step; "
-                    + f"propagated {time_fs:8.3f} [fs]; "
+                    + f"propagated {time_display:8.3f} [{const.display_time_unit}]; "
                     + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
                 )
                 logger.info(message)
             if istep % self.backup_interval == self.backup_interval - 1:
                 # Save wave function data can be a bottleneck, so we save it every 100 steps.
-                logger.info(f"Saved wavefunction {time_fs:8.3f} [fs]")
+                logger.info(
+                    f"Saved wavefunction {time_display:8.3f} [{const.display_time_unit}]"
+                )
                 self.save_wavefunction(wf)
             properties.get_properties(
                 autocorr=autocorr,
@@ -415,25 +436,29 @@ class Simulator:
 
             helper._ElpTime.steps -= time()
             if const.standard_method:
-                stepsize_actual = self.stepsize / units.au_in_fs
+                stepsize_actual_au = self.stepsize_au
                 _ = wf.propagate_SM(
-                    self.model.hamiltonian, stepsize_actual, istep
+                    self.model.hamiltonian,
+                    stepsize_actual_au,
+                    istep,
+                    one_gate_to_apply=self.model.one_gate_to_apply,
+                    kraus_op=self.model.kraus_op,
                 )
             else:
                 if const.doDVR:
                     raise NotImplementedError
-                g, spf_occ, stepsize_actual, stepsize_guess = wf.propagate_CMF(
-                    self.model.hamiltonian, stepsize_guess
+                g, spf_occ, stepsize_actual_au, stepsize_guess_au = (
+                    wf.propagate_CMF(self.model.hamiltonian, stepsize_guess_au)
                 )
             helper._ElpTime.steps += time()
-            properties.update(stepsize_actual)
+            properties.update(stepsize_actual_au)
         if self.maxstep > 0:
             niter_krylov_list = list(helper._Debug.niter_krylov.values())
             niter_krylov_total = sum(niter_krylov_list)
             ncall_krylov_total = len(niter_krylov_list)
             message = (
                 f"End {self.maxstep - 1:5d} step; "
-                + f"propagated {time_fs:8.3f} [fs]; "
+                + f"propagated {time_display:8.3f} [{const.display_time_unit}]; "
                 + f"AVG Krylov iteration: {niter_krylov_total / ncall_krylov_total:.2f}"
             )
             logger.info(message)

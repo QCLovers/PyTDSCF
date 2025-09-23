@@ -56,7 +56,7 @@ class Const:
             ``kind_of_results  + jobname + time + 'foo' + '.pickle'``.
         loadfile_ext (str) : The suffix of file name of restart saved file. \
             Defaults to ``''``.
-        time_fs_init (float) : The time of restart. Default is ``0.0``.
+        time_au_init (float) : The time of restart. Default is ``0.0``.
         maxstep (int) : \
             The number of propagation or relaxation or operation step.
         doOrtho (bool) : Default is ``False``. N.Y.I
@@ -109,7 +109,7 @@ class Const:
         dvr: bool = False,
         savefile_ext: str = "",
         loadfile_ext: str = "",
-        time_fs_init: float = 0.0,
+        time_au_init: float = 0.0,
         maxstep: int = 9999999,
         use_jax: bool = False,
         standard_method: bool = True,
@@ -125,6 +125,7 @@ class Const:
         space: Literal["hilbert", "liouville"] = "hilbert",
         integrator: Literal["lanczos", "arnoldi"] = "lanczos",
         conserve_norm: bool = True,
+        display_time_unit: Literal["fs", "ps", "au"] = "fs",
     ):
         """
 
@@ -140,7 +141,7 @@ class Const:
             dvr (bool) : Defaults to ``False``. Same as const.doDVR.
             savefile_ext (str) : Defaults to ``''``.
             loadfile_ext (str) : Defaults to ``''``.
-            time_fs_init (float) : Defaults to ``0.0``.
+            time_au_init (float) : Defaults to ``0.0``.
             maxstep (int) : Defaults to ``9999999``.
             use_jax (bool) : Defaults to ``True``.
                 In large MPS size (m~30, nspf~5), GPU is much faster, \
@@ -165,6 +166,8 @@ class Const:
                 The integrator to use for the short iterative Lanczos method.
                 "lanczos" is the default and "arnoldi" is the alternative.
                 If Hamiltonian is represented by sum of Hermitian or skew-Hermitian parts, Lanczos is faster.
+            display_time_unit: Literal["fs", "ps", "ns", "au"] = "fs",
+                The time unit to display the time.
 
         """
         if jobname is None:
@@ -189,9 +192,9 @@ class Const:
         self.doDVR = dvr
         self.savefile_ext = savefile_ext
         self.loadfile_ext = loadfile_ext
-        self.time_fs_init = time_fs_init
+        self.time_au_init = time_au_init
         self.maxstep = maxstep
-
+        self.display_time_unit = display_time_unit
         self.doOrtho = False
         self.doTDHamil = False
         self.oldcode = False
@@ -228,7 +231,8 @@ class Const:
         if self.use_mpo and not self.standard_method:
             raise ValueError("MPO is only available for standard method.")
         if self.use_jax and self.space == "liouville":
-            raise ValueError("jax is not supported for liouville space.")
+            pass
+            # raise ValueError("jax is not supported for liouville space.")
         if parallel_split_indices is not None:
             assert len(parallel_split_indices) == self.mpi_size
             # self.regularize_site = True

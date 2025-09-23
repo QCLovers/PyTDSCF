@@ -8,11 +8,10 @@ from numpy.typing import NDArray
 
 class Boson:
     """
-    Boson basis class
+    Boson basis class.
 
     Args:
-        nstate (int): number of states
-
+        nstate (int): Number of basis states :math:`|0\rangle, \\; |1\rangle, \\dots, |n_{\text{state}}-1\rangle`.
     """
 
     nstate: int
@@ -28,7 +27,7 @@ class Boson:
         .. math::
             b^\dagger |n> = \sqrt{n+1} |n+1>
 
-        Example:
+        Examples:
            >>> boson = Boson(3)
            >>> boson.get_creation_matrix()
            array([[0., 0., 0.],
@@ -49,7 +48,7 @@ class Boson:
         .. math::
             b |n> = \sqrt{n} |n-1>
 
-        Example:
+        Examples:
            >>> exciton = Boson(4)
            >>> exciton.get_annihilation_matrix()
            array([[0., 1., 0., 0.],
@@ -76,7 +75,7 @@ class Boson:
         .. math::
             b^\dagger b |n> = n |n>
 
-        Example:
+        Examples:
            >>> boson = Boson(3)
            >>> boson.get_number_matrix()
            array([[0., 0., 0.],
@@ -93,9 +92,11 @@ class Boson:
 
     def get_q_matrix(self, margin: int = 0) -> NDArray[np.float64]:
         r"""
-        Returns the q matrix for the boson basis
+        Returns the position operator (``q``) matrix for the boson basis.
 
-        q = 1/sqrt(2) (b + b^\dagger)
+        .. math::
+
+            q = \frac{1}{\sqrt{2}}\,(b + b^\dagger)
 
         """
         return (
@@ -127,10 +128,10 @@ class Boson:
 
     def get_q2_matrix(self) -> NDArray[np.float64]:
         r"""
-        Returns the p^2 matrix for the boson basis
+        Returns the :math:`q^2` matrix for the boson basis.
 
         .. math::
-            p^2 = 1/2 (b^\dagger b + b b^\dagger + b^\dagger ^2 + b^2)
+            q^2 = \frac{1}{2}\left(b^\dagger b + b b^\dagger + b^{\dagger 2} + b^2\right)
 
         """
         b = self.get_annihilation_matrix(margin=1)
