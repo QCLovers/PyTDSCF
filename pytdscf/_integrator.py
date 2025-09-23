@@ -340,7 +340,7 @@ def short_iterative_arnoldi(
         # Check above the first super-diagonal (third diagonal and beyond)
         mask = np.triu(np.ones_like(Hsub, dtype=bool), 2)
         off = np.linalg.norm(Hsub[mask])
-        if off <= 1e-12:
+        if off <= 1e-11:
             logger.warning(
                 f"Arnoldi Hessenberg became tridiagonal {Hsub=}; consider using Lanczos for efficiency."
             )
@@ -572,7 +572,7 @@ def short_iterative_lanczos(
                 v_l = np.empty_like(v_l)
             V = np.vstack([V, v_l])
         is_converged = beta[-1] < EPS or ldim + 1 == maxsize
-        if alpha_is_real and np.abs(alpha[-1].imag) > 1e-12:
+        if alpha_is_real and np.abs(alpha[-1].imag) > 1e-11:
             alpha_is_real = False
             if const.conserve_norm:
                 logger.warning(
