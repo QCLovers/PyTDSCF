@@ -19,13 +19,19 @@ def load_autocorr(dat_file: str) -> tuple[np.ndarray, np.ndarray]:
 
     """
     with open(dat_file, "r") as f:
-        data = np.loadtxt(f, usecols=(0, 1), skiprows=1, dtype=np.complex128)
+        # Read first line to alarm time unit
+        first_line = f.readline()
+        if "fs" not in first_line:
+            print("WARNING: time unit is not fs")
+        data = np.loadtxt(f, usecols=(0, 1), skiprows=0, dtype=np.complex128)
         time_fs = data[:, 0].real
-        autocorr = data[:, 1]  #
+        autocorr = data[:, 1]
     if time_fs[0] != 0.0:
-        raise ValueError("time is not starting from 0.0 [fs]")
+        raise ValueError(f"time is not starting from 0.0 but {time_fs[0]}")
     if autocorr[0] != 1.0:
-        raise ValueError("auto-correlation at t=0 is not 1.0")
+        raise ValueError(
+            f"auto-correlation at t=0 is not 1.0 but {autocorr[0]}"
+        )
     return (time_fs, autocorr)
 
 

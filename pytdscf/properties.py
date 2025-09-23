@@ -138,7 +138,7 @@ class Properties:
             complex128 = np.dtype([("real", np.float64), ("imag", np.float64)])
             with nc.Dataset(self.nc_file, "a") as f:
                 # Maybe we should keep files open while the simulation is running.
-                f.variables["time"][self.nc_row] = self.time * units.au_in_fs
+                f.variables["time"][self.nc_row] = self.get_time_display()
                 for densities, key in zip(
                     all_densities, self.rd_keys, strict=True
                 ):
@@ -189,6 +189,9 @@ class Properties:
                         else:
                             raise ValueError(f"Invalid space: {const.space}")
             f.createVariable("time", "f8", ("step",))
+            logger.info(
+                f"The time unit in the netCDF file is {const.display_time_unit}"
+            )
             for key in reduced_density[0]:
                 if len(key) > 3:
                     logger.warning(
@@ -266,18 +269,30 @@ class Properties:
             self._export_bonddim()
         self._export_properties()
 
+    def get_time_display(self):
+        time_au = float(self.time)
+        if const.display_time_unit == "au":
+            return time_au
+        elif const.display_time_unit == "fs":
+            return time_au * units.au_in_fs
+        elif const.display_time_unit == "ps":
+            return time_au * units.au_in_fs * 1e-03
+        else:
+            raise ValueError(f"Invalid time unit: {const.display_time_unit}")
+
     @helper.rank0_only
     def _export_autocorr(self):
         if self.autocorr is None:
             return
         if self.time == 0.0:
-            self.auto_logger.debug("# time [fs]\t auto-correlation")
+            self.auto_logger.debug(
+                f"# time [{const.display_time_unit}]\t auto-correlation"
+            )
+        time_display = self.get_time_display()
         if self.t2_trick:
-            time_fs = self.time * units.au_in_fs * 2
-        else:
-            time_fs = self.time * units.au_in_fs
+            time_display *= 2
         self.auto_logger.debug(
-            f"{time_fs:6.9f}\t"
+            f"{time_display:6.9f}\t"
             + f"{self.autocorr.real: 6.9f}{self.autocorr.imag:+6.9f}j"
         )
 
@@ -287,7 +302,7 @@ class Properties:
             return
         if self.time == 0.0:
             self.pop_logger.debug(
-                "# time [fs]\t"
+                f"# time [{const.display_time_unit}]\t"
                 + "\t".join(
                     [
                         f"pop_{i}" + " " * (11 - len(f"pop_{i}"))
@@ -295,7 +310,7 @@ class Properties:
                     ]
                 )
             )
-        pop_msg = f"{self.time * units.au_in_fs:6.9f}\t"
+        pop_msg = f"{self.get_time_display():6.9f}\t"
         for pop in self.pops:
             pop_msg += f"{pop:6.9f}\t"
         pop_msg.rstrip("\t")
@@ -307,7 +322,7 @@ class Properties:
             return
         if self.time == 0.0:
             self.exp_logger.debug(
-                "# time [fs]\t"
+                f"# time [{const.display_time_unit}]\t"
                 + "\t".join(
                     [
                         f"{obs_key}" + " " * (11 - len(f"{obs_key}"))
@@ -315,7 +330,7 @@ class Properties:
                     ]
                 )
             )
-        exp_msg = f"{self.time * units.au_in_fs:6.9f}\t"
+        exp_msg = f"{self.get_time_display():6.9f}\t"
         for exp in self.expectations.values():
             exp_msg += f"{exp:6.9f}\t"
         exp_msg.rstrip("\t")
@@ -327,10 +342,10 @@ class Properties:
             return
         if self.time == 0.0:
             self.bonddim_logger.debug(
-                "# time [fs]\t"
+                f"# time [{const.display_time_unit}]\t"
                 + "\t".join(f"{i}" for i in range(len(self.bonddim)))
             )
-        bonddim_msg = f"{self.time * units.au_in_fs:6.9f}\t"
+        bonddim_msg = f"{self.get_time_display():6.9f}\t"
         for bonddim in self.bonddim:
             bonddim_msg += f"{bonddim}\t"
         bonddim_msg.rstrip("\t")
@@ -338,7 +353,7 @@ class Properties:
 
     @helper.rank0_only
     def _export_properties(self):
-        time_fs = self.time * units.au_in_fs
+        time_display = self.get_time_display()
         norm = self.norm
         pop_states = self.pops
         energy = self.energy
@@ -350,7 +365,7 @@ class Properties:
             )
             if abs(norm - 1.0) > threshold:
                 logger.warning(
-                    f"Wave Function norm is not 1.0, but {norm} when {time_fs} fs"
+                    f"Wave Function norm is not 1.0, but {norm} when {time_display} {const.display_time_unit}"
                 )
         message = ""
         if const.verbose > 1 and autocorr is not None:
@@ -366,7 +381,7 @@ class Properties:
             if energy is not None:
                 message += f"| ene[eV]: {energy * units.au_in_eV:10.7f} "
             message += (
-                f"| time[fs]: {time_fs:8.3f} "
+                f"| time[{const.display_time_unit}]: {time_display:8.3f} "
                 + f"| elapsed[sec]:{helper._ElpTime.steps:9.2f} "
             )
         if const.verbose == 4:

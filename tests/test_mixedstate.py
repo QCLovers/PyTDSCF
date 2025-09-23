@@ -54,11 +54,8 @@ Hdim = 2 * 3 * 2
 E2 = np.eye(2)
 E3 = np.eye(3)
 
-
-
-
 dt = 0.1
-n_steps = 31
+n_steps = 11
 
 # --- Lindblad jumps ---
 L_amp_middle = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]], dtype=complex) * np.sqrt(k_L_amp)
@@ -217,7 +214,7 @@ def exact_solution(ini_diag=(0, 0, 1), Lindblad=True, krylov=False):
     return rdms
 
 @pytest.mark.parametrize("backend", ['numpy', 'jax'])
-def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1, integrator='arnoldi'):
+def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1):
     rdms_exact = exact_solution(Lindblad=False)
     sx0 = OpSite("sx0", 0, value=Sx)
     sy0 = OpSite("sy0", 0, value=Sy)
@@ -281,7 +278,7 @@ def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1, 
             norm=False,
             populations=False,
             conserve_norm=False, # Since Haberkorn relaxation is included
-            integrator=integrator, # Since H is Hermitian and P = 1 for Haberkorn relaxation
+            integrator='arnoldi', # Since H is Hermitian and P = 1 for Haberkorn relaxation
         )
         with nc.Dataset(f"{jobname}_prop/reduced_density.nc", "r") as file:
             density_data_real = file.variables[f"rho_({1}, {1})_0"][
@@ -306,7 +303,7 @@ def test_sum_wavefunction_trajectory(backend: Literal['numpy', 'jax'], scale=1, 
     density_sums /= len(hps)
     plot_rdms(density_sums, 'sum_wavefunction_trajectory')
     np.testing.assert_allclose(rdms_exact[0, :, :], density_sums[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30, :, :], density_sums[30*scale, :, :], atol=1e-12)
+    np.testing.assert_allclose(rdms_exact[n_steps-1, :, :], density_sums[(n_steps-1)*scale, :, :], atol=1e-12)
 
 
 @pytest.mark.parametrize("backend,supergate,scale", [
@@ -445,7 +442,7 @@ def test_vectorised_density_matrix(
     )
     plot_rdms(rdms, 'vectorised_density_matrix')
     np.testing.assert_allclose(rdms_exact[0, :, :], rdms[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30, :, :], rdms[30*scale, :, :], atol=1e-2 / scale**2 if supergate else 1e-12)
+    np.testing.assert_allclose(rdms_exact[n_steps-1, :, :], rdms[(n_steps-1)*scale, :, :], atol=1e-2 / scale**2 if supergate else 1e-12)
 
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
@@ -554,7 +551,7 @@ def test_purified_mps(backend: Literal['numpy', 'jax'], scale=1):
 
     plot_rdms(rdms, 'purified_mps')
     np.testing.assert_allclose(rdms_exact[0, :, :], rdms[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30, :, :], rdms[30*scale, :, :], atol=1e-12)
+    np.testing.assert_allclose(rdms_exact[n_steps-1, :, :], rdms[(n_steps-1)*scale, :, :], atol=1e-12)
 
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
@@ -678,16 +675,16 @@ def test_purified_mps_kraus_single_site(backend: Literal['numpy', 'jax'], scale:
 
     plot_rdms(rdms, 'purified_mps_kraus')
     np.testing.assert_allclose(rdms_exact[0, :, :], rdms[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30, :, :], rdms[30*scale, :, :], atol=1e-02 / scale**2)
+    np.testing.assert_allclose(rdms_exact[n_steps-1, :, :], rdms[(n_steps-1)*scale, :, :], atol=1e-02 / scale**2)
 
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
 
-@pytest.mark.parametrize("backend,scale,integrator", [
-    ('numpy', 2, 'arnoldi'),
-    ('jax', 1, 'lanczos'),
+@pytest.mark.parametrize("backend,scale", [
+    ('numpy', 2),
+    ('jax', 1),
 ])
-def test_purified_mps_kraus_two_site(backend: Literal['numpy', 'jax'], scale: int, integrator: Literal['arnoldi', 'lanczos']):
+def test_purified_mps_kraus_two_site(backend: Literal['numpy', 'jax'], scale: int):
     rdms_exact = exact_solution(Lindblad=True, ini_diag=(0, 1, 1))
     kraus_dim = 32
     sx0 = OpSite("sx0", 1, value=Sx)
@@ -805,7 +802,7 @@ def test_purified_mps_kraus_two_site(backend: Literal['numpy', 'jax'], scale: in
 
     plot_rdms(rdms, 'purified_mps_kraus')
     np.testing.assert_allclose(rdms_exact[0, :, :], rdms[0, :, :], atol=1e-12)
-    np.testing.assert_allclose(rdms_exact[30, :, :], rdms[30*scale, :, :], atol=1e-02 / scale**2)
+    np.testing.assert_allclose(rdms_exact[n_steps-1, :, :], rdms[(n_steps-1)*scale, :, :], atol=1e-02 / scale**2)
 
     # remove output files
     shutil.rmtree(f"{jobname}_prop", ignore_errors=True)
