@@ -65,6 +65,7 @@ dev-dependencies = [
     "pytest-xdist>=3.6.1",
     "pytest-timeout>=2.3.1",
     "ruff>=0.7.0",
+    "ase>=3.26.0",
 ]
 
 # [tool.uv.sources]

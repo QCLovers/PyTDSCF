@@ -23,11 +23,8 @@ from pytdscf._mpo_cls import to_mpo
 try:
     from ase.db import connect
     from ase.units import Hartree
-except ImportError:
-    from loguru import logger as _logger
-
-    logger = _logger.bind(name="main")
-    logger.warning("Failed to import ase. You cannot use database.")
+except Exception:
+    pass
 
 
 def deepcopy(item):
