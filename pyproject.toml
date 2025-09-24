@@ -9,19 +9,21 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "ase>=3.23.0",
+    # "ase>=3.23.0",
     "dill>=0.3.9",
-    "discvar>=0.0.2",
+    # "discvar>=0.0.2",
+    "discvar @ git+https://github.com/KenHino/Discvar.git@v0.0.2",
     "jax>=0.4.35",
     "jaxlib>=0.4.35",
     "loguru>=0.7.3",
     "matplotlib>=3.9.2",
-    "mpmath>=1.3.0",
+    # "mpmath>=1.3.0",
     "netcdf4>=1.7.2",
     "numpy>=2.1.2",
     "polars>=1.10.0",
     "scipy>=1.14.1",
-    "pympo>=0.1.8",
+    # "pympo>=0.1.8",
+    "pympo @ git+https://github.com/KenHino/PyMPO.git@v0.1.8",
     "tqdm>=4.67.1",
 ]
 
@@ -65,9 +67,9 @@ dev-dependencies = [
     "ruff>=0.7.0",
 ]
 
-[tool.uv.sources]
-pympo = { git = "https://github.com/KenHino/PyMPO.git" }
-discvar = { git = "https://github.com/KenHino/Discvar.git" }
+# [tool.uv.sources]
+# pympo = { git = "https://github.com/KenHino/PyMPO.git" }
+# discvar = { git = "https://github.com/KenHino/Discvar.git" }
 
 [tool.hatch.metadata]
 allow-direct-references = true
