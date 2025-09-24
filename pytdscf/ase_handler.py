@@ -16,10 +16,14 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
-from ase.atoms import Atoms
-from ase.calculators.calculator import Calculator
-from ase.calculators.genericfileio import GenericFileIOCalculator
-from ase.db import connect
+
+try:
+    from ase.atoms import Atoms
+    from ase.calculators.calculator import Calculator
+    from ase.calculators.genericfileio import GenericFileIOCalculator
+    from ase.db import connect
+except Exception as e:
+    raise ModuleNotFoundError("Please install ase package.") from e
 from loguru import logger
 
 from pytdscf import units
