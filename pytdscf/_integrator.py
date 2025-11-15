@@ -98,8 +98,8 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
     ndim = sum([x.size for x in psi_states])
     n_iter = min(ndim, 3000)
 
-    alpha = np.array([])  # diagonal term
-    beta = np.array([0.0])  # semi-diagonal term
+    alpha = np.array([], dtype=np.float64)  # diagonal term
+    beta = np.array([0.0], dtype=np.float64)  # semi-diagonal term
 
     psi = multiplyOp.stack(psi_states)
     cveclist = [psi]
@@ -116,16 +116,8 @@ def matrix_diagonalize_lanczos(multiplyOp, psi_states, root=0, thresh=1.0e-09):
         beta = np.append(beta, scipy.linalg.norm(sigvec))
         sigvec /= beta[-1]
 
-        # if alpha is real, eigh_tridiagonal is faster than eigh
-        if np.all(np.isreal(alpha)):
-            _, eigvecs = scipy.linalg.eigh_tridiagonal(alpha, beta[1:-1])
-        else:
-            mat = (
-                np.diag(alpha, 0)
-                + np.diag(beta[1:-1], -1)
-                + np.diag(beta[1:-1], 1)
-            )
-            _, eigvecs = scipy.linalg.eig(mat)
+        # Alpha is always real since Hamiltonian is Hermitian when computing ground state
+        _, eigvecs = scipy.linalg.eigh_tridiagonal(alpha, beta[1:-1])
         psi_next = (
             np.array(cveclist).T @ eigvecs[:, root].reshape(i_iter + 1, 1)
         ).reshape(ndim)
