@@ -769,7 +769,7 @@ def sweep_compress_twodot(
 
 def sweep_qr(mpo: list[np.ndarray]) -> list[np.ndarray]:
     nsite = len(mpo)
-    for isite in range(0, nsite-1):
+    for isite in range(0, nsite - 1):
         core = mpo[isite]
         _norm = np.linalg.norm(core)
         core /= _norm
@@ -777,16 +777,19 @@ def sweep_qr(mpo: list[np.ndarray]) -> list[np.ndarray]:
             core.reshape(core.shape[0] * core.shape[1], core.shape[2]),
             mode="reduced",
         )
-        mpo[isite] = Q.reshape(core.shape[0], core.shape[1], -1) * np.sqrt(_norm)
-        mpo[isite + 1] = np.einsum(
-            "ij,jkl->ikl", R, mpo[isite + 1]
-        ) * np.sqrt(_norm)
+        mpo[isite] = Q.reshape(core.shape[0], core.shape[1], -1) * np.sqrt(
+            _norm
+        )
+        mpo[isite + 1] = np.einsum("ij,jkl->ikl", R, mpo[isite + 1]) * np.sqrt(
+            _norm
+        )
 
     return mpo
 
+
 def sweep_lq(mpo: list[np.ndarray]) -> list[np.ndarray]:
     nsite = len(mpo)
-    for isite in range(nsite-1, 0, -1):
+    for isite in range(nsite - 1, 0, -1):
         core = mpo[isite]
         _norm = np.linalg.norm(core)
         core /= _norm
@@ -795,11 +798,14 @@ def sweep_lq(mpo: list[np.ndarray]) -> list[np.ndarray]:
             mode="reduced",
         )
         np.testing.assert_allclose(core, (L.T @ Q.T).reshape(core.shape))
-        mpo[isite] = Q.T.reshape(-1, core.shape[1], core.shape[2]) * np.sqrt(_norm)
+        mpo[isite] = Q.T.reshape(-1, core.shape[1], core.shape[2]) * np.sqrt(
+            _norm
+        )
         mpo[isite - 1] = np.einsum(
             "ijk,kl->ijl", mpo[isite - 1], L.T
         ) * np.sqrt(_norm)
     return mpo
+
 
 def to_mpo(
     nMR_operators: dict[
