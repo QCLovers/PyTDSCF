@@ -767,6 +767,40 @@ def sweep_compress_twodot(
     return mpo
 
 
+def sweep_qr(mpo: list[np.ndarray]) -> list[np.ndarray]:
+    nsite = len(mpo)
+    for isite in range(0, nsite-1):
+        core = mpo[isite]
+        _norm = np.linalg.norm(core)
+        core /= _norm
+        Q, R = np.linalg.qr(
+            core.reshape(core.shape[0] * core.shape[1], core.shape[2]),
+            mode="reduced",
+        )
+        mpo[isite] = Q.reshape(core.shape[0], core.shape[1], -1) * np.sqrt(_norm)
+        mpo[isite + 1] = np.einsum(
+            "ij,jkl->ikl", R, mpo[isite + 1]
+        ) * np.sqrt(_norm)
+
+    return mpo
+
+def sweep_lq(mpo: list[np.ndarray]) -> list[np.ndarray]:
+    nsite = len(mpo)
+    for isite in range(nsite-1, 0, -1):
+        core = mpo[isite]
+        _norm = np.linalg.norm(core)
+        core /= _norm
+        L, Q = np.linalg.qr(
+            core.reshape(core.shape[0], core.shape[1] * core.shape[2]).T,
+            mode="reduced",
+        )
+        np.testing.assert_allclose(core, (L.T @ Q.T).reshape(core.shape))
+        mpo[isite] = Q.T.reshape(-1, core.shape[1], core.shape[2]) * np.sqrt(_norm)
+        mpo[isite - 1] = np.einsum(
+            "ijk,kl->ijl", mpo[isite - 1], L.T
+        ) * np.sqrt(_norm)
+    return mpo
+
 def to_mpo(
     nMR_operators: dict[
         tuple[int, ...], float | pytdscf.dvr_operator_cls.TensorOperator
@@ -837,8 +871,10 @@ def _compress_block_by_block(mpos, rate, nsweep, k):
             + "part of full-dimensional MPOs optimization"
         )
         _mpo = merge_mpos_twodot(mpos[low_index:high_index], k=k, rate=rate)
+        # Canonicalise at first
+        _mpo = sweep_qr(_mpo)
+        # Then, compress
         _mpo = sweep_compress_twodot(_mpo, rate=rate, left_to_right=False)
-        _mpo = sweep_compress_twodot(_mpo, rate=rate, left_to_right=True)
         _mpos.append(_mpo)
     logger.info(f"{0}-{len(_mpos)}: full-dimensional MPOs optimization")
     mpo = merge_mpos_twodot(_mpos, k=k, rate=rate)
@@ -846,10 +882,10 @@ def _compress_block_by_block(mpos, rate, nsweep, k):
     del _mpos
     for isweep in range(nsweep):
         logger.info(f"{isweep}-sweep: full-dimensional MPOs optimization")
-        if isweep % 2 == 0:
-            mpo = sweep_compress_twodot(mpo, rate=rate, left_to_right=False)
-        elif isweep % 2 == 1:
-            mpo = sweep_compress_twodot(mpo, rate=rate, left_to_right=True)
+        # Canonicalise at first
+        mpo = sweep_qr(mpo)
+        # Then, compress
+        mpo = sweep_compress_twodot(mpo, rate=rate, left_to_right=False)
     return mpo
 
 
