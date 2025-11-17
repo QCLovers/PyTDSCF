@@ -668,15 +668,13 @@ def merge_mpos_twodot(
         else:
             U, s, Vh = _dense_svd(mat)
             bd = guess_bond_dimension(s, rate=rate)
-        core_left = (U[:, :bd] @ np.diag(np.sqrt(s[:bd]))).reshape(
+        core_left = U[:, :bd].reshape(
             core_left.shape[0], core_left.shape[1], bd
         )
         if right_site == nsite - 1:
-            core_right = (np.diag(np.sqrt(s[:bd])) @ Vh[:bd, :]).reshape(
-                bd, l_dim, 1
-            )
+            core_right = (np.diag(s[:bd]) @ Vh[:bd, :]).reshape(bd, l_dim, 1)
         else:
-            core_right = (np.diag(np.sqrt(s[:bd])) @ Vh[:bd, :]).reshape(
+            core_right = (np.diag(s[:bd]) @ Vh[:bd, :]).reshape(
                 bd, l_dim, m_dim[-1]
             )
         mpo_merged[-1] = core_left * np.sqrt(_norm)
@@ -687,35 +685,35 @@ def merge_mpos_twodot(
 
 
 def sweep_compress(
-    mpo: list[np.ndarray], rate=0.999999999, right_to_left=True
+    mpo: list[np.ndarray], rate=0.999999999, left_to_right=True
 ) -> list[np.ndarray]:
-    """We recommend to use merge_mpos_twodot instead of this function"""
+    raise NotImplementedError(
+        "We recommend to use merge_mpos_twodot instead of this function"
+    )
     nsite = len(mpo)
     bond_dimension = [1]
     for core in mpo:
         bond_dimension.append(core.shape[2])
     bond_dimension.append(1)
-    if right_to_left:
-        for isite in range(nsite - 1, 0, -1):
-            core = mpo[isite]
-            U, s, Vh = _dense_svd(core.reshape(core.shape[0], -1))
-            bd = guess_bond_dimension(s, rate)
-            bond_dimension[isite - 1] = bd
-            mpo[isite] = (np.diag(s[:bd]) @ Vh[:bd, :]).reshape(
-                bd, core.shape[1], -1
-            )
-            mpo[isite - 1] = np.einsum("ijk,kl->ijl", mpo[isite - 1], U[:, :bd])
-    else:
+    if left_to_right:
         for isite in range(nsite - 1):
             core = mpo[isite]
             U, s, Vh = _dense_svd(core.reshape(-1, core.shape[2]))
             bd = guess_bond_dimension(s, rate)
             bond_dimension[isite] = bd
-            mpo[isite] = (U[:, :bd] @ np.diag(s[:bd])).reshape(
-                -1, core.shape[1], bd
-            )
+            mpo[isite] = U[:, :bd].reshape(-1, core.shape[1], bd)
             mpo[isite + 1] = np.einsum(
-                "ij,jkl->ikl", Vh[:bd, :], mpo[isite + 1]
+                "ij,jkl->ikl", np.diag(s[:bd]) @ Vh[:bd, :], mpo[isite + 1]
+            )
+    else:
+        for isite in range(nsite - 1, 0, -1):
+            core = mpo[isite]
+            U, s, Vh = _dense_svd(core.reshape(core.shape[0], -1))
+            bd = guess_bond_dimension(s, rate)
+            bond_dimension[isite - 1] = bd
+            mpo[isite] = (Vh[:bd, :]).reshape(bd, core.shape[1], -1)
+            mpo[isite - 1] = np.einsum(
+                "ijk,kl->ijl", mpo[isite - 1], U[:, :bd] @ np.diag(s[:bd])
             )
     return mpo
 
@@ -747,12 +745,20 @@ def sweep_compress_twodot(
         concat_mat /= _norm
         U, s, Vh = _dense_svd(concat_mat)
         bd = guess_bond_dimension(s, rate)
-        core_left = (U[:, :bd] @ np.diag(np.sqrt(s[:bd]))).reshape(
-            core_left.shape[0], core_left.shape[1], bd
-        )
-        core_right = (np.diag(np.sqrt(s[:bd])) @ Vh[:bd, :]).reshape(
-            bd, core_right.shape[1], core_right.shape[2]
-        )
+        if left_to_right:
+            core_left = U[:, :bd].reshape(
+                core_left.shape[0], core_left.shape[1], bd
+            )
+            core_right = (np.diag(s[:bd]) @ Vh[:bd, :]).reshape(
+                bd, core_right.shape[1], core_right.shape[2]
+            )
+        else:
+            core_left = (U[:, :bd] @ np.diag(s[:bd])).reshape(
+                core_left.shape[0], core_left.shape[1], bd
+            )
+            core_right = (Vh[:bd, :]).reshape(
+                bd, core_right.shape[1], core_right.shape[2]
+            )
         mpo[left_site] = core_left * np.sqrt(_norm)
         mpo[right_site] = core_right * np.sqrt(_norm)
         if const.verbose > 2:
@@ -769,7 +775,7 @@ def to_mpo(
     scalar_term: float = 0.0,
     rate: float = 0.999999999,
     k: int = 1000,
-    nsweep: int = 4,
+    nsweep: int = 1,
     mode: str = "block-by-block",
 ) -> GridMPO:
     """Convert nMR operators to single MPO
@@ -802,7 +808,8 @@ def to_mpo(
     if mode == "block-by-block":
         mpo = _compress_block_by_block(mpos, rate, nsweep, k)
     elif mode == "term-by-term":
-        mpo = _compress_term_by_term(mpos, rate, nsweep)
+        raise NotImplementedError("term-by-term compression is not valid")
+        # mpo = _compress_term_by_term(mpos, rate, nsweep)
     else:
         logger.warning(
             f"Unknown mode: {mode}. No compression is performed. (too silly)"
@@ -998,7 +1005,7 @@ def _sweep_compress_term_by_term(
     return mpos
 
 
-def _compress_term_by_term(mpos: list[GridMPO], rate: float, nsweep: int = 2):
+def _compress_term_by_term(mpos: list[GridMPO], rate: float, nsweep: int = 1):
     for isweep in range(nsweep):
         if isweep % 2 == 0:
             mpos = _sweep_compress_term_by_term(mpos, rate, left_to_right=True)

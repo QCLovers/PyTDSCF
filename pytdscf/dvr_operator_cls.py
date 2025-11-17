@@ -705,7 +705,7 @@ def construct_nMR_recursive(
     efield: tuple[float, float, float] = (1.0, 1.0, 1.0),
     rate: float = 1.0,
     k: int = 200,
-    nsweep: int = 4,
+    nsweep: int = 1,
 ) -> list[np.ndarray] | dict[tuple[int, ...], TensorOperator]:
     r"""Construct n-Mode Representation Operator
 
@@ -1010,7 +1010,7 @@ def tensor_dict_to_tensor_op(
 def tensor_dict_to_mpo(
     tensor_dict: dict[tuple[int, ...], np.ndarray],
     rate: float = 1.0,
-    nsweep: int = 4,
+    nsweep: int = 1,
 ) -> list[np.ndarray]:
     """Convert tensor dictionary to MPO
 
