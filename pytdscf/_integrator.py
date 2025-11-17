@@ -524,6 +524,9 @@ def short_iterative_lanczos(
     v0 = stack(psi_states, extend=True)
     v0, β0, β0_array = _normalize(v0)
     use_jax = isinstance(v0, jax.Array)
+    # if Hamiltonian is Hermitian, alpha is always real.
+    # if Hamiltonian is Hermitian + skew-Hermitian, alpha can be complex but Hessenberg is tridiagonal.
+    # if Hamiltonian is non-Hermitian, Hessenberg is generally not tridiagonal.
     alpha_is_real = True
     if use_jax:
         v0_conj: np.ndarray | jax.Array = jnp.conj(v0)
@@ -564,7 +567,7 @@ def short_iterative_lanczos(
                 v_l = np.empty_like(v_l)
             V = np.vstack([V, v_l])
         is_converged = beta[-1] < EPS or ldim + 1 == maxsize
-        if alpha_is_real and np.abs(alpha[-1].imag) > 1e-11:
+        if alpha_is_real and np.abs(alpha[-1].imag) > 1e-10:
             alpha_is_real = False
             if const.conserve_norm:
                 logger.warning(
