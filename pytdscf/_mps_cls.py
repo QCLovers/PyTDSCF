@@ -2257,9 +2257,8 @@ def svd_conj_mpdo(superblock: list[SiteCoef]) -> list[SiteCoef]:
         U = U[:, :chi]
         S = S[:chi]
         Vh = Vh[:chi, :]
-        sqrt_S = np.sqrt(S)
-        rho_L = (U @ np.diag(sqrt_S)).reshape(i, j, chi)
-        rho_R = (np.diag(sqrt_S) @ Vh).reshape(chi, l, m)
+        rho_L = U.reshape(i, j, chi)
+        rho_R = (np.diag(S) @ Vh).reshape(chi, l, m)
         superblock[isite].data = rho_L
         superblock[isite + 1].data = rho_R
     canonicalize(superblock, orthogonal_center=0, incremental=False)
