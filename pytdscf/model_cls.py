@@ -59,7 +59,7 @@ class Model:
 
     def __init__(
         self,
-        basinfo: BasInfo,
+        basinfo: BasInfo | list,
         operators: dict[str, HamiltonianMixin],
         *,
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
@@ -68,11 +68,21 @@ class Model:
         one_gate_to_apply: TensorHamiltonian | None = None,
         kraus_op: dict[tuple[int, ...], np.ndarray | jax.Array] | None = None,
     ):
-        self.basinfo = basinfo
+        if isinstance(basinfo, BasInfo):
+            basinfo_obj = basinfo
+        else:
+            if isinstance(basinfo, list):
+                if isinstance(basinfo[0], list):
+                    basinfo_obj = BasInfo(prim_info=basinfo)
+                else:
+                    basinfo_obj = BasInfo(prim_info=[basinfo])
+            else:
+                raise TypeError("basinfo must be BasInfo instance or list.")
+        self.basinfo = basinfo_obj
         self.hamiltonian = operators.pop("hamiltonian")
         self.observables = operators
         self.build_td_hamiltonian = build_td_hamiltonian
-        if self.hamiltonian.nstate != basinfo.get_nstate():
+        if self.hamiltonian.nstate != basinfo_obj.get_nstate():
             raise ValueError(
                 "The number of states in Hamiltonian and BasInfo are different."
             )
