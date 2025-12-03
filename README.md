@@ -1,5 +1,7 @@
 [![Deploy static content to Pages](https://github.com/QCLovers/PyTDSCF/actions/workflows/static.yml/badge.svg)](https://github.com/QCLovers/PyTDSCF/actions/workflows/static.yml)
 [![unittest](https://github.com/QCLovers/PyTDSCF/actions/workflows/unittest.yml/badge.svg)](https://github.com/QCLovers/PyTDSCF/actions/workflows/unittest.yml)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+
 # PyTDSCF
 ![reduced_density_bath](https://github.com/user-attachments/assets/a0bf7f6c-0b43-48a5-8e2b-36bd5436fbde)
 
