@@ -86,6 +86,12 @@ Comprehensive documentation is available [here](https://qclovers.github.io/PyTDS
 - [Hino, Kentaro, and Yuki Kurashige. "Neural network matrix product operator: A multi-dimensionally integrable machine learning potential." Physical Review Research 7.2 (2025): 023217.](https://journals.aps.org/prresearch/abstract/10.1103/PhysRevResearch.7.023217)
   - Neural network MPO
 
+- [Hino, Kentaro, et al. "Introduction of modelling radical pair quantum spin dynamics with tensor networks." arXiv preprint arXiv:2509.22104 (2025).](https://arxiv.org/abs/2509.22104)
+  - Liouville space (MPDO) / LPTN / Monte Carlo wavefunction
+  - Spin basis
+  - Radical pair
+  - Benchmarking for bond dimension > 1000
+
 ## Installation
 
 ### Recommended: Install from Source using `uv`
