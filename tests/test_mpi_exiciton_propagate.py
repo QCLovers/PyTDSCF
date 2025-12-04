@@ -37,7 +37,7 @@ prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
 @pytest.mark.skipif(
     MPI.COMM_WORLD.Get_size() == 1, reason="Not running under MPI"
 )
-@pytest.mark.parametrize("adaptive", [True,False])
+@pytest.mark.parametrize("adaptive", [True, False])
 def test_mpi_exiciton_propagate(adaptive: bool, backend="numpy"):
     """
     |Psi> = |HO1, HO2, HO3, E0>
@@ -178,7 +178,10 @@ def test_mpi_exiciton_propagate(adaptive: bool, backend="numpy"):
         potential = None
         kinetic = None
     hamiltonian = TensorHamiltonian(
-        ndof=4, potential=potential, kinetic=kinetic, backend=backend,
+        ndof=4,
+        potential=potential,
+        kinetic=kinetic,
+        backend=backend,
     )
 
     operators = {"hamiltonian": hamiltonian}

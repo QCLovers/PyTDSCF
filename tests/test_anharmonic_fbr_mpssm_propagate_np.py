@@ -28,11 +28,10 @@ def test_anharmonic_fbr_mpssm_propagate_jax():
 
     operators = {"hamiltonian": hamiltonian}
 
-    model = Model(basinfo, operators)
-    model.m_aux_max = 4
+    model = Model(basinfo, operators, bond_dim=4)
 
     jobname = "anharmonic_fbr_propagate_sm"
-    simulator = Simulator(jobname, model, backend="jax")
+    simulator = Simulator(jobname, model, backend="numpy")
     ener_calc, wf = simulator.propagate(maxstep=2)
     assert pytest.approx(ener_calc) == 0.021360262338234466
 

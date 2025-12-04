@@ -60,7 +60,7 @@ class Simulator:
         jobname: str,
         model: Model,
         ci_type: Literal["mps", "mctdh", "ci"] = "mps",
-        backend: Literal["jax", "numpy"] = "jax",
+        backend: Literal["jax", "numpy"] = "numpy",
         proj_gs: bool = False,
         t2_trick: bool = True,
         verbose: int = 2,
@@ -90,6 +90,7 @@ class Simulator:
                 f"doPrint:{self.doPrint} doSpectra:{self.doSpectra} "
                 + f"ci_type:{self.ci_type}"
             )
+        self._apply_backend_to_model(backend=backend.lower())  # type: ignore
 
     def relax(
         self,
@@ -587,3 +588,6 @@ class Simulator:
                 dill.dump(wf, save_f)
             if log:
                 logger.info(f"Wave function is saved in {path}")
+
+    def _apply_backend_to_model(self, backend: Literal["jax", "numpy"]):
+        self.model.apply_backend(backend)

@@ -1176,53 +1176,7 @@ def construct_kinetic_operator(
         coefs = [1.0 for _ in range(ndof)]
     if forms.lower() == "mpo":
         operator_key = tuple([(idof, idof) for idof in range(ndof)])
-        mpo = []
-        for i, (dvr_prim, coef) in enumerate(
-            zip(dvr_prims, coefs, strict=True)
-        ):
-            if len(dvr_prims) == 1:
-                # 1-dimensional case
-                matrix = np.zeros(
-                    (1, dvr_prim.ngrid, dvr_prim.ngrid, 1), dtype=np.complex128
-                )
-                matrix[0, :, :, 0] = (
-                    -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
-                )
-            else:
-                if i == 0:
-                    # [[-1/2 * d^2/dQ^2, 1]]
-                    matrix = np.zeros(
-                        (1, dvr_prim.ngrid, dvr_prim.ngrid, 2),
-                        dtype=np.complex128,
-                    )
-                    matrix[0, :, :, 0] = (
-                        -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
-                    )
-                    matrix[0, :, :, 1] = np.eye(dvr_prim.ngrid)
-                elif i == ndof - 1:
-                    # [[1              ],
-                    #  [-1/2 * d^2/dQ^2]]
-                    matrix = np.zeros(
-                        (2, dvr_prim.ngrid, dvr_prim.ngrid, 1),
-                        dtype=np.complex128,
-                    )
-                    matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
-                    matrix[1, :, :, 0] = (
-                        -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
-                    )
-                else:
-                    # [[1,               0],
-                    #  [-1/2 * d^2/dQ^2, 1]]
-                    matrix = np.zeros(
-                        (2, dvr_prim.ngrid, dvr_prim.ngrid, 2),
-                        dtype=np.complex128,
-                    )
-                    matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
-                    matrix[1, :, :, 0] = (
-                        -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
-                    )
-                    matrix[1, :, :, 1] = np.eye(dvr_prim.ngrid)
-            mpo.append(matrix)
+        mpo = construct_kinetic_mpo(dvr_prims=dvr_prims, coefs=coefs)
         kinetic_operators[operator_key] = TensorOperator(mpo=mpo)
     elif forms.lower() == "sop":
         for idof, (dvr_prim, coef) in enumerate(
@@ -1238,6 +1192,60 @@ def construct_kinetic_operator(
         raise ValueError("forms must be 'sop' or 'mpo'")
 
     return kinetic_operators
+
+
+def construct_kinetic_mpo(
+    dvr_prims: list[DVRPrimitivesMixin], coefs=None
+) -> list[np.ndarray]:
+    mpo = []
+    ndof = len(dvr_prims)
+    if coefs is None:
+        coefs = [1.0 for _ in range(ndof)]
+    for i, (dvr_prim, coef) in enumerate(zip(dvr_prims, coefs, strict=True)):
+        if len(dvr_prims) == 1:
+            # 1-dimensional case
+            matrix = np.zeros(
+                (1, dvr_prim.ngrid, dvr_prim.ngrid, 1), dtype=np.complex128
+            )
+            matrix[0, :, :, 0] = (
+                -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+            )
+        else:
+            if i == 0:
+                # [[-1/2 * d^2/dQ^2, 1]]
+                matrix = np.zeros(
+                    (1, dvr_prim.ngrid, dvr_prim.ngrid, 2),
+                    dtype=np.complex128,
+                )
+                matrix[0, :, :, 0] = (
+                    -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+                )
+                matrix[0, :, :, 1] = np.eye(dvr_prim.ngrid)
+            elif i == ndof - 1:
+                # [[1              ],
+                #  [-1/2 * d^2/dQ^2]]
+                matrix = np.zeros(
+                    (2, dvr_prim.ngrid, dvr_prim.ngrid, 1),
+                    dtype=np.complex128,
+                )
+                matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
+                matrix[1, :, :, 0] = (
+                    -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+                )
+            else:
+                # [[1,               0],
+                #  [-1/2 * d^2/dQ^2, 1]]
+                matrix = np.zeros(
+                    (2, dvr_prim.ngrid, dvr_prim.ngrid, 2),
+                    dtype=np.complex128,
+                )
+                matrix[0, :, :, 0] = np.eye(dvr_prim.ngrid)
+                matrix[1, :, :, 0] = (
+                    -1 / 2 * dvr_prim.get_2nd_derivative_matrix_dvr() * coef
+                )
+                matrix[1, :, :, 1] = np.eye(dvr_prim.ngrid)
+        mpo.append(matrix)
+    return mpo
 
 
 def _merge_nMR_operator_subspace(

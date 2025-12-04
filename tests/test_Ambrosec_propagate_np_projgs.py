@@ -50,8 +50,7 @@ def test_Ambrosec_propagate_np_projgs(coupleJ, bonddim, proj_gs, ener):
     my_hamiltonian.set_HO_potential(my_basinfo)
 
     operators = {"hamiltonian": my_hamiltonian}
-    model = Model(my_basinfo, operators)
-    model.m_aux_max = bonddim
+    model = Model(my_basinfo, operators, bond_dim=bonddim)
     model.ints_prim_file = None
     model.init_weight_ESTATE = [1.0] + [0.0] * (len(matJ) - 1)
     model.primbas_gs = list(

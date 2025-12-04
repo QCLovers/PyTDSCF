@@ -9,7 +9,6 @@ import sys
 
 import pytdscf
 
-
 print(sys.version)
 print(f"pytdscf version = {pytdscf.__version__}")
 print(platform.platform())
@@ -39,7 +38,7 @@ basinfo = BasInfo([basis])
 ndim = len(basis)
 print(ndim)
 sys_site = n_order
-backend = "numpy" # "jax" is not supported for MPI.
+backend = "numpy"  # "jax" is not supported for MPI.
 
 
 if rank == 0:

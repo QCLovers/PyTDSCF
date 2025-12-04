@@ -457,6 +457,12 @@ class PolynomialHamiltonian(HamiltonianMixin):
     def is_hermitian(self):
         raise NotImplementedError
 
+    def apply_backend(self, backend: Literal["jax", "numpy"]):
+        if backend == "jax":
+            raise NotImplementedError(
+                "Use MPO or numpy backend. JAX backend of PolynomialHamiltonian is inefficient."
+            )
+
     def set_ConIns_potential(self, basinfo):
         """Intra-state terms i><i"""
         for istate in range(self.nstate):
@@ -624,11 +630,13 @@ class TensorHamiltonian(HamiltonianMixin):
         ndof: int,
         potential: list[
             list[dict[tuple[int | tuple[int, int], ...], TensorOperator]]
-        ],
+        ]
+        | dict[tuple[int | tuple[int, int], ...], TensorOperator],
         name: str = "hamiltonian",
         kinetic: list[
             list[dict[tuple[tuple[int, int], ...], TensorOperator] | None]
         ]
+        | dict[tuple[int | tuple[int, int], ...], TensorOperator]
         | None = None,
         decompose_type: Literal["QRD", "SVD"] = "QRD",
         rate: float | None = None,
@@ -651,6 +659,10 @@ class TensorHamiltonian(HamiltonianMixin):
             super().__init__(name, nstate, ndof)
             self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
             return
+        if isinstance(potential, dict):
+            potential = [[potential]]
+        if kinetic is not None and isinstance(kinetic, dict):
+            kinetic = [[kinetic]]  # type: ignore
         nstate = len(potential)
         super().__init__(name, nstate, ndof)
         self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
@@ -782,6 +794,12 @@ class TensorHamiltonian(HamiltonianMixin):
                     H_core.data,
                     op_core.data[0, ..., 0],
                 )
+
+    def apply_backend(self, backend: Literal["jax", "numpy"]):
+        for i in range(self.nstate):
+            for j in range(self.nstate):
+                if isinstance(mpo_ij := self.mpo[i][j], MatrixProductOperators):
+                    mpo_ij.apply_backend(backend)
 
     def distribute_mpo_cores(self):
         import copy

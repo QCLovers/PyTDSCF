@@ -9,6 +9,7 @@ from typing import Literal
 
 import discvar
 import jax
+import jax.numpy as jnp
 import numpy as np
 from discvar.abc import DVRPrimitivesMixin
 from loguru import logger
@@ -19,6 +20,7 @@ from pytdscf.hamiltonian_cls import (
     HamiltonianMixin,
     PolynomialHamiltonian,
     TensorHamiltonian,
+    TensorOperator,
 )
 
 
@@ -60,8 +62,11 @@ class Model:
     def __init__(
         self,
         basinfo: BasInfo | list,
-        operators: dict[str, HamiltonianMixin],
+        operators: dict[str, HamiltonianMixin | list[np.ndarray | jax.Array]]
+        | HamiltonianMixin
+        | list[np.ndarray | jax.Array],
         *,
+        bond_dim: int | None = None,
         build_td_hamiltonian: PolynomialHamiltonian | None = None,
         space: Literal["hilbert", "liouville"] = "hilbert",
         subspace_inds: dict[int, tuple[int, ...]] | None = None,
@@ -79,14 +84,20 @@ class Model:
             else:
                 raise TypeError("basinfo must be BasInfo instance or list.")
         self.basinfo = basinfo_obj
-        self.hamiltonian = operators.pop("hamiltonian")
-        self.observables = operators
+        if isinstance(operators, HamiltonianMixin | list):
+            operators_dict = {"hamiltonian": operators}
+        else:
+            operators_dict = operators
+        _operators = self.operators_to_tensor_hamiltonian(operators_dict)
+        self.hamiltonian = _operators.pop("hamiltonian")
+        self.observables = _operators
         self.build_td_hamiltonian = build_td_hamiltonian
         if self.hamiltonian.nstate != basinfo_obj.get_nstate():
             raise ValueError(
                 "The number of states in Hamiltonian and BasInfo are different."
             )
         self.nstate = self.hamiltonian.nstate
+        self.m_aux_max = bond_dim
         self.use_mpo = isinstance(self.hamiltonian, TensorHamiltonian)
         if space.lower() not in ["hilbert", "liouville"]:
             raise ValueError(
@@ -175,6 +186,120 @@ class Model:
                     ``[[0,1,2],[0,1,2]]``
         """
         return self.basinfo.get_nspf_rangelist(istate)
+
+    def guess_legkeys_from_mpo(
+        self, mpo: list[np.ndarray | jax.Array]
+    ) -> tuple[tuple[int] | tuple[int, int], ...]:
+        if not isinstance(mpo, list):
+            raise TypeError("mpo must be a list of arrays.")
+        if len(mpo) != self.get_ndof():
+            raise ValueError(
+                f"mpo length must be equal to ndof of basis. But, got {len(mpo)} and {self.get_ndof()}."
+                + "use explicit TensorOperator/TensorHamiltonian definition instead."
+            )
+        leg_key: list[
+            tuple(
+                int,
+            )
+            | tuple(int, int)
+        ] = []
+        for k, core in enumerate(mpo):
+            match len(core.shape):
+                case 3:
+                    leg_key.append((k,))
+                case 4:
+                    leg_key.append((k, k))
+                case _:
+                    raise ValueError(
+                        f"Invalid core shape {core.shape} in mpo, {k}-th site."
+                    )
+        return tuple(leg_key)
+
+    def operators_to_tensor_hamiltonian(
+        self,
+        operators: dict[str, HamiltonianMixin | list[np.ndarray | jax.Array]],
+    ) -> dict[str, HamiltonianMixin]:
+        operators_new: dict[str, HamiltonianMixin] = {}
+        if "potential" in operators:
+            pot_mpo = operators.pop("potential")
+            if isinstance(pot_mpo, HamiltonianMixin):
+                raise ValueError(
+                    "The 'potential' key must be list[np.ndarray] MPO."
+                )
+            pot_key = self.guess_legkeys_from_mpo(pot_mpo)
+            if "kinetic" in operators:
+                kin_mpo = operators.pop("kinetic")
+                if isinstance(kin_mpo, HamiltonianMixin):
+                    raise ValueError(
+                        "The 'kinetic' key must be list[np.ndarray] MPO."
+                    )
+                kin_key = self.guess_legkeys_from_mpo(kin_mpo)
+            else:
+                kin_mpo = None
+                kin_key = None
+            if "hamiltonian" in operators:
+                raise ValueError(
+                    "Cannot specify 'hamiltonian' when 'potential' is given."
+                )
+            tensor_ham = TensorHamiltonian(
+                ndof=self.get_ndof(),
+                potential={pot_key: TensorOperator(mpo=pot_mpo)},  # type: ignore
+                kinetic={kin_key: TensorOperator(mpo=kin_mpo)}  # type: ignore
+                if kin_mpo is not None
+                else None,
+                backend="numpy",
+            )
+            operators_new["hamiltonian"] = tensor_ham
+
+        for name, op in operators.items():
+            if isinstance(op, HamiltonianMixin):
+                operators_new[name] = op
+            elif isinstance(op, list):
+                if len(op) != self.get_ndof():
+                    raise ValueError(
+                        f"Operator {name} length must be equal to ndof of basis. But, got {len(op)} and {self.get_ndof()}."
+                    )
+                leg_key: list[
+                    tuple(
+                        int,
+                    )
+                    | tuple(int, int)
+                ] = []
+                for k, core in enumerate(op):
+                    match len(core.shape):
+                        case 3:
+                            leg_key.append((k,))
+                        case 4:
+                            leg_key.append((k, k))
+                        case _:
+                            raise ValueError(
+                                f"Invalid core shape {core.shape} in operator {name}, {k}-th site."
+                            )
+                tensor_ham = TensorHamiltonian(
+                    ndof=self.get_ndof(),
+                    potential={tuple(leg_key): TensorOperator(mpo=op)},  # type: ignore
+                    kinetic=None,
+                    backend="numpy",
+                )
+                operators_new[name] = tensor_ham
+            else:
+                raise TypeError(
+                    f"Operator {name} must be HamiltonianMixin or list of arrays."
+                )
+        return operators_new
+
+    def apply_backend(self, backend: Literal["numpy", "jax"]) -> None:
+        self.hamiltonian.apply_backend(backend)
+        for observable in self.observables.values():
+            observable.apply_backend(backend)
+        if isinstance(self.one_gate_to_apply, TensorHamiltonian):
+            self.one_gate_to_apply.apply_backend(backend)
+        if isinstance(self.kraus_op, dict):
+            for key, op in self.kraus_op.items():
+                if backend == "numpy" and not isinstance(op, np.ndarray):
+                    self.kraus_op[key] = np.array(op)
+                elif backend == "jax" and not isinstance(op, jax.Array):
+                    self.kraus_op[key] = jnp.array(op, dtype=jnp.complex128)
 
 
 class BasInfo:
