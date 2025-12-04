@@ -4,11 +4,10 @@ import numpy as np
 import pytest
 from discvar import HarmonicOscillator as HO
 
-from pytdscf._const_cls import const
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator
 from pytdscf.hamiltonian_cls import TensorHamiltonian
-from pytdscf.model_cls import BasInfo, Model
+from pytdscf.model_cls import Model
 from pytdscf.simulator_cls import Simulator
 from pytdscf.units import au_in_cm1
 
@@ -42,7 +41,6 @@ def test_exiciton_propagate_jax(backend="jax"):
     lamb = 0.0001
     kappa = 0.0001
 
-    basinfo = BasInfo([prim_info])
     potential_mpo = []
     """
     Symbolic MPO constructed by PyMPO
@@ -162,8 +160,7 @@ def test_exiciton_propagate_jax(backend="jax"):
 
     operators = {"hamiltonian": hamiltonian}
 
-    model = Model(basinfo, operators)
-    model.m_aux_max = 2
+    model = Model(prim_info, operators, bond_dim=2)
     model.init_HartreeProduct = [
         [ho.get_unitary()[0].tolist() for ho in prim_info[:3]]
         + [np.array([0.0, 1.0]).tolist()]
@@ -171,7 +168,7 @@ def test_exiciton_propagate_jax(backend="jax"):
     # Starts from the S1 state
 
     jobname = "LVC_Exciton_test"
-    const.regularize_site = False
+    # const.regularize_site = False
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
         stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1)

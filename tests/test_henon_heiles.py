@@ -5,12 +5,10 @@ from discvar import HarmonicOscillator as HO
 
 from pytdscf import units
 from pytdscf.dvr_operator_cls import (
-    TensorOperator,
-    construct_kinetic_operator,
+    construct_kinetic_mpo,
     construct_nMR_recursive,
 )
-from pytdscf.hamiltonian_cls import TensorHamiltonian
-from pytdscf.model_cls import BasInfo, Model
+from pytdscf.model_cls import Model
 from pytdscf.simulator_cls import Simulator
 
 jobname = "henon_heiles"
@@ -43,7 +41,6 @@ def test_henon_heiles(ω, λ, f, N, m, Δt, backend, ener):
     """
 
     dvr_prims = [HO(N, ω) for _ in range(f)]
-    basinfo = BasInfo([dvr_prims])
 
     ω_au = ω / units.au_in_cm1
 
@@ -73,24 +70,9 @@ def test_henon_heiles(ω, λ, f, N, m, Δt, backend, ener):
     mpo = construct_nMR_recursive(
         dvr_prims, nMR=2, func=henon_heiles_func, rate=0.99999999999
     )
-
-    # MPO has legs on (0,1,2, ... ,f-1) sites. This legs are given by tuple key
-    V = {tuple([idof for idof in range(f)]): TensorOperator(mpo=mpo)}
-    # V₀₀ is given by
-    potential = [[V]]
-
-    # Kinetic energy operator is given by
-    K = construct_kinetic_operator(dvr_prims)
-    # K₀₀ is given by
-    kinetic = [[K]]
-
-    H = TensorHamiltonian(
-        ndof=f, potential=potential, kinetic=kinetic, backend=backend
-    )
-    operators = {"hamiltonian": H}
-
-    model = Model(basinfo=basinfo, operators=operators)
-    model.m_aux_max = m
+    K = construct_kinetic_mpo(dvr_prims)
+    operators = {"potential": mpo, "kinetic": K}
+    model = Model(dvr_prims, operators=operators, bond_dim=m)
     vib_GS: List[float] = [1.0] + [0.0] * (N - 1)
     vib_ES: List[float] = [0.0] + [1.0] + [0.0] * (N - 2)
     model.init_weight_VIBSTATE: List[List[List[float]]] = [

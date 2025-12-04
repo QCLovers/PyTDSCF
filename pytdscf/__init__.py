@@ -20,6 +20,7 @@ from .basis import (
 )
 from .dvr_operator_cls import (
     construct_fulldimensional,
+    construct_kinetic_mpo,
     construct_kinetic_operator,
     construct_nMR_recursive,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "PrimBas_HO",
     "TensorHamiltonian",
     "TensorOperator",
+    "construct_kinetic_mpo",
     "construct_kinetic_operator",
     "construct_nMR_recursive",
     "construct_fulldimensional",

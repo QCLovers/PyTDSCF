@@ -5,7 +5,7 @@ Matrix Product Operator (MPO) class
 from __future__ import annotations
 
 import itertools
-from typing import Annotated
+from typing import Annotated, Literal
 
 import jax
 import jax.numpy as jnp
@@ -106,6 +106,13 @@ class MatrixProductOperators:
             message += get_tensornetwork_diagram_MPO(mpo)
         return message
 
+    def apply_backend(self, backend: Literal["numpy", "jax"]):
+        if self.backend == backend:
+            return
+        for i in range(self.nsite):
+            for op_core in self.calc_point[i]:
+                op_core.apply_backend(backend)
+
     def _searach_calc_point(self):
         for key, mpo in self.operators.items():
             original_key = key
@@ -196,6 +203,16 @@ class OperatorCore:
             self.size = data.size
             if backend.lower() == "jax":
                 self.data = jnp.array(data, dtype=jnp.complex128)
+
+    def apply_backend(self, backend: Literal["numpy", "jax"]):
+        if self.backend == backend:
+            return
+        self.backend = backend
+        if isinstance(self.data, np.ndarray | jax.Array):
+            if backend.lower() == "jax":
+                self.data = jnp.array(self.data, dtype=jnp.complex128)
+            else:
+                self.data = np.array(self.data, dtype=np.complex128)
 
     def __repr__(self) -> str:
         message = f"key : {self.key} \n"

@@ -17,7 +17,7 @@ from pytdscf._site_cls import (
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator
 from pytdscf.hamiltonian_cls import TensorHamiltonian
-from pytdscf.model_cls import BasInfo, Model
+from pytdscf.model_cls import Model
 from pytdscf.units import au_in_cm1
 
 logger.remove()
@@ -27,7 +27,7 @@ logger.add(sys.stdout, level="DEBUG")
 freqs_cm1 = [1000, 2000, 3000]
 omega2 = [(freq / au_in_cm1) ** 2 for freq in freqs_cm1]
 nspf = nprim = 8
-prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
+basis = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
     Exciton(nstate=2, names=["S0", "S1"])
 ]
 backend = "numpy"
@@ -54,7 +54,6 @@ def get_model():
     lamb = 0.001
     kappa = 0.0001
 
-    basinfo = BasInfo([prim_info])
     potential_mpo = []
     """
     Symbolic MPO constructed by PyMPO
@@ -76,11 +75,11 @@ def get_model():
     W2 = np.zeros((4, nprim, 3), dtype=np.complex128)
     W3 = np.zeros((3, 2, 2, 1), dtype=np.complex128)
 
-    q1_list = [np.array(ho.get_grids()) for ho in prim_info[:3]]
+    q1_list = [np.array(ho.get_grids()) for ho in basis[:3]]
     q2_list = [q1 * q1 for q1 in q1_list]
     eye_list = [np.ones_like(q1) for q1 in q1_list]
-    a = prim_info[3].get_annihilation_matrix()
-    a_dag = prim_info[3].get_creation_matrix()
+    a = basis[3].get_annihilation_matrix()
+    a_dag = basis[3].get_creation_matrix()
 
     W0[0, :, 0] = eye_list[0]
     W0[0, :, 1] = q1_list[0]
@@ -141,23 +140,17 @@ def get_model():
     for idof in range(3):
         if idof == 0:
             core = np.zeros((1, nprim, nprim, 2), dtype=np.complex128)
-            core[0, :, :, 0] = (
-                prim_info[idof].get_2nd_derivative_matrix_dvr() / 2
-            )
+            core[0, :, :, 0] = basis[idof].get_2nd_derivative_matrix_dvr() / 2
             core[0, :, :, 1] = np.eye(nprim)
         elif idof == 2:
             core = np.zeros((2, nprim, nprim, 1), dtype=np.complex128)
             core[0, :, :, 0] = np.eye(nprim)
-            core[1, :, :, 0] = (
-                prim_info[idof].get_2nd_derivative_matrix_dvr() / 2
-            )
+            core[1, :, :, 0] = basis[idof].get_2nd_derivative_matrix_dvr() / 2
         else:
             core = np.zeros((2, nprim, nprim, 2), dtype=np.complex128)
             core[0, :, :, 0] = np.eye(nprim)
             core[1, :, :, 1] = np.eye(nprim)
-            core[0, :, :, 1] = (
-                prim_info[idof].get_2nd_derivative_matrix_dvr() / 2
-            )
+            core[0, :, :, 1] = basis[idof].get_2nd_derivative_matrix_dvr() / 2
         kinetic_mpo.append(core)
     kinetic = [
         [
@@ -174,10 +167,9 @@ def get_model():
 
     operators = {"hamiltonian": hamiltonian}
 
-    model = Model(basinfo, operators)
-    model.m_aux_max = 1
+    model = Model(basis, operators, bond_dim=1)
     model.init_HartreeProduct = [
-        [ho.get_unitary()[0].tolist() for ho in prim_info[:3]]
+        [ho.get_unitary()[0].tolist() for ho in basis[:3]]
         + [np.array([0.0, 1.0]).tolist()]
     ]
     return model
@@ -190,6 +182,7 @@ def sweep(
     dt: float,
 ):
     from pytdscf._const_cls import const
+
     Dmax = const.Dmax
     dD = const.dD
     p_proj = const.p_proj
@@ -305,9 +298,9 @@ def sweep(
                 matH_cas=hamiltonian,
                 PsiB2AB=A_is_sys,
             )
-            assert (
-                svalues[0].shape == (newD, newD)
-            ), f"{svalues[0].shape=} not match {(newD, newD)=} where {newD=} and {r=} and {dD=}"
+            assert svalues[0].shape == (newD, newD), (
+                f"{svalues[0].shape=} not match {(newD, newD)=} where {newD=} and {r=} and {dD=}"
+            )
             op_lr = mps.operators_for_superK(
                 psite=psite,
                 op_sys=op_sys,
@@ -362,7 +355,13 @@ def sweep(
 def test_a1tdvp_sweep(use_class_method: bool):
     model = get_model()
     pytdscf._const_cls.const.set_runtype(
-        use_jax=False, jobname="a1tdvp", adaptive=True, adaptive_p_proj=1.0e-05, adaptive_p_svd=1.0e-07, adaptive_Dmax=100, adaptive_dD=30
+        use_jax=False,
+        jobname="a1tdvp",
+        adaptive=True,
+        adaptive_p_proj=1.0e-05,
+        adaptive_p_svd=1.0e-07,
+        adaptive_Dmax=100,
+        adaptive_dD=30,
     )
     mps = pytdscf._mps_mpo.MPSCoefMPO.alloc_random(model)
     assert isinstance(mps, pytdscf._mps_mpo.MPSCoefMPO)
@@ -403,6 +402,7 @@ def test_a1tdvp_sweep(use_class_method: bool):
         logger.info(
             f"{i_iter=}, {[core.shape[2] for core in mps.superblock_states[0][:-1]]}"
         )
+
 
 if __name__ == "__main__":
     test_a1tdvp_sweep()
