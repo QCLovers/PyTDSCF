@@ -4,6 +4,8 @@
 
 # PyTDSCF
 ![reduced_density_bath](https://github.com/user-attachments/assets/a0bf7f6c-0b43-48a5-8e2b-36bd5436fbde)
+<img width="6357" height="3179" alt="main" src="https://github.com/user-attachments/assets/ea9ab8c1-e686-4d0c-a4ae-8de4e7d73ffd" />
+
 
 PyTDSCF is a Python package for high-dimensional wave-packet dynamics simulations based on tensor train.
 
