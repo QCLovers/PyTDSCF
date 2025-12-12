@@ -235,6 +235,9 @@ class Model:
                     )
                 kin_key = self.guess_legkeys_from_mpo(kin_mpo)
             else:
+                logger.info(
+                    "'kinetic' operator is not given. Only 'potential' will be used."
+                )
                 kin_mpo = None
                 kin_key = None
             if "hamiltonian" in operators:
