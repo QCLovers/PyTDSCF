@@ -3212,7 +3212,5 @@ def _exp_liouville(
         assert j_core == len(mpo), f"{j_core=}, {len(mpo)=}"
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]
-    # exp_val is now a numpy scalar after additions
-    if hasattr(exp_val, 'item') and callable(getattr(exp_val, 'item', None)):
-        return exp_val.item()  # type: ignore[union-attr]
-    return float(exp_val)
+    # exp_val is now a numpy scalar after additions, convert to Python float
+    return float(exp_val) if not hasattr(exp_val, 'item') else exp_val.item()  # type: ignore[union-attr]
