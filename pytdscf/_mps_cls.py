@@ -430,7 +430,9 @@ class MPSCoef(ABC):
             )
             self.matO_sweep = self.get_matH_sweep(matO_cas)
         nsite = len(self.superblock_states[0])
-        assert self.ints_site_dipo is not None, "ints_site_dipo must be initialized"
+        assert self.ints_site_dipo is not None, (
+            "ints_site_dipo must be initialized"
+        )
         self.apply_dipole_along_sweep(
             ci_coef_init,
             self.ints_site_dipo,
@@ -3213,4 +3215,4 @@ def _exp_liouville(
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]
     # exp_val is now a numpy scalar after additions, convert to Python float
-    return float(exp_val) if not hasattr(exp_val, 'item') else exp_val.item()
+    return float(exp_val) if not hasattr(exp_val, "item") else exp_val.item()

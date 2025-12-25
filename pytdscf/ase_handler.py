@@ -210,7 +210,8 @@ class DVR_Mesh:
                         _id = db.write(
                             atoms_grid,
                             dofs="|" + " ".join(map(str, dof_key)),
-                            grids="|" + " ".join(str(g) for g in grid if g is not None),
+                            grids="|"
+                            + " ".join(str(g) for g in grid if g is not None),
                         )
                         self.grid_id[dof_key][grid_key] = _id
                     else:
