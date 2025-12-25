@@ -58,7 +58,6 @@ build-dir = "build/{wheel_tag}"
 dev-dependencies = [
     "ipywidgets>=8.1.7",
     "jupyterlab>=4.2.5",
-    "mypy>=1.13.0",
     "ty>=0.0.7",
     "pre-commit>=4.0.1",
     "pybind11>=2.13.6",
