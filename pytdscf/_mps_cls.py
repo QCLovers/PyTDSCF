@@ -555,7 +555,7 @@ class MPSCoef(ABC):
         superblock_states = self.superblock_states
         # - inefficient impl-#
         if hasattr(matOp, "onesite_name"):
-            onesite_name: str = matOp.onesite_name
+            onesite_name = str(matOp.onesite_name)
             ints_site = self.get_ints_site(ints_spf, onesite_name)
         else:
             ints_site = self.get_ints_site(ints_spf)
@@ -1310,7 +1310,7 @@ class MPSCoef(ABC):
             raise ValueError("reshape_mat is not defined")
         reshape_mat = self.reshape_mat  # type: ignore[attr-defined]
         mpdm_reshaped = [
-            reshape_mat[isite](core.data)
+            reshape_mat[isite](core.data)  # type: ignore[index]
             for isite, core in enumerate(self.superblock_states[istate])
         ]
         if const.use_jax:

@@ -210,7 +210,7 @@ class MPSCoefMPO(MPSCoef):
                 )
             superblock[isite].data = superblock[isite].data[:, P_inds, :]
             lattice_info.dim_of_sites[isite] = len(P_inds)
-            lattice_info.nspf_list_sites[isite] = len(P_inds)
+            lattice_info.nspf_list_sites[isite] = len(P_inds)  # type: ignore[index]
         # Recalculate bond dimension
         nsite = len(superblock)
         for isite in range(nsite):
