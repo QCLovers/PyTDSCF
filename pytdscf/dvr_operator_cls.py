@@ -786,19 +786,21 @@ def construct_nMR_recursive(
     nMR_operators: dict[tuple[int, ...], TensorOperator | float] = dict()
     if func is None and db is not None and df is None:
         if zero_indices is None:
-            zero_indices = [None for _ in range(ndof)]  # type: ignore
+            zero_indices_temp: list[int | None] = [None for _ in range(ndof)]
             for i, prim in enumerate(dvr_prims):
                 grids = prim.get_grids()
                 for j, grid in enumerate(grids):
                     if abs(grid) < 1.0e-10:
-                        zero_indices[i] = j
+                        zero_indices_temp[i] = j
                         break
-            if None in zero_indices:
+            if None in zero_indices_temp:
                 raise ValueError(
                     "No zero point grid in DVR grids."
                     + "You cannot use n-Mode Representation approx."
                     + "in this DVR primitives"
                 )
+            # At this point, all elements should be int, not None
+            zero_indices = [idx for idx in zero_indices_temp if idx is not None]
         with connect(db) as _db:
             logger.info("connected database")
             if dipole:

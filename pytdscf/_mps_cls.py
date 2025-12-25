@@ -430,6 +430,9 @@ class MPSCoef(ABC):
             )
             self.matO_sweep = self.get_matH_sweep(matO_cas)
         nsite = len(self.superblock_states[0])
+        assert self.ints_site_dipo is not None, (
+            "ints_site_dipo must be initialized"
+        )
         self.apply_dipole_along_sweep(
             ci_coef_init,
             self.ints_site_dipo,
@@ -554,7 +557,8 @@ class MPSCoef(ABC):
         superblock_states = self.superblock_states
         # - inefficient impl-#
         if hasattr(matOp, "onesite_name"):
-            ints_site = self.get_ints_site(ints_spf, matOp.onesite_name)
+            onesite_name = str(matOp.onesite_name)
+            ints_site = self.get_ints_site(ints_spf, onesite_name)
         else:
             ints_site = self.get_ints_site(ints_spf)
         matOp = self.get_matH_sweep(matOp)
@@ -1306,8 +1310,9 @@ class MPSCoef(ABC):
             raise ValueError("No site with 2 legs found in remain_nleg")
         if not hasattr(self, "reshape_mat"):
             raise ValueError("reshape_mat is not defined")
+        reshape_mat = self.reshape_mat
         mpdm_reshaped = [
-            self.reshape_mat[isite](core.data)
+            reshape_mat[isite](core.data)
             for isite, core in enumerate(self.superblock_states[istate])
         ]
         if const.use_jax:
@@ -3209,4 +3214,5 @@ def _exp_liouville(
         assert j_core == len(mpo), f"{j_core=}, {len(mpo)=}"
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]
-    return exp_val.item()
+    # exp_val is now a numpy scalar after additions, convert to Python float
+    return float(exp_val) if not hasattr(exp_val, "item") else exp_val.item()
