@@ -18,6 +18,7 @@ Quick Start Examples
 .. _Example 13: donor-acceptor.html
 .. _Example 14: radicalpair-liouville.html
 .. _Example 15: singlet_fission_nprocs.html
+.. _Example 16: pyrazine-qvc.html
 
 
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
@@ -49,7 +50,8 @@ Quick Start Examples
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 | `Example 15`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Real space parallelization     |
 +---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
-
+| `Example 16`_ | Propagation | MPS          | Symbolic   | Exciton, Boson   | Numpy      | Quadratic vibronic coupling    |
++---------------+-------------+--------------+------------+------------------+------------+--------------------------------+
 
 +---------------+----------------------------------+---------------------------+
 |               | Run Type                         | misc.                     |
@@ -78,6 +80,7 @@ Quick Start Examples
    donor-acceptor.ipynb
    radicalpair-liouville.ipynb
    singlet_fission_nprocs.md
+   pyrazine-qvc.ipynb
 
 Indices and tables
 
