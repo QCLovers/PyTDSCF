@@ -13,7 +13,8 @@ exclude = [
 
 [rules]
 # Disable rules similar to mypy's disabled error codes
-# These correspond to mypy's: disable_error_code = import-untyped,call-overload,attr-defined,override,var-annotated,valid-type
+# import-untyped -> unresolved-import, attr-defined -> unresolved-attribute,
+# override -> invalid-method-override, call-overload -> no-matching-overload
 unresolved-import = "ignore"  # Similar to import-untyped
 unresolved-attribute = "ignore"  # Similar to attr-defined
 invalid-method-override = "ignore"  # Similar to override

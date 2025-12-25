@@ -37,7 +37,7 @@ repos:
 
       - id: typecheck
         name: ty
-        entry: ty check pytdscf
+        entry: uv run ty check pytdscf
         language: system
         pass_filenames: false
         files: "^(pytdscf/)"
