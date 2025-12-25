@@ -3213,6 +3213,6 @@ def _exp_liouville(
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]
     # exp_val is now a numpy scalar after additions
-    if hasattr(exp_val, 'item'):
-        return exp_val.item()
+    if hasattr(exp_val, 'item') and callable(getattr(exp_val, 'item', None)):
+        return exp_val.item()  # type: ignore[union-attr]
     return float(exp_val)
