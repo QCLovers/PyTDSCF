@@ -29,3 +29,4 @@ not-iterable = "warn"  # Warn on non-iterable usage
 non-subscriptable = "warn"  # Warn on non-subscriptable usage
 too-many-positional-arguments = "warn"  # Warn on too many arguments
 invalid-return-type = "warn"  # Warn on return type mismatches
+call-non-callable = "warn"  # Warn on calling non-callable objects
