@@ -36,8 +36,8 @@ repos:
         files: "^(pytdscf/|tests/)"
 
       - id: typecheck
-        name: mypy
-        entry: uv run mypy --install-types --non-interactive pytdscf
+        name: ty
+        entry: uv run ty check pytdscf
         language: system
         pass_filenames: false
         files: "^(pytdscf/)"
