@@ -200,7 +200,7 @@ def _normalize(
         if β0 == 0.0:
             raise ValueError("Initial psi has zero norm.")
         v /= β0_array
-        return v, β0, β0_array
+        return v, β0, β0_array  # type: ignore
 
 
 def _rescale(
@@ -406,7 +406,7 @@ def short_iterative_arnoldi(
             e0[0] = 1
             y = np.linalg.solve(eigvecs, e0)
             coeff = eigvecs @ (np.exp(scale * eigvals) * y)
-            psi_next = tensordot(coeff, V)
+            psi_next = tensordot(coeff, V)  # type: ignore
 
         if is_converged:
             # When Krylov subspace is the same as the whole space,
