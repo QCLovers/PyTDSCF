@@ -911,7 +911,7 @@ def construct_nMR_recursive(
                 shape = tuple(
                     [dvr_prims_site_order[p].ngrid for p in site_pair]
                 )
-                op = TensorOperator(legs=site_pair, shape=shape, only_diag=True)  # type: ignore
+                op = TensorOperator(legs=site_pair, shape=shape, only_diag=True)
                 for row in df.filter(
                     pl.col("dofs_db") == to_dbkey(mode_pair)
                 ).iter_rows(named=True):
