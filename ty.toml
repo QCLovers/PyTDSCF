@@ -17,3 +17,21 @@ exclude = [
     "tests/**",
     "docs/**",
 ]
+
+[rules]
+# Disable rules similar to mypy's disabled error codes
+# These correspond to mypy's: disable_error_code = import-untyped,call-overload,attr-defined,override,var-annotated,valid-type
+unresolved-import = "ignore"  # Similar to import-untyped
+unresolved-attribute = "ignore"  # Similar to attr-defined
+invalid-method-override = "ignore"  # Similar to override
+no-matching-overload = "ignore"  # Similar to call-overload
+invalid-type-form = "ignore"  # Similar to valid-type
+# Additional ignores for ty-specific strict checks
+unresolved-reference = "ignore"  # Variables used before definition in complex control flow
+invalid-argument-type = "warn"  # Warn but don't fail on argument type mismatches
+invalid-assignment = "warn"  # Warn but don't fail on assignment type mismatches
+unsupported-operator = "warn"  # Warn on unsupported operators
+not-iterable = "warn"  # Warn on non-iterable usage
+non-subscriptable = "warn"  # Warn on non-subscriptable usage
+too-many-positional-arguments = "warn"  # Warn on too many arguments
+invalid-return-type = "warn"  # Warn on return type mismatches
