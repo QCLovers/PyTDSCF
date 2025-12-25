@@ -22,6 +22,7 @@ no-matching-overload = "ignore"  # Similar to call-overload
 invalid-type-form = "ignore"  # Similar to valid-type
 # Additional ignores for ty-specific strict checks
 unresolved-reference = "ignore"  # Variables used before definition in complex control flow
+possibly-missing-attribute = "ignore"  # Warn on possibly missing attributes
 invalid-argument-type = "warn"  # Warn but don't fail on argument type mismatches
 invalid-assignment = "warn"  # Warn but don't fail on assignment type mismatches
 unsupported-operator = "warn"  # Warn on unsupported operators

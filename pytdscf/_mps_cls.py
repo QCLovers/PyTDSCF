@@ -1310,7 +1310,7 @@ class MPSCoef(ABC):
             raise ValueError("reshape_mat is not defined")
         reshape_mat = self.reshape_mat
         mpdm_reshaped = [
-            reshape_mat[isite](core.data)
+            reshape_mat[isite](core.data)  # type: ignore[index]
             for isite, core in enumerate(self.superblock_states[istate])
         ]
         if const.use_jax:
@@ -3213,4 +3213,4 @@ def _exp_liouville(
         assert left_tensor.shape == (1, 1), f"{left_tensor.shape=}"
         exp_val += left_tensor[0, 0]
     # exp_val is now a numpy scalar after additions, convert to Python float
-    return float(exp_val) if not hasattr(exp_val, 'item') else exp_val.item()
+    return float(exp_val) if not hasattr(exp_val, 'item') else exp_val.item()  # type: ignore[misc]
