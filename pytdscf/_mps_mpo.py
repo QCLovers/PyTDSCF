@@ -608,6 +608,8 @@ class MPSCoefMPO(MPSCoef):
                 raise NotImplementedError
         bra_is_ket = bra_is_not_custom and ket_is_not_custom
 
+        assert superblock_states_bra is not None
+        assert superblock_states_ket is not None
         op_block_next = {}
         for (istate_bra, superblock_bra), (
             istate_ket,

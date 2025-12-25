@@ -725,27 +725,28 @@ class TensorHamiltonian(HamiltonianMixin):
                             f"backend must be jax, or numpy but {backend} is given"
                         )
 
-            if kinetic is not None and kinetic[i][j] is not None:
-                assert isinstance(kinetic, list)
-                K_ij = kinetic[i][j]
-                assert isinstance(K_ij, dict)
-                for key, d2 in K_ij.items():
-                    if backend.lower() == "jax":
-                        if d2.dtype in [jnp.complex128, np.complex128]:
-                            dtype = jnp.complex128
-                        elif d2.dtype in [jnp.float64, np.float64]:
-                            dtype = jnp.float64
-                        if key in operators:
-                            raise ValueError(
-                                f"key {key} is already set in potential. "
-                                + "Concatenate KEO and PEO or set KEO as SOP"
-                            )
-                        operators[key] = [
-                            jnp.array(core, dtype=dtype)
-                            for core in d2.decompose()
-                        ]
-                    else:
-                        operators[key] = d2.decompose()
+            if kinetic is not None:
+                assert isinstance(kinetic, list), "kinetic must be a list"
+                if kinetic[i][j] is not None:
+                    K_ij = kinetic[i][j]
+                    assert isinstance(K_ij, dict)
+                    for key, d2 in K_ij.items():
+                        if backend.lower() == "jax":
+                            if d2.dtype in [jnp.complex128, np.complex128]:
+                                dtype = jnp.complex128
+                            elif d2.dtype in [jnp.float64, np.float64]:
+                                dtype = jnp.float64
+                            if key in operators:
+                                raise ValueError(
+                                    f"key {key} is already set in potential. "
+                                    + "Concatenate KEO and PEO or set KEO as SOP"
+                                )
+                            operators[key] = [
+                                jnp.array(core, dtype=dtype)
+                                for core in d2.decompose()
+                            ]
+                        else:
+                            operators[key] = d2.decompose()
             self.mpo[i][j] = MatrixProductOperators(
                 nsite=ndof, operators=operators, backend=backend
             )

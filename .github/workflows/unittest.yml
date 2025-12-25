@@ -22,6 +22,8 @@ jobs:
       run: sudo apt update && sudo apt install libopenmpi-dev
     - name: pytdscf-dev-install
       run: uv sync --extra mpi
+    - name: ty-typecheck
+      run: uv run ty check .
     - name: pytest
       continue-on-error: true
       id: pytest

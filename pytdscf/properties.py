@@ -110,7 +110,7 @@ class Properties:
             self._get_pops()
         if observables and self.nstep % observables_per_step == 0:
             self._get_observables()
-        if self.remain_legs is not None:
+        if self.remain_legs is not None and self.rd_step is not None:
             if self.nstep % self.rd_step == 0:
                 self._export_reduced_density()
         if bonddim and self.nstep % bonddim_per_step == 0 and const.adaptive:

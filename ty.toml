@@ -1,0 +1,30 @@
+# ty configuration file
+# Type checker configuration for PyTDSCF
+
+[src]
+# Exclude directories similar to mypy.ini configuration
+exclude = [
+    "pytdscf/basis/**",
+    "pytdscf/potentials/**",
+    "pytdscf/util/**",
+    "tests/**",
+    "docs/**",
+]
+
+[rules]
+# Disable rules similar to mypy's disabled error codes
+# import-untyped -> unresolved-import, attr-defined -> unresolved-attribute,
+# override -> invalid-method-override, call-overload -> no-matching-overload
+unresolved-import = "ignore"  # Similar to import-untyped
+unresolved-attribute = "ignore"  # Similar to attr-defined
+invalid-method-override = "ignore"  # Similar to override
+no-matching-overload = "ignore"  # Similar to call-overload
+invalid-type-form = "ignore"  # Similar to valid-type
+# Additional ignores for ty-specific strict checks
+unresolved-reference = "ignore"  # Variables used before definition in complex control flow
+possibly-missing-attribute = "ignore"  # Warn on possibly missing attributes
+invalid-argument-type = "ignore"  # Ignore argument type mismatches with Union types
+invalid-assignment = "ignore"  # Ignore assignment type mismatches
+non-subscriptable = "ignore"  # Ignore non-subscriptable usage
+invalid-return-type = "ignore"  # Ignore return type mismatches with Union types
+call-non-callable = "ignore"  # Ignore calling non-callable objects
