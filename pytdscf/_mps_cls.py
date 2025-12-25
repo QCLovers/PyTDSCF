@@ -1308,8 +1308,9 @@ class MPSCoef(ABC):
             raise ValueError("No site with 2 legs found in remain_nleg")
         if not hasattr(self, "reshape_mat"):
             raise ValueError("reshape_mat is not defined")
+        reshape_mat = self.reshape_mat  # type: ignore[attr-defined]
         mpdm_reshaped = [
-            self.reshape_mat[isite](core.data)
+            reshape_mat[isite](core.data)
             for isite, core in enumerate(self.superblock_states[istate])
         ]
         if const.use_jax:

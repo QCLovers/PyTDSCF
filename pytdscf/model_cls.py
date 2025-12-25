@@ -198,10 +198,7 @@ class Model:
                 + "use explicit TensorOperator/TensorHamiltonian definition instead."
             )
         leg_key: list[
-            tuple(
-                int,
-            )
-            | tuple(int, int)
+            tuple[int] | tuple[int, int]
         ] = []
         for k, core in enumerate(mpo):
             match len(core.shape):
@@ -263,10 +260,7 @@ class Model:
                         f"Operator {name} length must be equal to ndof of basis. But, got {len(op)} and {self.get_ndof()}."
                     )
                 leg_key: list[
-                    tuple(
-                        int,
-                    )
-                    | tuple(int, int)
+                    tuple[int] | tuple[int, int]
                 ] = []
                 for k, core in enumerate(op):
                     match len(core.shape):
