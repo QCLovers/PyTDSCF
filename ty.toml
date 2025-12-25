@@ -1,0 +1,19 @@
+# ty configuration file
+# Type checker configuration for PyTDSCF
+
+[environment]
+extra-paths = [
+    "/home/runner/.local/lib/python3.12/site-packages",
+    "/usr/local/lib/python3.12/dist-packages",
+    "/usr/lib/python3/dist-packages",
+]
+
+[src]
+# Exclude directories similar to mypy.ini configuration
+exclude = [
+    "pytdscf/basis/**",
+    "pytdscf/potentials/**",
+    "pytdscf/util/**",
+    "tests/**",
+    "docs/**",
+]
