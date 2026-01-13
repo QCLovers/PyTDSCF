@@ -90,7 +90,7 @@ class Simulator:
                 f"doPrint:{self.doPrint} doSpectra:{self.doSpectra} "
                 + f"ci_type:{self.ci_type}"
             )
-        self._apply_backend_to_model(backend=backend.lower())  # type: ignore
+        self._apply_backend_to_model(backend=backend.lower())
 
     def relax(
         self,

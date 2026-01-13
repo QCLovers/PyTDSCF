@@ -205,7 +205,7 @@ def diagonalize_CI(ci_coef, ints_spf, matH):
         This method could be merged to `helper.matrix_diagonalize_lanczos`.
 
     """
-    from _ci_cls import multiplyH_CI  # type: ignore
+    from _ci_cls import multiplyH_CI
 
     unitvec = ci_coef.alloc_zeros_like()
     nstate = ci_coef.nstate
@@ -213,10 +213,7 @@ def diagonalize_CI(ci_coef, ints_spf, matH):
     multiplyH = multiplyH_CI(ints_spf, matH, ci_coef)
 
     Hmat: list[list[np.ndarray]]
-    Hmat = [
-        [None for i in range(nstate)]  # type: ignore # noqa
-        for j in range(nstate)
-    ]
+    Hmat = [[None for i in range(nstate)] for j in range(nstate)]
     for istate_ket, istate_bra in itertools.product(range(nstate), repeat=2):
         Hmat[istate_bra][istate_ket] = np.zeros(
             (ci_coef.size(istate_bra), ci_coef.size(istate_ket)), dtype=complex

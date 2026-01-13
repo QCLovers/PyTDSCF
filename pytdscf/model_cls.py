@@ -103,7 +103,7 @@ class Model:
             raise ValueError(
                 f"space must be 'hilbert' or 'liouville' but got {space}"
             )
-        self.space: Literal["hilbert", "liouville"] = space.lower()  # type: ignore
+        self.space: Literal["hilbert", "liouville"] = space.lower()
         self.one_gate_to_apply = one_gate_to_apply
         if self.space == "liouville" and subspace_inds is not None:
             assert isinstance(subspace_inds, dict)
@@ -241,8 +241,8 @@ class Model:
                 )
             tensor_ham = TensorHamiltonian(
                 ndof=self.get_ndof(),
-                potential={pot_key: TensorOperator(mpo=pot_mpo)},  # type: ignore
-                kinetic={kin_key: TensorOperator(mpo=kin_mpo)}  # type: ignore
+                potential={pot_key: TensorOperator(mpo=pot_mpo)},
+                kinetic={kin_key: TensorOperator(mpo=kin_mpo)}
                 if kin_mpo is not None
                 else None,
                 backend="numpy",
@@ -270,7 +270,7 @@ class Model:
                             )
                 tensor_ham = TensorHamiltonian(
                     ndof=self.get_ndof(),
-                    potential={tuple(leg_key): TensorOperator(mpo=op)},  # type: ignore
+                    potential={tuple(leg_key): TensorOperator(mpo=op)},
                     kinetic=None,
                     backend="numpy",
                 )

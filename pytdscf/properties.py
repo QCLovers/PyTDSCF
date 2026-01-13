@@ -124,10 +124,10 @@ class Properties:
         all_densities = []
         assert isinstance(self.remain_legs, list)
         if const.mpi_size == 1:
-            for remain_nleg in self.remain_legs:
-                densities = self.wf.get_reduced_densities(remain_nleg)
-                all_densities.append(densities)
-            # all_densities = self.wf.get_reduced_densities(self.remain_legs)
+            # for remain_nleg in self.remain_legs:
+            #     densities = self.wf.get_reduced_densities(remain_nleg)
+            #     all_densities.append(densities)
+            all_densities = self.wf.get_reduced_densities(self.remain_legs)
         else:
             for base_tag, rd_key in enumerate(self.rd_keys):
                 assert isinstance(self.wf.ci_coef, MPSCoefParallel)
@@ -146,11 +146,11 @@ class Properties:
                 for densities, key in zip(
                     all_densities, self.rd_keys, strict=True
                 ):
-                    for istate in range(self.model.nstate):
-                        data = np.empty(densities[istate].shape, complex128)
-                        data["real"] = densities[istate].real
-                        data["imag"] = densities[istate].imag
-                        f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
+                    istate = 0
+                    data = np.empty(densities.shape, complex128)
+                    data["real"] = densities.real
+                    data["imag"] = densities.imag
+                    f.variables[f"rho_{key}_{istate}"][self.nc_row] = data
             self.nc_row += 1
 
     @helper.rank0_only
