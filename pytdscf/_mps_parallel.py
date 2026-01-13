@@ -1034,7 +1034,7 @@ class MPSCoefParallel(MPSCoefMPO):
     @mpi_abort_on_exception
     def get_reduced_densities(
         self, base_tag: int, rd_key: tuple[int, ...]
-    ) -> list[np.ndarray] | None:
+    ) -> np.ndarray | None:
         """
         When rd_key is  (3, 3, 4)
         and MPS is A1A2A3A4...A6
@@ -1196,14 +1196,14 @@ class MPSCoefParallel(MPSCoefMPO):
                 f"{rd.shape=} {left_block.shape=} {right_block.shape=}"
             )
             if mid_rank == 0:
-                return [rd]
+                return rd
             else:
                 comm.send(rd, dest=0, tag=base_tag + 2)
                 return None
         if const.mpi_rank == 0:
             rd = comm.recv(source=mid_rank, tag=base_tag + 2)
             assert isinstance(rd, np.ndarray), f"{rd=}"
-            return [rd]
+            return rd
         else:
             return None
 

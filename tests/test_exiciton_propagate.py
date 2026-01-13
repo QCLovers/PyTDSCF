@@ -173,7 +173,7 @@ def test_exiciton_propagate(backend):
     # const.regularize_site = False
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
-        stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1)
+        stepsize=0.1, maxstep=20, reduced_density=([(3, 3), (0, 0), (0, 0, 3, 3)], 1)
     )
     assert pytest.approx(ener_calc) == 0.010000180312707298
     rdm = read_nc(f"{jobname}_prop/reduced_density.nc", [(3, 3)])
