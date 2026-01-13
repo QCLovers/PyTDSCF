@@ -26,7 +26,7 @@ from pytdscf.hamiltonian_cls import (
 try:
     from mpi4py import MPI
 except Exception:
-    MPI = None  # type: ignore
+    MPI = None
 
 logger = logger.bind(name="main")
 
@@ -65,7 +65,7 @@ class WFunc:
             self.ci_coef.op_sys_sites = None
 
     def get_reduced_densities(
-        self, remain_nleg: tuple[int, ...]
+        self, remain_nleg: tuple[int, ...] | list[tuple[int, ...]]
     ) -> list[np.ndarray]:
         """
         Calculate reduced density matrix of given degree of freedom pair.
@@ -75,7 +75,7 @@ class WFunc:
             remain_nleg (Tuple[int, ...]) : degree of freedom pair
 
         Returns:
-            List[np.ndarray] : reduced density matrix of given degree of freedom pair for each state.
+            List[np.ndarray] : reduced density matrix of given degree of freedom pairs.
         """
         if not isinstance(self.ci_coef, MPSCoef):
             raise NotImplementedError(
@@ -163,7 +163,7 @@ class WFunc:
         else:
             bonddim_rank = [site.shape[2] for site in mps.superblock_states[0]]
             comm = MPI.COMM_WORLD
-            bonddim_all: list[list[int]] = comm.gather(bonddim_rank, root=0)  # type: ignore
+            bonddim_all: list[list[int]] = comm.gather(bonddim_rank, root=0)
             if comm.rank == 0:
                 bonddim = []
                 for rank in chain(*bonddim_all):

@@ -427,7 +427,7 @@ def test_vectorised_density_matrix(
         jobname=jobname, model=model, backend=backend, verbose=0
     )
     simulator.propagate(
-        reduced_density=([(1, 1)], 1),
+        reduced_density=([(1, 1), (2, 2), (0, 0, 1, 1)], 1),
         maxstep=n_steps * scale,
         stepsize=delta_t / scale,
         autocorr=False,
@@ -526,7 +526,7 @@ def test_purified_mps(backend: Literal["numpy", "jax"], scale=1):
         jobname=jobname, model=model, backend=backend, verbose=0
     )
     simulator.propagate(
-        reduced_density=([(2, 2)], 1),
+        reduced_density=([(1, 1), (2, 2), (3, 3)], 1),
         maxstep=n_steps * scale,
         stepsize=delta_t / scale,
         autocorr=False,

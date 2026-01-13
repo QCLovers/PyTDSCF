@@ -10,6 +10,7 @@ from pytdscf.hamiltonian_cls import TensorHamiltonian
 from pytdscf.model_cls import Model
 from pytdscf.simulator_cls import Simulator
 from pytdscf.units import au_in_cm1
+from pytdscf.util import read_nc
 
 freqs_cm1 = [1000, 2000, 3000]
 omega2 = [(freq / au_in_cm1) ** 2 for freq in freqs_cm1]
@@ -20,7 +21,8 @@ prim_info = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
 
 
 @pytest.mark.filterwarnings("ignore:DeprecationWarning")
-def test_exiciton_propagate_jax(backend="jax"):
+@pytest.mark.parametrize("backend", ["numpy", "jax"])
+def test_exiciton_propagate(backend):
     """
     |Psi> = |HO1, HO2, HO3, E0>
 
@@ -171,10 +173,15 @@ def test_exiciton_propagate_jax(backend="jax"):
     # const.regularize_site = False
     simulator = Simulator(jobname, model, backend=backend)
     ener_calc, wf = simulator.propagate(
-        stepsize=0.1, maxstep=20, reduced_density=([(3, 3)], 1)
+        stepsize=0.1, maxstep=20, reduced_density=([(3, 3), (0, 0), (0, 0, 3, 3)], 1)
     )
     assert pytest.approx(ener_calc) == 0.010000180312707298
-
+    rdm = read_nc(f"{jobname}_prop/reduced_density.nc", [(3, 3)])
+    np.testing.assert_allclose(rdm[(3, 3)][-1],
+    np.array(
+        [[1.86417721e-02+1.60379680e-20j, 2.87367863e-02-6.91095824e-02j],
+        [2.87367863e-02+6.91095824e-02j, 9.81358228e-01-7.40721885e-18j]]
+    ), atol = 1e-09)
 
 if __name__ == "__main__":
-    test_exiciton_propagate_jax(backend="numpy")
+    test_exiciton_propagate(backend="numpy")

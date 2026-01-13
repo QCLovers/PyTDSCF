@@ -271,7 +271,7 @@ def _accumulate_q0_terms(terms: list[TermProductForm]):
     terms_wo_const = []
     for term in terms:
         if "ovlp" in term.op_keys:
-            coef_q0 += term.coef  # type: ignore
+            coef_q0 += term.coef
         else:
             terms_wo_const.append(term)
     return (terms_wo_const, coef_q0)
@@ -283,7 +283,7 @@ def _accumulate_q0_terms_with_const(terms: list[TermProductForm], ndof: int):
     terms_with_const = []
     for term in terms:
         if "ovlp" in term.op_keys:
-            coef_q0 += term.coef  # type: ignore
+            coef_q0 += term.coef
         else:
             terms_with_const.append(term)
     dof_any = random.choice(range(ndof))
@@ -662,7 +662,7 @@ class TensorHamiltonian(HamiltonianMixin):
         if isinstance(potential, dict):
             potential = [[potential]]
         if kinetic is not None and isinstance(kinetic, dict):
-            kinetic = [[kinetic]]  # type: ignore
+            kinetic = [[kinetic]]
         nstate = len(potential)
         super().__init__(name, nstate, ndof)
         self.mpo = [[None for j in range(nstate)] for i in range(nstate)]
@@ -787,7 +787,7 @@ class TensorHamiltonian(HamiltonianMixin):
                 if isinstance(H_core.data, jnp.ndarray):
                     einsum = jnp.einsum
                 else:
-                    einsum = np.einsum  # type: ignore
+                    einsum = np.einsum
                 assert isinstance(op_core.data, jnp.ndarray | np.ndarray)
                 H_core.data = einsum(
                     subscripts,

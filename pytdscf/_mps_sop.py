@@ -316,7 +316,7 @@ class MPSCoefSoP(MPSCoef):
                     term_prod.set_blockop_key(matH_tdh.ndof)
 
                 matH_tdh.general[istate_bra][istate_ket] = (
-                    terms_general_tdh_list  # type: ignore
+                    terms_general_tdh_list
                 )
 
         return matH_tdh
@@ -375,7 +375,7 @@ class MPSCoefSoP(MPSCoef):
                     term_prod.set_blockop_key(matH_cas.ndof)
 
                 matH_cas.general[istate_bra][istate_ket] = (
-                    terms_general_cas_list  # type: ignore
+                    terms_general_cas_list
                 )
 
         return matH_cas
@@ -1156,7 +1156,7 @@ class MPSCoefSoP(MPSCoef):
                 op_sys = self.trans_next_psite_APsiB_for_dipole(
                     psite,
                     superblock_states_bra,
-                    op_sys,  # type: ignore
+                    op_sys,
                     ints_site,
                     matO_cas,
                     A_is_sys,
@@ -1532,7 +1532,7 @@ class MPSCoefSoP(MPSCoef):
                 ]
             ]
         ]
-        op_lcr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
+        op_lcr = [[None for j in range(nstate)] for i in range(nstate)]
         op_l_ovlp: _block_type
         op_r_ovlp: _block_type
         op_c_ovlp: _block_type
@@ -1737,7 +1737,7 @@ class MPSCoefSoP(MPSCoef):
         ]
         op_l_ovlp: _block_type
         op_r_ovlp: _block_type
-        op_lr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
+        op_lr = [[None for j in range(nstate)] for i in range(nstate)]
         for istate_bra, istate_ket in itertools.product(
             list(range(nstate)), repeat=2
         ):

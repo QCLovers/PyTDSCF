@@ -134,7 +134,7 @@ class MPSCoefMPO(MPSCoef):
 
     def define_reshape_mat(
         self, subspace_inds: dict[int, tuple[int, ...]] | None
-    ):
+    ) -> dict[int, Callable]:
         """
         Define reshape function for twin-space
         """
@@ -416,7 +416,7 @@ class MPSCoefMPO(MPSCoef):
             if len(op_block_ops) != 0:
                 op_block_states[statepair] = op_block_ops
 
-        return op_block_states  # type: ignore
+        return op_block_states
 
     @staticmethod
     def renormalize_op_psite(
@@ -744,10 +744,10 @@ class MPSCoefMPO(MPSCoef):
             if ints_site is None:
                 op_c_ovlp = 0
             else:
-                op_c_ovlp = ints_site[statepair]["ovlp"][psite]  # type: ignore
+                op_c_ovlp = ints_site[statepair]["ovlp"][psite]
 
             # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
-            if op_l_ovlp.is_identity:  # type: ignore
+            if op_l_ovlp.is_identity:
                 # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
                 assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
                 op_l_ovlp = op_l_ovlp.shape[0]
@@ -755,7 +755,7 @@ class MPSCoefMPO(MPSCoef):
                 # np.testing.assert_allclose(op_c_ovlp, np.eye(*op_c_ovlp.shape)):
                 assert isinstance(op_c_ovlp, np.ndarray | jax.Array)
                 op_c_ovlp = op_c_ovlp.shape[0]
-            if op_r_ovlp.is_identity:  # type: ignore
+            if op_r_ovlp.is_identity:
                 # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
                 assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
                 op_r_ovlp = op_r_ovlp.shape[0]
@@ -808,7 +808,7 @@ class MPSCoefMPO(MPSCoef):
                 ]
             ]
         ]
-        op_lcr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
+        op_lcr = [[None for j in range(nstate)] for i in range(nstate)]
         for istate_bra, istate_ket in itertools.product(
             list(range(nstate)), repeat=2
         ):
@@ -890,11 +890,11 @@ class MPSCoefMPO(MPSCoef):
             )
 
             # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
-            if op_l_ovlp.is_identity:  # type: ignore
+            if op_l_ovlp.is_identity:
                 # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
                 assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
                 op_l_ovlp = op_l_ovlp.shape[0]
-            if op_r_ovlp.is_identity:  # type: ignore
+            if op_r_ovlp.is_identity:
                 # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
                 assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
                 op_r_ovlp = op_r_ovlp.shape[0]
@@ -967,7 +967,7 @@ class MPSCoefMPO(MPSCoef):
                 ]
             ]
         ]
-        op_lr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
+        op_lr = [[None for j in range(nstate)] for i in range(nstate)]
 
         op_l_ovlp: _block_type
         op_r_ovlp: _block_type

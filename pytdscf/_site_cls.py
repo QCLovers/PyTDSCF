@@ -399,7 +399,7 @@ class SiteCoef:
             SiteCoef: Site Coefficient data \
                 :math:`a_{\tau_{p-1}\tau_{p}}^{j_p}`
         """
-        shape: list[int] = [None, None, None]  # type: ignore
+        shape: list[int] = [None, None, None]
         shape[SiteCoef.n_indx] = ndim
         shape[SiteCoef.l_indx] = m_aux_l if not is_lend else 1
         shape[SiteCoef.r_indx] = m_aux_r if not is_rend else 1
