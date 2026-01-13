@@ -210,10 +210,9 @@ class Simulator:
                 given modes.
                 For example, ``([(0, 1),], 10)`` means calculate the diagonal elements of reduced density of the \
                 :math:`\rho_{01}=\mathrm{Tr}_{p\notin \{0,1\}}\left|\Psi^{(\alpha)}\rangle\langle\Psi^(\alpha)\right|` \
-                in per 10 steps.
-                Note that it requires enough disk space.
+                every 10 steps.
                 Defaults to ``None``.
-                It is better if the target modes are close to rightmost, i.e., 0. \
+                It is better if the target modes are close to leftmost, i.e., 0. \
                 (Because this program calculate property in the most right-canonized form of MPS.)
                 If you want coherence, i.e., off-diagonal elements of density matrix, \
                 you need to set like ``([(0, 0), ], 10)``.

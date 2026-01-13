@@ -12,7 +12,7 @@ from collections import Counter
 from functools import partial
 from itertools import chain
 from time import time
-from typing import Literal
+from typing import Callable, Literal
 
 import jax
 import jax.numpy as jnp
@@ -1310,7 +1310,7 @@ class MPSCoef(ABC):
             raise ValueError("No site with 2 legs found in remain_nleg")
         if not hasattr(self, "reshape_mat"):
             raise ValueError("reshape_mat is not defined")
-        reshape_mat = self.reshape_mat
+        reshape_mat: dict[int, Callable] = self.reshape_mat
         mpdm_reshaped = [
             reshape_mat[isite](core.data)
             for isite, core in enumerate(self.superblock_states[istate])
@@ -1360,7 +1360,7 @@ class MPSCoef(ABC):
         return dm
 
     def get_reduced_densities(
-        self, remain_nleg: tuple[int, ...]
+        self, remain_nleg: tuple[int, ...] | list[tuple[int, ...]]
     ) -> list[np.ndarray]:
         reduced_densities = []
         nstate = len(self.superblock_states)

@@ -62,12 +62,15 @@ class Properties:
         assert t2_trick or (wf_init is None)
 
         if reduced_density is not None:
-            self.rd_step = reduced_density[1]
+            keys: list[tuple[int, ...]] = reduced_density[0]
+            self.rd_step: int = reduced_density[1]
             self.remain_legs: list[tuple[int, ...]] | None = []
             self.rd_keys = []
-            for key in reduced_density[0]:
+            for key in keys:
                 rd_points = sorted(key, reverse=True)
-                _remain_legs = [0 for isite in range(rd_points[0] + 1)]
+                _remain_legs: list[int] = [
+                    0 for isite in range(rd_points[0] + 1)
+                ]
                 isite = 0
                 while rd_points:
                     if isite == rd_points[-1]:
@@ -121,9 +124,10 @@ class Properties:
         all_densities = []
         assert isinstance(self.remain_legs, list)
         if const.mpi_size == 1:
-            for remain_leg in self.remain_legs:
-                densities = self.wf.get_reduced_densities(remain_leg)
+            for remain_nleg in self.remain_legs:
+                densities = self.wf.get_reduced_densities(remain_nleg)
                 all_densities.append(densities)
+            # all_densities = self.wf.get_reduced_densities(self.remain_legs)
         else:
             for base_tag, rd_key in enumerate(self.rd_keys):
                 assert isinstance(self.wf.ci_coef, MPSCoefParallel)

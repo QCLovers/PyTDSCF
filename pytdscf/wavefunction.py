@@ -65,7 +65,7 @@ class WFunc:
             self.ci_coef.op_sys_sites = None
 
     def get_reduced_densities(
-        self, remain_nleg: tuple[int, ...]
+        self, remain_nleg: tuple[int, ...] | list[tuple[int, ...]]
     ) -> list[np.ndarray]:
         """
         Calculate reduced density matrix of given degree of freedom pair.

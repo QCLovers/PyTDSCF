@@ -134,7 +134,7 @@ class MPSCoefMPO(MPSCoef):
 
     def define_reshape_mat(
         self, subspace_inds: dict[int, tuple[int, ...]] | None
-    ):
+    ) -> dict[int, Callable]:
         """
         Define reshape function for twin-space
         """
