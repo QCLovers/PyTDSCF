@@ -1,7 +1,5 @@
 """Plot spectra from FFT of auto-correlation dat file"""
 
-import sys
-
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.interpolate as interpolate
@@ -214,11 +212,11 @@ def plot_spectrum(
     elif show_in_nm:
         if lower_bound <= 0:
             raise ValueError(
-                "When show_in_nm is True, lower_bound must be greater than 0."
+                "When show_in_nm is True, lower_bound (in cm$^{-1}$) must be greater than 0."
             )
-        mask = (x > 0) & (y > 0)
+        mask = x > 0
         x = 1e7 / x[mask]
-        y = y[mask] / np.max(y[mask])
+        y = y[mask]
         nm_limit_left = 1e7 / upper_bound
         nm_limit_right = 1e7 / lower_bound
         plt.xlabel("wave length / nm")
@@ -240,9 +238,35 @@ def plot_spectrum(
 
 
 if __name__ == "__main__":
-    time, autocorr = load_autocorr(sys.argv[1])
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Plot spectrum from auto-correlation."
+    )
+    parser.add_argument("filename", help="Path to the autocorr.dat file")
+    parser.add_argument(
+        "--nm", action="store_true", help="Show spectrum in nm (default is eV)"
+    )
+
+    args = parser.parse_args()
+
+    time, autocorr = load_autocorr(args.filename)
     plot_autocorr(time, autocorr)
     freq, intensity = ifft_autocorr(time, autocorr)
-    plot_spectrum(
-        freq, intensity, lower_bound=-1000, upper_bound=10000, show_in_eV=True
-    )
+
+    if args.nm:
+        plot_spectrum(
+            freq,
+            intensity,
+            lower_bound=2000,
+            upper_bound=10000,
+            show_in_nm=True,
+        )
+    else:
+        plot_spectrum(
+            freq,
+            intensity,
+            lower_bound=-1000,
+            upper_bound=10000,
+            show_in_eV=True,
+        )
