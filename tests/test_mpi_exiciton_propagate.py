@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 from discvar import HarmonicOscillator as HO
-from mpi4py import MPI
 
 from pytdscf.basis import Exciton
 from pytdscf.dvr_operator_cls import TensorOperator

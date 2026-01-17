@@ -203,13 +203,12 @@ def plot_spectrum(
         )
 
     if show_in_eV:
+        xlabel = "wave number / eV"
         x *= units.au_in_eV / units.au_in_cm1
-        plt.xlabel("wave number / eV")
-        plt.xlim(
-            lower_bound * units.au_in_eV / units.au_in_cm1,
-            upper_bound * units.au_in_eV / units.au_in_cm1,
-        )
+        lb = lower_bound * units.au_in_eV / units.au_in_cm1
+        ub = upper_bound * units.au_in_eV / units.au_in_cm1
     elif show_in_nm:
+        xlabel = "wave length / nm"
         if lower_bound <= 0:
             raise ValueError(
                 "When show_in_nm is True, lower_bound (in cm$^{-1}$) must be greater than 0."
@@ -219,15 +218,13 @@ def plot_spectrum(
         y = y[mask]
         nm_limit_left = 1e7 / upper_bound
         nm_limit_right = 1e7 / lower_bound
-        plt.xlabel("wave length / nm")
-        plt.xlim(
-            nm_limit_left,
-            nm_limit_right,
-        )
-
+        lb, ub = nm_limit_left, nm_limit_right
     else:
-        plt.xlabel("wave number / cm$^{-1}$")
-        plt.xlim(lower_bound, upper_bound)
+        # show_in cm-1
+        xlabel = "wave number / cm$^{-1}$"
+        lb, ub = lower_bound, upper_bound
+    plt.xlabel(xlabel)
+    plt.xlim(lb, ub)
     plt.plot(x, y, "-", color="red", linewidth=3)
     plt.ylabel("intensity / arb. unit")
     if normalize:
@@ -235,38 +232,3 @@ def plot_spectrum(
     plt.tight_layout()
     plt.savefig(filename)
     plt.show(block=gui)
-
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Plot spectrum from auto-correlation."
-    )
-    parser.add_argument("filename", help="Path to the autocorr.dat file")
-    parser.add_argument(
-        "--nm", action="store_true", help="Show spectrum in nm (default is eV)"
-    )
-
-    args = parser.parse_args()
-
-    time, autocorr = load_autocorr(args.filename)
-    plot_autocorr(time, autocorr)
-    freq, intensity = ifft_autocorr(time, autocorr)
-
-    if args.nm:
-        plot_spectrum(
-            freq,
-            intensity,
-            lower_bound=2000,
-            upper_bound=10000,
-            show_in_nm=True,
-        )
-    else:
-        plot_spectrum(
-            freq,
-            intensity,
-            lower_bound=-1000,
-            upper_bound=10000,
-            show_in_eV=True,
-        )
