@@ -349,9 +349,9 @@ def short_iterative_arnoldi(
             psi_next = tensordot_jit(_coeff, V)
             return psi_next
     else:
-        _orth_step = _orth_step_np  # type:ignore
+        _orth_step = _orth_step_np
 
-        def tensordot(coeff: np.ndarray, V: np.ndarray) -> np.ndarray:  # type: ignore
+        def tensordot(coeff: np.ndarray, V: np.ndarray) -> np.ndarray:
             psi_next = np.tensordot(coeff, V[: coeff.shape[0], :], axes=(0, 0))
             return psi_next
 
@@ -386,7 +386,7 @@ def short_iterative_arnoldi(
             v_l /= β0_array
 
         # --- Orthogonalise ---
-        beta, v, V, hessen = _orth_step(v_l, V, hessen, ldim)  # type: ignore
+        beta, v, V, hessen = _orth_step(v_l, V, hessen, ldim)
 
         # --- Breakdown: this is the only place that requires eigendecomposition ---
         is_converged = beta < EPS or ldim + 1 == maxsize
@@ -678,7 +678,7 @@ def _next_sigvec_cvecs_alpha_beta(
     beta = jnp.linalg.norm(v).real
     v /= beta
     V = stack_to_cvecs(v, V)
-    return v, V, alpha.astype(jnp.complex128), beta.astype(jnp.float64)  # type: ignore
+    return v, V, alpha.astype(jnp.complex128), beta.astype(jnp.float64)
 
 
 @jax.jit

@@ -34,8 +34,8 @@ try:
 
     comm = MPI.COMM_WORLD
 except Exception:
-    MPI = None  # type: ignore
-    comm = None  # type: ignore
+    MPI = None
+    comm = None
 
 logger = logger.bind(name="rank")
 
@@ -259,7 +259,7 @@ class MPSCoefParallel(MPSCoefMPO):
         comm.barrier()
         self.send_op_env_to_right(
             even_rank=False,
-            op_env_from_left=op_env_from_left,  # type: ignore
+            op_env_from_left=op_env_from_left,
         )
         self.recv_op_env_from_left(even_rank=True)
         comm.barrier()
@@ -303,8 +303,8 @@ class MPSCoefParallel(MPSCoefMPO):
         )
         op_sys_previous = self.op_sys_sites[-1]
         psi_L.data = multiply_sigvec_pinv(
-            X=self.joint_sigvec_not_pinv,  # type: ignore
-            left_tensor=psi_L.data,  # type: ignore
+            X=self.joint_sigvec_not_pinv,
+            left_tensor=psi_L.data,
             right_tensor=None,
         )
         superblock = [psi_L, psi_R]
@@ -316,8 +316,8 @@ class MPSCoefParallel(MPSCoefMPO):
         # superblock = [Psi_L, A_R]
         canonicalize(superblock, orthogonal_center=0)
         superblock_full = get_superblock_full(superblock, delta_rank=const.dD)
-        superblock = [None] * (self.nsite - 1) + superblock  # type: ignore
-        superblock_full = [None] * (self.nsite - 1) + superblock_full  # type: ignore
+        superblock = [None] * (self.nsite - 1) + superblock
+        superblock_full = [None] * (self.nsite - 1) + superblock_full
         if const.adaptive:
             newD, error, op_env_D_bra, op_env_D_braket = (
                 self.get_adaptive_rank_and_block(
@@ -900,11 +900,10 @@ class MPSCoefParallel(MPSCoefMPO):
                 raise ValueError(
                     f"{self.superblock_states[0][-1].gauge=} {const.mpi_rank=}"
                 )
-        ket_cores: list[np.ndarray] = [ket for ket in superblock_data]  # type: ignore
+        ket_cores: list[np.ndarray] = [ket for ket in superblock_data]
         if conj:
             bra_cores: list[np.ndarray] = [
-                bra.conj()  # type: ignore
-                for bra in superblock_data
+                bra.conj() for bra in superblock_data
             ]
         else:
             bra_cores = ket_cores
@@ -1025,7 +1024,7 @@ class MPSCoefParallel(MPSCoefMPO):
             self.sync_world_canonicalize()
             return self.norm(repeat=True)
         else:
-            return norm  # type: ignore
+            return norm
 
     def pop_states(self) -> list[float | None]:
         # Use reduced density and second quantization operator instead.
@@ -1035,7 +1034,7 @@ class MPSCoefParallel(MPSCoefMPO):
     @mpi_abort_on_exception
     def get_reduced_densities(
         self, base_tag: int, rd_key: tuple[int, ...]
-    ) -> list[np.ndarray] | None:
+    ) -> np.ndarray | None:
         """
         When rd_key is  (3, 3, 4)
         and MPS is A1A2A3A4...A6
@@ -1172,7 +1171,7 @@ class MPSCoefParallel(MPSCoefMPO):
                 # No sigvecs
                 sigvec = np.eye(superblock[-1].data.shape[2], dtype=complex)
             else:
-                sigvec = self.joint_sigvec_not_pinv  # type: ignore
+                sigvec = self.joint_sigvec_not_pinv
             assert isinstance(sigvec, np.ndarray), f"{sigvec=}"
             if len(needed_rank) == 1:
                 right_block = np.eye(sigvec.shape[0], dtype=complex)
@@ -1197,14 +1196,14 @@ class MPSCoefParallel(MPSCoefMPO):
                 f"{rd.shape=} {left_block.shape=} {right_block.shape=}"
             )
             if mid_rank == 0:
-                return [rd]
+                return rd
             else:
                 comm.send(rd, dest=0, tag=base_tag + 2)
                 return None
         if const.mpi_rank == 0:
             rd = comm.recv(source=mid_rank, tag=base_tag + 2)
             assert isinstance(rd, np.ndarray), f"{rd=}"
-            return [rd]
+            return rd
         else:
             return None
 
@@ -1267,7 +1266,7 @@ class MPSCoefParallel(MPSCoefMPO):
             right_block = recv_op_block(source=rank + 1, tag1=11, tag2=21)
             # if self.superblock_states[0][-1].gauge == "A":
             #     # AAA => sigvec is x
-            #     sigvec: list[np.ndarray] | list[jax.Array] = [self.joint_sigvec]  # type: ignore
+            #     sigvec: list[np.ndarray] | list[jax.Array] = [self.joint_sigvec]
             # elif self.superblock_states[0][-1].gauge == "B":
             #     # PsiBBB or BBB => sigvec is x^+
             #     sigvec = [np.linalg.pinv(self.joint_sigvec)]
@@ -1275,10 +1274,10 @@ class MPSCoefParallel(MPSCoefMPO):
             #     raise ValueError(f"{self.superblock_states[0][-1].gauge=}")
             sigvec: list[np.ndarray] | list[jax.Array] = [
                 self.joint_sigvec_not_pinv
-            ]  # type: ignore
+            ]
             op_lr = self.operators_for_superK(
                 psite=self.nsite - 1,
-                op_sys=left_block,  # type: ignore
+                op_sys=left_block,
                 op_env=right_block,
                 hamiltonian=matOp,
                 A_is_sys=True,
@@ -1289,9 +1288,9 @@ class MPSCoefParallel(MPSCoefMPO):
                 hamiltonian=matOp,
             )
             expectation_value = _integrator.expectation_Op(
-                sigvec,  # type: ignore
+                sigvec,
                 multiplyK,
-                sigvec,  # type: ignore
+                sigvec,
             )
             if rank == 0:
                 return complex(expectation_value)
@@ -1354,7 +1353,7 @@ class MPSCoefParallel(MPSCoefMPO):
     def _sync_world_canonicalizeB(self):
         # PsiBBBx+AAAAxBBBBx+AAAPsi -> PsiBBB1BBBB1BBBB1BBBB
         self._validate_initial_superblock_states()
-        self.superblock_all_A = None  # type: ignore
+        self.superblock_all_A = None
         if const.mpi_rank == const.mpi_size - 1:
             joint_sigvec: np.ndarray = np.ones((1, 1), dtype=complex)
         else:
@@ -1368,7 +1367,7 @@ class MPSCoefParallel(MPSCoefMPO):
                     right_tensor=joint_sigvec,
                 )
             else:
-                joint_sigvec = self.joint_sigvec @ joint_sigvec  # type: ignore
+                joint_sigvec = self.joint_sigvec @ joint_sigvec
             self.joint_sigvec = np.eye(joint_sigvec.shape[0], dtype=complex)
             self.joint_sigvec_not_pinv = self.joint_sigvec
         assert isinstance(joint_sigvec, np.ndarray)
@@ -1401,10 +1400,10 @@ class MPSCoefParallel(MPSCoefMPO):
         # collect all_A and all_B from all ranks and store in rank0
         recv_all_A: list[list[SiteCoef]] = comm.gather(
             self.superblock_all_A, root=0
-        )  # type: ignore
+        )
         recv_all_B: list[list[SiteCoef]] = comm.gather(
             self.superblock_all_B, root=0
-        )  # type: ignore
+        )
         if const.mpi_rank == 0:
             self.superblock_all_B_world: list[SiteCoef] = []
             self.superblock_all_A_world: list[SiteCoef] = []
@@ -1548,10 +1547,10 @@ def distribute_superblock_states(mps_coef: MPSCoefParallel) -> MPSCoefParallel:
                     joint_sigvec = np.diag(Lambda)
             else:
                 if i % 2 == 0:
-                    joint_sigvec = jnp.linalg.pinv(jnp.diag(Lambda))  # type: ignore
+                    joint_sigvec = jnp.linalg.pinv(jnp.diag(Lambda))
                 else:
-                    joint_sigvec = jnp.diag(Lambda)  # type: ignore
-            joint_sigvecs.append(joint_sigvec)  # type: ignore
+                    joint_sigvec = jnp.diag(Lambda)
+            joint_sigvecs.append(joint_sigvec)
         canonicalize(
             superblock_copy,
             orthogonal_center=len(superblock_copy) - 1,

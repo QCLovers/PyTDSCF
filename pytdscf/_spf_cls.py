@@ -372,7 +372,7 @@ def itrf_prim2spf(
         istate_ket = key[1]
         if not onlyDiag or istate_bra == istate_ket:
             ints_spf_dof: list[np.ndarray]
-            ints_spf_dof = [None for idof in range(len(val))]  # type: ignore
+            ints_spf_dof = [None for idof in range(len(val))]
             for idof, ints in enumerate(val):
                 if ints is not None:
                     coef_bra = spf_coef_bra[istate_bra][idof]

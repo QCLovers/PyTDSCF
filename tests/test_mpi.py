@@ -247,25 +247,25 @@ def test_mpi_reduced_density(adaptive: bool):
         base_tag=0, rd_key=(5, 5)
     )
     if rank == 0:
-        np.testing.assert_allclose(reduced_density[0], np.ones((4, 4)) * 0.25)
+        np.testing.assert_allclose(reduced_density, np.ones((4, 4)) * 0.25)
     reduced_density = mps_parallel.get_reduced_densities(
         base_tag=1, rd_key=(0,)
     )
     if rank == 0:
         np.testing.assert_allclose(
-            reduced_density[0], np.array([1.0, 0.0, 0.0, 0.0])
+            reduced_density, np.array([1.0, 0.0, 0.0, 0.0])
         )
     reduced_density = mps_parallel.get_reduced_densities(
         base_tag=2, rd_key=(0, 1, 4)
     )
     if rank == 0:
-        assert reduced_density[0].shape == (
+        assert reduced_density.shape == (
             4,
             4,
             4,
-        ), f"{reduced_density[0].shape=}"
+        ), f"{reduced_density.shape=}"
         np.testing.assert_allclose(
-            reduced_density[0][:1, :2, :4], np.ones((1, 2, 4)) * 1 / 8
+            reduced_density[:1, :2, :4], np.ones((1, 2, 4)) * 1 / 8
         )
 
 

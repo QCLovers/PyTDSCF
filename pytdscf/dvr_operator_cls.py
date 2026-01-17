@@ -236,7 +236,7 @@ class TensorOperator:
                 add_index_not_orig.append(ind)
             if leg in add_legs:
                 add_index.append(ind)
-        after_shape: list[int] = [None for _ in range(len(after_legs))]  # type: ignore
+        after_shape: list[int] = [None for _ in range(len(after_legs))]
         for shape, ind in zip(add_shape, add_index, strict=True):
             after_shape[ind] = shape
         for shape, ind in zip(self.shape, orig_index, strict=True):
@@ -977,7 +977,7 @@ def construct_nMR_recursive(
     assert isinstance(scalar_term, float)
 
     mpo = to_mpo(
-        nMR_operators=nMR_operators_merged,  # type: ignore
+        nMR_operators=nMR_operators_merged,
         ngrids=ngrids,
         scalar_term=scalar_term,
         rate=rate,
@@ -1039,7 +1039,7 @@ def tensor_dict_to_mpo(
         dof += 1
     tensor_op = tensor_dict_to_tensor_op(tensor_dict)
     mpo = to_mpo(
-        nMR_operators=tensor_op,  # type: ignore
+        nMR_operators=tensor_op,
         ngrids=ngrids,
         scalar_term=0.0,
         rate=rate,

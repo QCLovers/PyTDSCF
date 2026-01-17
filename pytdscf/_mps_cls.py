@@ -12,7 +12,7 @@ from collections import Counter
 from functools import partial
 from itertools import chain
 from time import time
-from typing import Literal
+from typing import Callable, Literal
 
 import jax
 import jax.numpy as jnp
@@ -584,7 +584,7 @@ class MPSCoef(ABC):
         if const.use_jax:
             matPsi_states = [
                 superblock[psite].data for superblock in superblock_states
-            ]  # type: ignore
+            ]
         else:
             matPsi_states = [
                 np.array(superblock[psite]) for superblock in superblock_states
@@ -605,9 +605,9 @@ class MPSCoef(ABC):
             raise NotImplementedError(f"{type(matOp)=}")
 
         expectation_value = _integrator.expectation_Op(
-            matPsi_states,  # type: ignore
+            matPsi_states,
             multiplyH,
-            matPsi_states,  # type: ignore
+            matPsi_states,
         )
         return expectation_value
 
@@ -651,7 +651,7 @@ class MPSCoef(ABC):
         if const.use_jax:
             matPsi_states = [
                 superblock[psite].data for superblock in superblock_states
-            ]  # type: ignore
+            ]
         else:
             matPsi_states = [
                 np.array(superblock[psite]) for superblock in superblock_states
@@ -897,7 +897,7 @@ class MPSCoef(ABC):
                             superblock_states=superblock_states,
                             superblock_states_full=superblock_states_full,
                             op_env_previous=op_env_previous,
-                            hamiltonian=matH_cas,  # type: ignore
+                            hamiltonian=matH_cas,
                             to=to,
                         )
                     )
@@ -1038,7 +1038,7 @@ class MPSCoef(ABC):
         matPsi_states: list[np.ndarray] | list[jax.Array]
         matPsi_states = [
             superblock[psite].data for superblock in superblock_states
-        ]  # type: ignore
+        ]
 
         """exponentiation PolynomialHamiltonian"""
         if isinstance(matH_cas, PolynomialHamiltonian):
@@ -1090,7 +1090,7 @@ class MPSCoef(ABC):
                 # In Hilbert space and Hamiltonian is Hermitian,
                 # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(matPsi_states_new)
-                matPsi_states_new = [x / norm for x in matPsi_states_new]  # type: ignore
+                matPsi_states_new = [x / norm for x in matPsi_states_new]
 
         """update(over-write) matPsi(psite)"""
         for istate, superblock in enumerate(superblock_states):
@@ -1165,7 +1165,7 @@ class MPSCoef(ABC):
                 # In Hilbert space and Hamiltonian is Hermitian,
                 # the norm of the wavefunction is conserved.
                 norm = get_C_sval_states_norm(svalues_states_new)
-                svalues_states_new = [x / norm for x in svalues_states_new]  # type: ignore
+                svalues_states_new = [x / norm for x in svalues_states_new]
         return svalues_states_new
 
     def trans_next_psite_APsiB(
@@ -1285,6 +1285,154 @@ class MPSCoef(ABC):
             assert isite == 0
             return density[0, 0, ...]
 
+    def _get_pure_reduced_densities(
+        self, remain_nlegs: list[tuple[int, ...]]
+    ) -> list[np.ndarray]:
+        reduced_densities = []
+        assert isinstance(remain_nlegs, list)
+        assert len(remain_nlegs) > 1
+        assert self.is_psite_canonical(0)
+        istate = 0
+        right_most_site = max(
+            [len(remain_nleg) for remain_nleg in remain_nlegs]
+        )
+
+        cores = [
+            self.superblock_states[istate][isite].data
+            for isite in range(right_most_site)
+        ]
+        center_sites: list[int] = []
+        for remain_nleg in remain_nlegs:
+            for i in range(len(remain_nleg) - 1, -1, -1):
+                if remain_nleg[i] in (1, 2):
+                    center_sites.append(i)
+                    break
+        if len(center_sites) != len(remain_nlegs):
+            raise ValueError(
+                f"The number of center sites is not equal to the number of remain_nlegs: {center_sites=} {remain_nlegs=}"
+            )
+        center_sites = tuple(center_sites)
+        # If MPS is not canonicalised, all cores are explicitly contracted.
+        # cores = [core.copy() for core in cores]
+        # remain_nleg = remain_nleg + (0,) * (len(cores) - len(remain_nleg))
+        if isinstance(cores[0], jax.Array):
+            # JITのためにタプルに変換
+            remain_nlegs_tuple = tuple(remain_nlegs)
+            return _get_pure_reduced_densities_jax(
+                cores, remain_nlegs_tuple, center_sites
+            )
+
+        left_envs = {}
+        for isite in range(right_most_site):
+            left_envs_new = {}
+            core = cores[isite]
+            bond_dim: int = core.shape[0]
+            for center_site, remain_nleg in zip(
+                center_sites, remain_nlegs, strict=True
+            ):
+                if center_site <= isite:
+                    continue
+                nleg = remain_nleg[isite]
+                old_keys = remain_nleg[:isite]
+                new_keys = remain_nleg[: isite + 1]
+                if new_keys in left_envs_new or new_keys == ():
+                    continue
+                left_env = left_envs.get(
+                    remain_nleg[:isite], np.eye(bond_dim, dtype=np.complex128)
+                )
+                match nleg:
+                    case 2:
+                        """
+                        |‾˙˙˙‾l l‾|‾i
+                        | ...     m
+                        | ...     n
+                        |_..._b b_|_a
+                        """
+                        subscript = "lmi,bna,...lb->...mnia"
+                    case 1:
+                        subscript = "lmi,bma,...lb->...mia"
+                    case 0:
+                        subscript = "lmi,bma,...lb->...ia"
+                    case _:
+                        raise ValueError(f"Invalid number of legs: {nleg}")
+                left_envs_new[new_keys] = contract(
+                    subscript, core, np.conj(core), left_env
+                )
+            left_envs.update(left_envs_new)
+
+        right_envs = {}
+        for isite in range(right_most_site - 1, -1, -1):
+            right_envs_new = {}
+            core = cores[isite]
+            bond_dim: int = core.shape[2]
+            for center_site, remain_nleg in zip(
+                center_sites, remain_nlegs, strict=True
+            ):
+                if center_site >= isite:
+                    continue
+                if len(remain_nleg) <= isite:
+                    nleg = 0
+                    old_keys = ()
+                    new_keys = ()
+                else:
+                    nleg = remain_nleg[isite]
+                    old_keys = remain_nleg[isite + 1 :]
+                    new_keys = remain_nleg[isite:]
+                if new_keys in right_envs_new or new_keys == ():
+                    continue
+                right_env = right_envs.get(
+                    old_keys, np.eye(bond_dim, dtype=np.complex128)
+                )
+                match nleg:
+                    case 2:
+                        """
+                        l‾|‾i i‾|‾˙˙˙‾|
+                          m     ...   |
+                          n     ...   |
+                        b_|_a a_|_..._|
+                        """
+                        subscript = "lmi,bna,ia...->lbmn..."
+                    case 1:
+                        subscript = "lmi,bma,ia...->lbm..."
+                    case 0:
+                        subscript = "lmi,bma,ia...->lb..."
+                right_env = contract(subscript, core, np.conj(core), right_env)
+                right_envs_new[new_keys] = right_env
+            right_envs.update(right_envs_new)
+
+        for center_site, remain_nleg in zip(
+            center_sites, remain_nlegs, strict=True
+        ):
+            core = cores[center_site]
+            left_env = left_envs.get(
+                remain_nleg[:center_site], np.eye(1, dtype=np.complex128)
+            )
+            bond_dim = core.shape[2]
+            right_env = right_envs.get(
+                remain_nleg[center_site + 1 :],
+                np.eye(bond_dim, dtype=np.complex128),
+            )
+            nleg = remain_nleg[center_site]
+            match nleg:
+                case 2:
+                    subscript = "lmi,bna,...lb->...mnia"
+                case 1:
+                    subscript = "lmi,bma,...lb->...mia"
+                case _:
+                    raise ValueError(f"Invalid number of legs: {nleg}")
+            left_env = contract(subscript, core, np.conj(core), left_env)
+            print(f"{left_env.shape=} {right_env.shape=}")
+            # operation like "...ia,ia...->......" can be executed by reshaping "ia" to single index and then tensordot
+            left_env = left_env.reshape(
+                *left_env.shape[:-2], left_env.shape[-2] * left_env.shape[-1]
+            )
+            right_env = right_env.reshape(
+                right_env.shape[0] * right_env.shape[1], *right_env.shape[2:]
+            )
+            rdm = np.tensordot(left_env, right_env, axes=((-1, 0)))
+            reduced_densities.append(rdm)
+        return reduced_densities
+
     def get_partial_trace(
         self, istate: int, remain_nleg: tuple[int, ...]
     ) -> np.ndarray:
@@ -1310,7 +1458,7 @@ class MPSCoef(ABC):
             raise ValueError("No site with 2 legs found in remain_nleg")
         if not hasattr(self, "reshape_mat"):
             raise ValueError("reshape_mat is not defined")
-        reshape_mat = self.reshape_mat
+        reshape_mat: dict[int, Callable] = self.reshape_mat
         mpdm_reshaped = [
             reshape_mat[isite](core.data)
             for isite, core in enumerate(self.superblock_states[istate])
@@ -1359,8 +1507,124 @@ class MPSCoef(ABC):
         )
         return dm
 
+    def get_partial_traces(
+        self, remain_nlegs: list[tuple[int, ...]]
+    ) -> list[np.ndarray]:
+        reduced_densities = []
+        assert isinstance(remain_nlegs, list)
+        assert len(remain_nlegs) > 1
+        istate = 0
+        center_sites = []
+        nsite = len(self.superblock_states[istate])
+        assert const.space == "liouville"
+        for remain_nleg in remain_nlegs:
+            for i in range(len(remain_nleg) - 1, -1, -1):
+                if remain_nleg[i] in (1, 2):
+                    center_sites.append(i)
+                    break
+        if len(center_sites) != len(remain_nlegs):
+            raise ValueError(
+                f"The number of center sites is not equal to the number of remain_nlegs: {center_sites=} {remain_nlegs=}"
+            )
+        if not hasattr(self, "reshape_mat"):
+            raise ValueError("reshape_mat is not defined")
+        reshape_mat: dict[int, Callable] = self.reshape_mat
+        mpdm_reshaped = [
+            reshape_mat[isite](core.data)
+            for isite, core in enumerate(self.superblock_states[istate])
+        ]
+        if const.use_jax:
+            remain_nlegs_padded = tuple(
+                [
+                    remain_nleg + (0,) * (nsite - len(remain_nleg))
+                    for remain_nleg in remain_nlegs
+                ]
+            )
+            rdms: list[jax.Array] = _get_partial_traces_jax(
+                mpdm_reshaped,
+                remain_nlegs_padded,
+                tuple(center_sites),
+            )
+            return [np.array(rdm) for rdm in rdms]
+        left_envs = {(): np.array([1.0 + 0.0j])}
+
+        for isite in range(nsite):
+            left_envs_new = {}
+            for center_site, remain_nleg in zip(
+                center_sites, remain_nlegs, strict=True
+            ):
+                if center_site <= isite:
+                    continue
+                old_keys = remain_nleg[:isite]
+                new_keys = remain_nleg[: isite + 1]
+                if new_keys in left_envs_new:
+                    continue
+                left_env = left_envs[old_keys]
+                core = mpdm_reshaped[isite]
+                match remain_nleg[isite]:
+                    case 0:
+                        _data = np.einsum("ijjl->il", core)
+                    case 1:
+                        _data = np.einsum("ijjl->ijl", core)
+                    case 2:
+                        _data = core.copy()
+                    case _:
+                        raise ValueError(
+                            f"Invalid number of legs: {remain_nleg[isite]}"
+                        )
+                left_env = np.tensordot(left_env, _data, axes=(-1, 0))
+                left_envs_new[new_keys] = left_env
+            left_envs.update(left_envs_new)
+
+        right_envs = {(): np.array([1.0 + 0.0j])}
+        for isite in range(nsite - 1, -1, -1):
+            right_envs_new = {}
+            for center_site, remain_nleg in zip(
+                center_sites, remain_nlegs, strict=True
+            ):
+                if center_site >= isite:
+                    continue
+                remain_nleg_padded = remain_nleg + (0,) * (
+                    nsite - len(remain_nleg)
+                )
+                old_keys = remain_nleg_padded[isite + 1 :]
+                new_keys = remain_nleg_padded[isite:]
+                if new_keys in right_envs_new or new_keys == ():
+                    continue
+                right_env = right_envs[old_keys]
+                core = mpdm_reshaped[isite]
+                match remain_nleg_padded[isite]:
+                    case 0:
+                        _data = np.einsum("ijjl->il", core)
+                    case 1:
+                        _data = np.einsum("ijjl->ijl", core)
+                    case 2:
+                        _data = core.copy()
+                    case _:
+                        raise ValueError(
+                            f"Invalid number of legs: {remain_nleg[isite]}"
+                        )
+                right_env = _data @ right_env
+                right_envs_new[new_keys] = right_env
+            right_envs.update(right_envs_new)
+
+        for center_site, remain_nleg in zip(
+            center_sites, remain_nlegs, strict=True
+        ):
+            data = mpdm_reshaped[center_site]
+            remain_nleg_padded = remain_nleg + (0,) * (nsite - len(remain_nleg))
+            left_env = left_envs[remain_nleg_padded[:center_site]]
+            right_env = right_envs[remain_nleg_padded[center_site + 1 :]]
+            dm = np.tensordot(
+                left_env,
+                np.tensordot(data, right_env, axes=(-1, 0)),
+                axes=(-1, 0),
+            )
+            reduced_densities.append(dm)
+        return reduced_densities
+
     def get_reduced_densities(
-        self, remain_nleg: tuple[int, ...]
+        self, remain_nleg: tuple[int, ...] | list[tuple[int, ...]]
     ) -> list[np.ndarray]:
         reduced_densities = []
         nstate = len(self.superblock_states)
@@ -1368,22 +1632,47 @@ class MPSCoef(ABC):
             raise NotImplementedError(
                 "Reduced density matrix is not supported for direct product MPS."
             )
-        match const.space:
-            case "hilbert":
-                _reduced_density = self._get_pure_reduced_density(
-                    0, remain_nleg
-                )
-            case "liouville":
-                _reduced_density = self.get_partial_trace(0, remain_nleg)
-            case _:
-                raise ValueError(f"Invalid space: {const.space}")
-        if isinstance(_reduced_density, jax.Array):
-            reduced_density = np.array(_reduced_density)
-        elif isinstance(_reduced_density, np.ndarray):
-            reduced_density = _reduced_density
+        if isinstance(remain_nleg, tuple) or (
+            isinstance(remain_nleg, list) and len(remain_nleg) == 1
+        ):
+            if isinstance(remain_nleg, list) and len(remain_nleg) == 1:
+                remain_nleg = remain_nleg[0]
+            match const.space:
+                case "hilbert":
+                    _reduced_density = self._get_pure_reduced_density(
+                        0, remain_nleg
+                    )
+                case "liouville":
+                    _reduced_density = self.get_partial_trace(0, remain_nleg)
+                case _:
+                    raise ValueError(f"Invalid space: {const.space}")
+            if isinstance(_reduced_density, jax.Array):
+                reduced_density = np.array(_reduced_density)
+            elif isinstance(_reduced_density, np.ndarray):
+                reduced_density = _reduced_density
+            else:
+                raise ValueError("The type of reduced_density is invalid.")
+            reduced_densities.append(reduced_density)
         else:
-            raise ValueError("The type of reduced_density is invalid.")
-        reduced_densities.append(reduced_density)
+            match const.space:
+                case "hilbert":
+                    _reduced_densites: list[np.ndarray] = (
+                        self._get_pure_reduced_densities(remain_nleg)
+                    )
+                case "liouville":
+                    _reduced_densites: list[np.ndarray] = (
+                        self.get_partial_traces(remain_nleg)
+                    )
+                case _:
+                    raise ValueError(f"Invalid space: {const.space}")
+            assert isinstance(_reduced_densites, list)
+            for _reduced_density in _reduced_densites:
+                if isinstance(_reduced_density, jax.Array):
+                    reduced_densities.append(np.array(_reduced_density))
+                elif isinstance(_reduced_density, np.ndarray):
+                    reduced_densities.append(_reduced_density)
+                else:
+                    raise ValueError("The type of reduced_density is invalid.")
         return reduced_densities
 
     def get_CI_coef_state(
@@ -1413,7 +1702,7 @@ class MPSCoef(ABC):
             for idof in range(ndof):
                 _trans_array = np.zeros(nprims[idof], dtype=complex)
                 _trans_array[J[idof]] = 1.0
-                _trans_arrays.append(_trans_array)  # type: ignore
+                _trans_arrays.append(_trans_array)
         else:
             _trans_arrays = trans_arrays
             if len(trans_arrays) != ndof:
@@ -1540,7 +1829,7 @@ class MPSCoef(ABC):
                             psite, superblock, regularize=regularize
                         )
                     )
-            return svalues  # type: ignore
+            return svalues
 
         svalues = _trans_PsiB2AB_psite(superblock_states)
         if superblock_states_ket:
@@ -1606,7 +1895,7 @@ class MPSCoef(ABC):
                 ]
             ]
         ]
-        op_lcr = [[None for j in range(nstate)] for i in range(nstate)]  # type: ignore
+        op_lcr = [[None for j in range(nstate)] for i in range(nstate)]
         for istate in range(nstate):
             statepair = (istate, istate)
             op_l_auto = (
@@ -1649,7 +1938,7 @@ class MPSCoef(ABC):
         psi_site = superblock_states[0][psite].copy()
         nsite = len(superblock_states[0])
         superblock_states_trans: list[list[SiteCoef]]
-        superblock_states_trans = [[None for _ in range(nsite)]]  # type: ignore
+        superblock_states_trans = [[None for _ in range(nsite)]]
         superblock_states_trans_bra = [[None for _ in range(nsite)]]
         match to:
             case "->":
@@ -2102,7 +2391,7 @@ class MPSCoef(ABC):
                         update_sites_max = isite
                     assert isinstance(isite, int)
                     core = superblock[isite].data
-                    core = kraus_contract_single_site(B, core)  # type: ignore
+                    core = kraus_contract_single_site(B, core)
                     superblock[isite].data = core
                 case 2:
                     isite_1 = site_inds[0]
@@ -2112,7 +2401,7 @@ class MPSCoef(ABC):
                     )
                     core_1 = superblock[isite_1].data
                     core_2 = superblock[isite_2].data
-                    core_1, core_2 = kraus_contract_two_site(B, core_1, core_2)  # type: ignore
+                    core_1, core_2 = kraus_contract_two_site(B, core_1, core_2)
                     superblock[isite_1].data = core_1
                     superblock[isite_2].data = core_2
                     if isite_1 < update_sites_min:
@@ -2141,14 +2430,14 @@ class MPSCoef(ABC):
             matrix_power = jax.numpy.linalg.matrix_power
             diag = jax.numpy.diag
         else:
-            einsum = np.einsum  # type: ignore
-            matrix_power = np.linalg.matrix_power  # type: ignore
-            diag = np.diag  # type: ignore
+            einsum = np.einsum
+            matrix_power = np.linalg.matrix_power
+            diag = np.diag
         assert not isinstance(op_core.data, int)
         if op_core.key == (isite,):
             U = diag(op_core.data[0, :, 0])
         elif op_core.key == ((isite, isite),):
-            U = op_core.data[0, :, :, 0]  # type: ignore
+            U = op_core.data[0, :, :, 0]
         else:
             raise ValueError(f"{op_core=}")
         if conj:
@@ -2398,7 +2687,7 @@ class LatticeInfo:
                 data = jnp.einsum("abc,cd->abd", matC.data, sval)
             else:
                 # data = np.einsum("abc,cd->abd", matC, sval)
-                data = np.tensordot(matC, sval, axes=(2, 0))  # type: ignore
+                data = np.tensordot(matC, sval, axes=(2, 0))
             superblock[isite - 1] = SiteCoef(data, gauge="C", isite=isite - 1)
 
         if const.space == "hilbert":
@@ -2452,7 +2741,7 @@ def apply_superOp_direct(
         matPsi_states_init = [
             superblock_init[psite].data
             for superblock_init in superblock_states_ket
-        ]  # type: ignore
+        ]
     else:
         matPsi_states_init = [
             np.array(superblock_init[psite])
@@ -2605,7 +2894,7 @@ def ints_spf2site_sum(
         if const.use_jax:
             dum = jnp.array(dum, dtype=jnp.complex128)
         ints_site.append(dum)
-    return ints_site  # type: ignore
+    return ints_site
 
 
 def ints_spf2site_prod(
@@ -2653,7 +2942,7 @@ def ints_spf2site_prod(
         if const.use_jax:
             dum = jnp.array(dum, dtype=jnp.complex128)
         ints_site.append(dum)
-    return ints_site  # type: ignore
+    return ints_site
 
 
 def distance_MPS(mps_A_inp: MPSCoef, mps_B_inp: MPSCoef) -> float:
@@ -2763,8 +3052,191 @@ def _get_pure_reduced_density_jax(
         else:
             raise ValueError("The number of legs must be less than 3.")
         density = jnp.einsum(subscript, core, jnp.conj(core), density)
-    assert isite == 0
+    assert isite == 0, f"{isite=} {remain_nleg=}"
     return density[0, 0, ...]
+
+
+@partial(jax.jit, static_argnames=("remain_nlegs", "center_sites"))
+def _get_pure_reduced_densities_jax(
+    cores: list[jax.Array],
+    remain_nlegs: tuple[tuple[int, ...], ...],
+    center_sites: tuple[int, ...],
+) -> list[jax.Array]:
+    """
+    JAX implementation of _get_pure_reduced_densities.
+    Optimized by computing remain_nlegs with the same nleg pattern at once,
+    referencing the original numpy version.
+    """
+    assert len(remain_nlegs) > 1
+    assert len(center_sites) == len(remain_nlegs)
+    right_most_site = max([len(remain_nleg) for remain_nleg in remain_nlegs])
+
+    # Build left_envs from left to right
+    left_envs = {}
+    for isite in range(right_most_site):
+        left_envs_new = {}
+        core = cores[isite]
+        bond_dim = core.shape[0]
+
+        # Group remain_nlegs by (old_keys, nleg) to compute common patterns at once
+        groups = {}  # (old_keys, nleg) -> [list of (idx, new_keys)]
+
+        for idx, (center_site, remain_nleg) in enumerate(
+            zip(center_sites, remain_nlegs, strict=True)
+        ):
+            if center_site <= isite:
+                continue
+            nleg = remain_nleg[isite]
+            old_keys = remain_nleg[:isite]
+            new_keys = remain_nleg[: isite + 1]
+            if new_keys in left_envs_new or new_keys == ():
+                continue
+
+            group_key = (old_keys, nleg)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append((idx, new_keys))
+
+        # Compute each group at once
+        for (old_keys, nleg), items in groups.items():
+            # Get left_env for this old_keys
+            if old_keys in left_envs:
+                left_env = left_envs[old_keys]
+            else:
+                left_env = jnp.eye(bond_dim, dtype=jnp.complex128)
+
+            # Contract according to the value of nleg
+            match nleg:
+                case 2:
+                    # |‾˙˙˙‾l l‾|‾i
+                    # | ...     m
+                    # | ...     n
+                    # |_..._b b_|_a
+                    subscript = "lmi,bna,...lb->...mnia"
+                case 1:
+                    subscript = "lmi,bma,...lb->...mia"
+                case 0:
+                    subscript = "lmi,bma,...lb->...ia"
+                case _:
+                    raise ValueError(f"Invalid nleg: {nleg}")
+
+            # Compute left_env_new for this group
+            left_env_new = jnp.einsum(subscript, core, jnp.conj(core), left_env)
+
+            # Assign the same computation result to all new_keys in this group
+            for _, new_keys in items:
+                left_envs_new[new_keys] = left_env_new
+
+        left_envs.update(left_envs_new)
+
+    # Build right_envs from right to left
+    right_envs = {}
+    for isite in range(right_most_site - 1, -1, -1):
+        right_envs_new = {}
+        core = cores[isite]
+        bond_dim = core.shape[2]
+
+        # Group remain_nlegs by (old_keys, nleg) to compute common patterns at once
+        groups = {}  # (old_keys, nleg) -> [list of (idx, new_keys)]
+
+        for idx, (center_site, remain_nleg) in enumerate(
+            zip(center_sites, remain_nlegs, strict=True)
+        ):
+            if center_site >= isite:
+                continue
+            if len(remain_nleg) <= isite:
+                nleg = 0
+                old_keys = ()
+                new_keys = ()
+            else:
+                nleg = remain_nleg[isite]
+                old_keys = remain_nleg[isite + 1 :]
+                new_keys = remain_nleg[isite:]
+            if new_keys in right_envs_new or new_keys == ():
+                continue
+
+            group_key = (old_keys, nleg)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append((idx, new_keys))
+
+        # Compute each group at once
+        for (old_keys, nleg), items in groups.items():
+            # Get right_env for this old_keys
+            if old_keys in right_envs:
+                right_env = right_envs[old_keys]
+            else:
+                right_env = jnp.eye(bond_dim, dtype=jnp.complex128)
+
+            # Contract according to the value of nleg
+            match nleg:
+                case 2:
+                    # l‾|‾i i‾|‾˙˙˙‾|
+                    #   m     ...   |
+                    #   n     ...   |
+                    # b_|_a a_|_..._|
+                    subscript = "lmi,bna,ia...->lbmn..."
+                case 1:
+                    subscript = "lmi,bma,ia...->lbm..."
+                case 0:
+                    subscript = "lmi,bma,ia...->lb..."
+                case _:
+                    raise ValueError(f"Invalid nleg: {nleg}")
+
+            # Compute right_env_new for this group
+            right_env_new = jnp.einsum(
+                subscript, core, jnp.conj(core), right_env
+            )
+
+            # Assign the same computation result to all new_keys in this group
+            for _, new_keys in items:
+                right_envs_new[new_keys] = right_env_new
+
+        right_envs.update(right_envs_new)
+
+    # Compute final reduced density matrices
+    reduced_densities = []
+    for center_site, remain_nleg in zip(
+        center_sites, remain_nlegs, strict=True
+    ):
+        core = cores[center_site]
+        # Get left_env and right_env
+        left_env = left_envs.get(
+            remain_nleg[:center_site], jnp.eye(1, dtype=jnp.complex128)
+        )
+        bond_dim = core.shape[2]
+        right_env = right_envs.get(
+            remain_nleg[center_site + 1 :],
+            jnp.eye(bond_dim, dtype=jnp.complex128),
+        )
+
+        # Contract center_site with left_env
+        nleg = remain_nleg[center_site]
+        match nleg:
+            case 2:
+                subscript = "lmi,bna,...lb->...mnia"
+            case 1:
+                subscript = "lmi,bma,...lb->...mia"
+            case _:
+                raise ValueError(f"Invalid nleg: {nleg}")
+
+        left_env = jnp.einsum(subscript, core, jnp.conj(core), left_env)
+
+        # Combine left_env and right_env
+        # Operation like "...ia,ia...->......" can be executed by reshaping
+        # "ia" to single index and then tensordot
+        left_env_reshaped = left_env.reshape(
+            *left_env.shape[:-2], left_env.shape[-2] * left_env.shape[-1]
+        )
+        right_env_reshaped = right_env.reshape(
+            right_env.shape[0] * right_env.shape[1], *right_env.shape[2:]
+        )
+        rdm = jnp.tensordot(
+            left_env_reshaped, right_env_reshaped, axes=((-1, 0))
+        )
+        reduced_densities.append(rdm)
+
+    return reduced_densities
 
 
 @partial(
@@ -2810,6 +3282,142 @@ def _get_partial_trace_jax(
         case _:
             raise ValueError
     return dm
+
+
+@partial(jax.jit, static_argnames=("remain_nlegs", "center_sites"))
+def _get_partial_traces_jax(
+    mpdm_reshaped: list[jax.Array],
+    remain_nlegs: tuple[tuple[int, ...], ...],
+    center_sites: tuple[int, ...],
+) -> list[jax.Array]:
+    """
+    Get partial traces for Liouville space MPS.
+    Optimized by grouping remain_nlegs with the same key pattern at each site
+    and computing them at once.
+    """
+    nsite = len(mpdm_reshaped)
+    left_envs = {(): jnp.array([1.0 + 0.0j], dtype=jnp.complex128)}
+    assert len(center_sites) == len(remain_nlegs)
+
+    # Build left_envs from left to right
+    for isite in range(nsite):
+        left_envs_new = {}
+        # Group remain_nlegs by (old_keys, nleg) to compute common patterns at once
+        groups = {}  # (old_keys, nleg) -> [list of (idx, new_keys)]
+
+        for idx, (center_site, remain_nleg) in enumerate(
+            zip(center_sites, remain_nlegs, strict=True)
+        ):
+            if center_site <= isite:
+                continue
+            old_keys = remain_nleg[:isite]
+            new_keys = remain_nleg[: isite + 1]
+            if new_keys in left_envs_new:
+                continue
+
+            nleg = remain_nleg[isite]
+            group_key = (old_keys, nleg)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append((idx, new_keys))
+
+        # Compute each group at once
+        for (old_keys, nleg), items in groups.items():
+            # Get left_env for this old_keys
+            if old_keys in left_envs:
+                left_env = left_envs[old_keys]
+            else:
+                left_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
+
+            core = mpdm_reshaped[isite]
+            # Process according to nleg
+            match nleg:
+                case 0:
+                    _data = jnp.einsum("ijjl->il", core)
+                case 1:
+                    _data = jnp.einsum("ijjl->ijl", core)
+                case 2:
+                    _data = core
+                case _:
+                    raise ValueError(f"Invalid number of legs: {nleg}")
+
+            # Compute left_env_new for this group
+            left_env_new = jnp.tensordot(left_env, _data, axes=(-1, 0))
+
+            # Assign the same computation result to all new_keys in this group
+            for _, new_keys in items:
+                left_envs_new[new_keys] = left_env_new
+
+        left_envs.update(left_envs_new)
+
+    # Build right_envs from right to left
+    right_envs = {(): jnp.array([1.0 + 0.0j], dtype=jnp.complex128)}
+    for isite in range(nsite - 1, -1, -1):
+        right_envs_new = {}
+        # Group remain_nlegs by (old_keys, nleg) to compute common patterns at once
+        groups = {}  # (old_keys, nleg) -> [list of (idx, new_keys)]
+
+        for idx, (center_site, remain_nleg) in enumerate(
+            zip(center_sites, remain_nlegs, strict=True)
+        ):
+            if center_site >= isite:
+                continue
+            old_keys = remain_nleg[isite + 1 :]
+            new_keys = remain_nleg[isite:]
+            if new_keys in right_envs_new or new_keys == ():
+                continue
+
+            nleg = remain_nleg[isite]
+            group_key = (old_keys, nleg)
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append((idx, new_keys))
+
+        # Compute each group at once
+        for (old_keys, nleg), items in groups.items():
+            # Get right_env for this old_keys
+            if old_keys in right_envs:
+                right_env = right_envs[old_keys]
+            else:
+                right_env = jnp.array([1.0 + 0.0j], dtype=jnp.complex128)
+
+            core = mpdm_reshaped[isite]
+            # Process according to nleg
+            match nleg:
+                case 0:
+                    _data = jnp.einsum("ijjl->il", core)
+                case 1:
+                    _data = jnp.einsum("ijjl->ijl", core)
+                case 2:
+                    _data = core
+                case _:
+                    raise ValueError(f"Invalid number of legs: {nleg}")
+
+            # Compute right_env_new for this group
+            right_env_new = _data @ right_env
+
+            # Assign the same computation result to all new_keys in this group
+            for _, new_keys in items:
+                right_envs_new[new_keys] = right_env_new
+
+        right_envs.update(right_envs_new)
+
+    # Compute final reduced density matrices
+    reduced_densities = []
+    for center_site, remain_nleg in zip(
+        center_sites, remain_nlegs, strict=True
+    ):
+        data = mpdm_reshaped[center_site]
+        left_env = left_envs[remain_nleg[:center_site]]
+        right_env = right_envs[remain_nleg[center_site + 1 :]]
+        dm = jnp.tensordot(
+            left_env,
+            jnp.tensordot(data, right_env, axes=(-1, 0)),
+            axes=(-1, 0),
+        )
+        reduced_densities.append(dm)
+
+    return reduced_densities
 
 
 @jax.jit
@@ -2944,8 +3552,8 @@ def canonicalizeA(
         # einsum = jnp.einsum
         tensordot = jnp.tensordot
     else:
-        # einsum = np.einsum  # type: ignore
-        tensordot = np.tensordot  # type: ignore
+        # einsum = np.einsum
+        tensordot = np.tensordot
     for i, coef in enumerate(superblock):
         if sval is not None:
             # coef.data = einsum("ij,jkl->ikl", sval, coef.data)
@@ -2975,8 +3583,8 @@ def canonicalizeB(
         # einsum = jnp.einsum
         tensordot = jnp.tensordot
     else:
-        # einsum = np.einsum  # type: ignore
-        tensordot = np.tensordot  # type: ignore
+        # einsum = np.einsum
+        tensordot = np.tensordot
     for i, coef in enumerate(superblock[::-1]):
         if sval is not None:
             # coef.data = einsum("ijk,kl->ijl", coef.data, sval)
@@ -3038,8 +3646,8 @@ def contract_all_superblock(
         # einsum = jnp.einsum
         tensordot = jnp.tensordot
     else:
-        # einsum = np.einsum  # type: ignore
-        tensordot = np.tensordot  # type: ignore
+        # einsum = np.einsum
+        tensordot = np.tensordot
 
     for coef in superblock[-2::-1]:
         # core = einsum("ijk,k...->ij...", coef.data, core)
@@ -3073,7 +3681,7 @@ def truncate_op_block(
             else:
                 raise ValueError(f"{mode=} is not valid")
         op_block_truncated[state_key] = op_block_state_truncated
-    return op_block_truncated  # type: ignore
+    return op_block_truncated
 
 
 def get_superblock_full(
@@ -3183,9 +3791,9 @@ def _exp_liouville(
         dm.append(core.data.reshape(i, j_sqrt, j_sqrt, k))
 
     exp_val = 0.0
-    for key, mpo in mpos.operators.items():  # type: ignore
+    for key, mpo in mpos.operators.items():
         left_tensor = np.ones((1, 1), dtype=np.complex128)
-        count = Counter(chain.from_iterable(key))  # type: ignore
+        count = Counter(chain.from_iterable(key))
         j_core = 0
         for isite in range(nsite):
             match count[isite]:
@@ -3207,7 +3815,7 @@ def _exp_liouville(
                     j_core += 1
                 case 0:
                     subscript = "ab,bcce->ae"
-                    operand = (left_tensor, dm[isite])  # type: ignore
+                    operand = (left_tensor, dm[isite])
                 case _:
                     raise ValueError(f"{count[isite]=} is not valid")
             left_tensor = contract(subscript, *operand)

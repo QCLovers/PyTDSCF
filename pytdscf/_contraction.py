@@ -207,7 +207,7 @@ def contract_with_site_mpo(
         coef_bra = np.conj(mat_bra)
         coef_ket = np.array(mat_ket)
 
-    operator: list[jax.Array] | list[np.ndarray] = [coef_bra, coef_ket]  # type: ignore
+    operator: list[jax.Array] | list[np.ndarray] = [coef_bra, coef_ket]
     match (mat_bra.gauge, op_site_mode, op_LorR_mode):
         case ("A", 1, 1):
             # n-|-i
@@ -234,7 +234,7 @@ def contract_with_site_mpo(
             # m-|-j
             contraction = "mri,msj,rs->ij"
             assert isinstance(op_site, np.ndarray | jax.Array)
-            operator.append(op_site)  # type: ignore
+            operator.append(op_site)
         case ("A", 2, 2):
             # m m-|-i
             # |   r
@@ -246,7 +246,7 @@ def contract_with_site_mpo(
             contraction = "mri,nsj,mpn,rs->ipj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
             assert isinstance(op_site, np.ndarray | jax.Array)
-            operator.extend([op_LorR, op_site])  # type: ignore
+            operator.extend([op_LorR, op_site])
         case ("A", 3, 1):
             assert isinstance(op_site, OperatorCore)
             data = op_site.data
@@ -260,7 +260,7 @@ def contract_with_site_mpo(
                 # | r 1--q
                 # m-|-j
                 contraction = "mri,mrj,rq->iqj"
-                operator.append(data[0, :, :])  # type: ignore
+                operator.append(data[0, :, :])
             else:
                 # m--|-i
                 # |  r
@@ -270,7 +270,7 @@ def contract_with_site_mpo(
                 # |  s
                 # m--|-j
                 contraction = "mri,msj,rsq->iqj"
-                operator.append(data[0, :, :, :])  # type: ignore
+                operator.append(data[0, :, :, :])
         case ("A", 3, 2):
             assert isinstance(op_site, OperatorCore)
             data = op_site.data
@@ -294,7 +294,7 @@ def contract_with_site_mpo(
                 # n n-|-j
                 contraction = "mri,nsj,mpn,prsq->iqj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
-            operator.extend([op_LorR, data])  # type: ignore
+            operator.extend([op_LorR, data])
         case ("B", 1, 1):
             # i-|-n
             #   s |
@@ -309,7 +309,7 @@ def contract_with_site_mpo(
             # j-|-n n
             contraction = "ism,jsn,mqn->iqj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
-            operator.append(op_LorR)  # type: ignore
+            operator.append(op_LorR)
         case ("B", 2, 1):
             # i-|-m
             #   r |
@@ -320,7 +320,7 @@ def contract_with_site_mpo(
             # j-|-m
             contraction = "irm,jsm,rs->ij"
             assert isinstance(op_site, np.ndarray | jax.Array)
-            operator.append(op_site)  # type: ignore
+            operator.append(op_site)
         case ("B", 2, 2):
             # i-|-m m
             #   r   |
@@ -332,7 +332,7 @@ def contract_with_site_mpo(
             contraction = "irm,jsn,mqn,rs->iqj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
             assert isinstance(op_site, np.ndarray | jax.Array)
-            operator.extend([op_LorR, op_site])  # type: ignore
+            operator.extend([op_LorR, op_site])
         case ("B", 3, 1):
             assert isinstance(op_site, OperatorCore)
             data = op_site.data
@@ -346,7 +346,7 @@ def contract_with_site_mpo(
                 # p--1r |
                 #   j-|-m
                 contraction = "irm,jrm,pr->ipj"
-                operator.append(data[:, :, 0])  # type: ignore
+                operator.append(data[:, :, 0])
             else:
                 # i-|--m
                 #   r  |
@@ -356,7 +356,7 @@ def contract_with_site_mpo(
                 #   s  |
                 # j-|--m
                 contraction = "irm,jsm,prs->ipj"
-                operator.append(data[:, :, :, 0])  # type: ignore
+                operator.append(data[:, :, :, 0])
         case ("B", 3, 2):
             assert isinstance(op_site, OperatorCore)
             data = op_site.data
@@ -380,7 +380,7 @@ def contract_with_site_mpo(
                 # j-|-n n
                 contraction = "irm,jsn,mqn,prsq->ipj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
-            operator.extend([op_LorR, data])  # type: ignore
+            operator.extend([op_LorR, data])
         case _:
             raise ValueError(
                 f"{mat_bra.gauge=}, {op_site_mode=}, {op_LorR_mode=}"
@@ -558,7 +558,7 @@ class SplitStack:
                 ]
         else:
             if len(self._split_idx_out) == 0:
-                psi_states = [psi.reshape(self.tensor_shapes_out)]  # type: ignore
+                psi_states = [psi.reshape(self.tensor_shapes_out)]
             else:
                 psi_states = [
                     x.reshape(self.tensor_shapes_out)
@@ -573,12 +573,12 @@ class SplitStack:
                         : self.tensor_shapes_in[2],
                     ]
                     for x in psi_states
-                ]  # type: ignore
+                ]
             else:
                 psi_states = [
                     x[: self.tensor_shapes_in[0], : self.tensor_shapes_in[1]]
                     for x in psi_states
-                ]  # type: ignore
+                ]
         return psi_states
 
 
@@ -1158,7 +1158,7 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
     ) -> list[np.ndarray] | list[jax.Array]:
         """Only supported MPO"""
         sigvec_states: list[np.ndarray] | list[jax.Array]
-        sigvec_states = [None for _ in trial_states]  # type: ignore
+        sigvec_states = [None for _ in trial_states]
         assert isinstance(
             self.matH_cas, pytdscf.hamiltonian_cls.TensorHamiltonian
         )
@@ -1174,8 +1174,8 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
             if (coupleJ := self.matH_cas.coupleJ[i][j]) != 0.0:
                 sigvec_add = (
                     self._op_lcr_dot(
-                        *op_lcr["ovlp"],  # type: ignore
-                        trial_states[j],  # type: ignore
+                        *op_lcr["ovlp"],
+                        trial_states[j],
                         key="ovlp",
                     )
                     * coupleJ
@@ -1194,10 +1194,10 @@ class multiplyH_MPS_direct_MPO(multiplyH_MPS_direct):
                     # Already calculated in the above with coupleJ.
                     continue
                 sigvec_add = self._op_lcr_dot(
-                    op_l,  # type: ignore
-                    op_c,  # type: ignore
-                    op_r,  # type: ignore
-                    trial_states[j],  # type: ignore
+                    op_l,
+                    op_c,
+                    op_r,
+                    trial_states[j],
                     key=key,
                 )
                 if const.use_jax:
@@ -1333,7 +1333,7 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
         self, trial_states: list[np.ndarray] | list[jax.Array]
     ) -> list[np.ndarray] | list[jax.Array]:
         sigvec_states: list[np.ndarray] | list[jax.Array]
-        sigvec_states = [None for _ in trial_states]  # type: ignore
+        sigvec_states = [None for _ in trial_states]
         for i, j in itertools.product(
             range(len(self.matH_cas.coupleJ)), repeat=2
         ):
@@ -1344,7 +1344,7 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
                 continue
             if (coupleJ := self.matH_cas.coupleJ[i][j]) != 0.0:
                 sigvec_add = (
-                    self._op_lr_dot(*op_lr["ovlp"], trial_states[j], key="ovlp")  # type: ignore
+                    self._op_lr_dot(*op_lr["ovlp"], trial_states[j], key="ovlp")
                     * coupleJ
                 )
                 if const.use_jax:
@@ -1360,9 +1360,9 @@ class multiplyK_MPS_direct_MPO(multiplyK_MPS_direct):
                     # Already calculated in the above with coupleJ.
                     continue
                 sigvec_add = self._op_lr_dot(
-                    op_l,  # type: ignore
-                    op_r,  # type: ignore
-                    trial_states[j],  # type: ignore
+                    op_l,
+                    op_r,
+                    trial_states[j],
                     key=key,
                 )
                 if const.use_jax:

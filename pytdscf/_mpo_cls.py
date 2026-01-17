@@ -948,10 +948,10 @@ def _sum_of_mpos_to_single_mpo(mpos: list[GridMPO]) -> GridMPO:
             #      ...
             #      [0, 0, ..., W_n]]
             left_indices: list[int] = np.cumsum(
-                [0] + [mpo[isite].shape[0] for mpo in mpos]  # type: ignore
+                [0] + [mpo[isite].shape[0] for mpo in mpos]
             )
             right_indices: list[int] = np.cumsum(
-                [0] + [mpo[isite].shape[2] for mpo in mpos]  # type: ignore
+                [0] + [mpo[isite].shape[2] for mpo in mpos]
             )
             center_index = mpos[0][isite].shape[1]
             core = np.zeros((left_indices[-1], center_index, right_indices[-1]))
