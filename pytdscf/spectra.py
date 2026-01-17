@@ -1,7 +1,5 @@
 """Plot spectra from FFT of auto-correlation dat file"""
 
-import sys
-
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.interpolate as interpolate
@@ -147,8 +145,12 @@ def plot_spectrum(
     filename: str = "spectrum.pdf",
     export: bool = True,
     show_in_eV: bool = False,
+    show_in_nm: bool = False,
     gui: bool = True,
     normalize: bool = True,
+    figsize: tuple[int, int] = (15, 6),
+    dpi: int = 80,
+    title: str = "IR absorption spectrum",
 ):
     """Plot spectrum
 
@@ -162,10 +164,12 @@ def plot_spectrum(
         filename (str): path to figure. Defaults to "spectrum.pdf".
         export (bool): export spectrum to dat file. Defaults to True.
         show_in_eV (bool): show in eV. Defaults to False.
+        show_in_nm (bool): show in nm. Defaults to False.
         gui (bool): if True, plt.show() use GUI. Defaults to True.
         normalize (bool): normalize intensity in range of between lower and upper bound. Defaults to True.
 
     """
+
     lower_bound_index = np.searchsorted(wave_number, lower_bound)
     upper_bound_index = np.searchsorted(wave_number, upper_bound)
 
@@ -189,19 +193,38 @@ def plot_spectrum(
             parts[-1] = "dat"
             dat_filename = ".".join(parts)
         export_spectrum(x, y, filename=dat_filename)
-    plt.figure(figsize=(15, 6), dpi=80)
+    plt.figure(figsize=figsize, dpi=dpi)
     plt.rcParams["font.size"] = 16
-    plt.title("IR absorption spectrum")
-    if show_in_eV:
-        x *= units.au_in_eV / units.au_in_cm1
-        plt.xlabel("wave number / eV")
-        plt.xlim(
-            lower_bound * units.au_in_eV / units.au_in_cm1,
-            upper_bound * units.au_in_eV / units.au_in_cm1,
+    plt.title(title)
+
+    if show_in_eV and show_in_nm:
+        raise ValueError(
+            "You cannot set both show_in_eV and show_in_nm as True"
         )
+
+    if show_in_eV:
+        xlabel = "wave number / eV"
+        x *= units.au_in_eV / units.au_in_cm1
+        lb = lower_bound * units.au_in_eV / units.au_in_cm1
+        ub = upper_bound * units.au_in_eV / units.au_in_cm1
+    elif show_in_nm:
+        xlabel = "wave length / nm"
+        if lower_bound <= 0:
+            raise ValueError(
+                "When show_in_nm is True, lower_bound (in cm$^{-1}$) must be greater than 0."
+            )
+        mask = x > 0
+        x = 1e7 / x[mask]
+        y = y[mask]
+        nm_limit_left = 1e7 / upper_bound
+        nm_limit_right = 1e7 / lower_bound
+        lb, ub = nm_limit_left, nm_limit_right
     else:
-        plt.xlabel("wave number / cm$^{-1}$")
-        plt.xlim(lower_bound, upper_bound)
+        # show_in cm-1
+        xlabel = "wave number / cm$^{-1}$"
+        lb, ub = lower_bound, upper_bound
+    plt.xlabel(xlabel)
+    plt.xlim(lb, ub)
     plt.plot(x, y, "-", color="red", linewidth=3)
     plt.ylabel("intensity / arb. unit")
     if normalize:
@@ -209,12 +232,3 @@ def plot_spectrum(
     plt.tight_layout()
     plt.savefig(filename)
     plt.show(block=gui)
-
-
-if __name__ == "__main__":
-    time, autocorr = load_autocorr(sys.argv[1])
-    plot_autocorr(time, autocorr)
-    freq, intensity = ifft_autocorr(time, autocorr)
-    plot_spectrum(
-        freq, intensity, lower_bound=-1000, upper_bound=10000, show_in_eV=True
-    )
