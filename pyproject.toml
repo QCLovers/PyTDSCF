@@ -39,9 +39,9 @@ mpi = [
     "mpi4py>=4.0.1",
     "pytest-mpi>=0.6",
 ]
-radicalpy = [
-    "radicalpy>=0.9.6",
-]
+# radicalpy = [
+#     "radicalpy>=0.9.6",
+# ]
 
 [build-system]
 requires = ["hatchling"]
