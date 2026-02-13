@@ -11,8 +11,8 @@ from typing import Literal, overload
 import jax
 import jax.numpy as jnp
 import numpy as np
+import scipy.linalg
 from loguru import logger as _logger
-from scipy.linalg import qr, svd
 
 from pytdscf._const_cls import const
 
@@ -233,7 +233,7 @@ class SiteCoef:
                 #     matC.transpose(0, 2, 1).reshape(-1, ndim),
                 #     full_matrices=False,
                 # )
-                U, sig, Vh = svd(
+                U, sig, Vh = scipy.linalg.svd(
                     np.ascontiguousarray(
                         matC.transpose(0, 2, 1).reshape(-1, ndim)
                     ),
@@ -261,7 +261,7 @@ class SiteCoef:
                 # Q, R = np.linalg.qr(
                 #     matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="reduced"
                 # )
-                Q, R = qr(
+                Q, R = scipy.linalg.qr(
                     np.ascontiguousarray(
                         matC.transpose((2, 1, 0)).reshape(ndim, -1)
                     ),
@@ -276,7 +276,7 @@ class SiteCoef:
                 sval, matL = gauge_trf_QR(matC, m_aux_sys, nspf, m_aux_env)
             else:
                 # Q, R = np.linalg.qr(matC.reshape(ndim, -1), mode="reduced")
-                Q, R = qr(
+                Q, R = scipy.linalg.qr(
                     matC.reshape(ndim, -1), mode="economic", overwrite_a=True
                 )
                 sval = R
@@ -303,29 +303,45 @@ class SiteCoef:
         This function returns the full-rank A or B tensor.
         """
         l, c, r = self.data.shape  # noqa: E741
-        if isinstance(self.data, jax.Array):
-            raise NotImplementedError
         match self.gauge:
             case "A":
                 assert l * c >= r
                 dr = min(delta_rank, l * c - r)
                 mat = self.data.reshape((l * c, r))
                 # Q, _ = np.linalg.qr(mat, mode="complete")
-                Q, _ = qr(mat, mode="full", overwrite_a=False)
+                if isinstance(self.data, jax.Array):
+                    assert isinstance(mat, jax.Array)
+                    Q, _ = jax.scipy.linalg.qr(
+                        mat, mode="full", overwrite_a=False
+                    )
+                    assert isinstance(Q, jax.Array)
+                else:
+                    Q, _ = scipy.linalg.qr(mat, mode="full", overwrite_a=False)
                 # to align sign of Q, calculate inner product of Q and Q_ref
-                ip = mat.T.conj() @ Q
-                unflip = np.sign(np.sign(np.diag(ip[:r, :r])) + 0.5)
+                inner_product = mat.T.conj() @ Q
+                unflip = np.sign(np.sign(np.diag(inner_product[:r, :r])) + 0.5)
                 Q = Q[:, : r + dr]
-                Q[:, :r] *= unflip[np.newaxis, :]
+                assert Q.shape == (l * c, r + dr)
+                if isinstance(Q, jax.Array):
+                    assert unflip.shape == (r,)
+                    unflip = np.concatenate((unflip, np.ones(dr)))
+                    assert unflip.shape == (r + dr,), (
+                        f"{unflip.shape=} vs {(r+dr)=}"
+                    )
+                    unflip_jax = jnp.array(unflip, dtype=Q.dtype)
+                    Q *= unflip_jax[jnp.newaxis, :]
+                    assert isinstance(Q, jax.Array)
+                else:
+                    Q[:, :r] *= unflip[np.newaxis, :]
                 if const.pytest_enabled:
                     assert self.data.shape == (l, c, r)
                     assert mat.shape == (l * c, r)
-                    assert ip.shape == (r, l * c)
+                    assert inner_product.shape == (r, l * c)
                     np.testing.assert_allclose(
                         mat.T.conj() @ mat, np.eye(r), atol=1.0e-14
                     )
                     np.testing.assert_allclose(
-                        np.abs(ip[:r, :r]), np.eye(r), atol=1.0e-14
+                        np.abs(inner_product[:r, :r]), np.eye(r), atol=1.0e-14
                     )
                     np.testing.assert_allclose(Q[:, :r], mat, atol=1.0e-14)
                     np.testing.assert_allclose(
@@ -340,14 +356,34 @@ class SiteCoef:
                 dl = min(delta_rank, c * r - l)
                 mat = self.data.reshape((l, c * r)).transpose(1, 0)
                 # Q, _ = np.linalg.qr(mat, mode="complete")
-                Q, _ = qr(
-                    np.ascontiguousarray(mat), mode="full", overwrite_a=False
-                )
+                if isinstance(self.data, jax.Array):
+                    assert isinstance(mat, jax.Array)
+                    Q, _ = jax.scipy.linalg.qr(
+                        mat, mode="full", overwrite_a=False
+                    )
+                    assert isinstance(Q, jax.Array)
+                else:
+                    Q, _ = scipy.linalg.qr(
+                        np.ascontiguousarray(mat),
+                        mode="full",
+                        overwrite_a=False,
+                    )
                 # to align sign of Q, calculate inner product of Q and Q_ref
-                ip = mat.T.conj() @ Q
-                unflip = np.sign(np.sign(np.diag(ip[:l, :l])) + 0.5)
+                inner_product = mat.T.conj() @ Q
+                unflip = np.sign(np.sign(np.diag(inner_product[:l, :l])) + 0.5)
                 Q = Q[:, : l + dl]
-                Q[:, :l] *= unflip[np.newaxis, :]
+                assert Q.shape == (c * r, l + dl)
+                assert unflip.shape == (l,)
+                if isinstance(Q, jax.Array):
+                    unflip = np.concatenate((unflip, np.ones(dl)))
+                    assert unflip.shape == (l + dl,), (
+                        f"{unflip.shape=} vs {(l+dl)=}"
+                    )
+                    unflip_jax = jnp.array(unflip, dtype=Q.dtype)
+                    Q *= unflip_jax[jnp.newaxis, :]
+                    assert isinstance(Q, jax.Array)
+                else:
+                    Q[:, :l] *= unflip[np.newaxis, :]
                 # confirm Q is orthogonal
                 if const.pytest_enabled:
                     np.testing.assert_allclose(
@@ -355,9 +391,9 @@ class SiteCoef:
                     )
                     assert mat.shape == (c * r, l)
                     assert self.data.shape == (l, c, r)
-                    assert ip.shape == (l, c * r)
+                    assert inner_product.shape == (l, c * r)
                     np.testing.assert_allclose(
-                        np.abs(ip[:l, :l]), np.eye(l), atol=1.0e-14
+                        np.abs(inner_product[:l, :l]), np.eye(l), atol=1.0e-14
                     )
                     np.testing.assert_allclose(
                         (Q.T.conj() @ Q)[: l + dl, : l + dl],
@@ -582,29 +618,45 @@ def truncate_sigvec(
     # if regularize:
     #     raise ValueError("Use eval_PsiXpinvPsi instead")
     if isinstance(sigvec, jax.Array):
-        raise NotImplementedError
-    # U, sigvec2, Vh = np.linalg.svd(sigvec, full_matrices=False)
-    U, sigvec2, Vh = svd(sigvec, full_matrices=False, overwrite_a=True)
-    cumsum = np.cumsum(sigvec2.real)
+        U, sigvec2, Vh = jax.scipy.linalg.svd(
+            sigvec, full_matrices=False, overwrite_a=True
+        )
+        cumsum = jnp.cumsum(sigvec2.real)
+    else:
+        U, sigvec2, Vh = scipy.linalg.svd(
+            sigvec, full_matrices=False, overwrite_a=True
+        )
+        cumsum = np.cumsum(sigvec2.real)
     contribution = cumsum / cumsum[-1]
-    idx = np.argmax(contribution >= (1 - p)) + 1
+    if isinstance(contribution, jax.Array):
+        idx = int(jnp.argmax(contribution >= (1 - p)) + 1)
+    else:
+        idx = np.argmax(contribution >= (1 - p)) + 1
     sigvec2_thin = sigvec2[:idx]
     if not keepdim:
         U = U[:, :idx]
         Vh = Vh[:idx, :]
     if isinstance(Asite, SiteCoef):
         assert Asite.gauge == "A", "Asite must be A tensor"
-        Asite.data = np.tensordot(Asite.data, U, axes=(2, 0))
+        if isinstance(U, jax.Array) and isinstance(Asite.data, jax.Array):
+            Asite.data = jnp.tensordot(Asite.data, U, axes=(2, 0))
+        else:
+            Asite.data = np.tensordot(Asite.data, U, axes=(2, 0))
         L = Asite
     else:
         L = U
     if isinstance(Bsite, SiteCoef):
         assert Bsite.gauge == "B", "Bsite must be B tensor"
-        Bsite.data = np.tensordot(Vh, Bsite.data, axes=(1, 0))
+        if isinstance(Vh, jax.Array) and isinstance(Bsite.data, jax.Array):
+            Bsite.data = jnp.tensordot(Vh, Bsite.data, axes=(1, 0))
+        else:
+            Bsite.data = np.tensordot(Vh, Bsite.data, axes=(1, 0))
         R = Bsite
     else:
         R = Vh
     if regularize and sigvec.shape != (1, 1):
+        if const.use_jax:
+            raise NotImplementedError
         # sqrt_epsrho = math.sqrt(const.epsrho)
         sqrt_epsrho = SQRT_EPSRHO
         sigvec2_thin = np.where(
@@ -613,12 +665,28 @@ def truncate_sigvec(
             sigvec2_thin + sqrt_epsrho * np.exp(-sigvec2_thin / sqrt_epsrho),
         )
     if keepdim:
-        sigvec_full = np.zeros_like(sigvec2)
-        sigvec_full[:idx] = sigvec2_thin
-        sigvec = np.diag(sigvec_full)
+        if isinstance(sigvec2_thin, jax.Array):
+            sigvec_full = jnp.concatenate(
+                [
+                    sigvec2_thin,
+                    jnp.zeros(sigvec2.shape[0] - sigvec2_thin.shape[0]),
+                ],
+                axis=0,
+            )
+            norm = jnp.linalg.norm(sigvec2_thin)
+            sigvec = jnp.diag(sigvec_full / norm)
+        else:
+            sigvec_full = np.zeros_like(sigvec2)
+            sigvec_full[:idx] = sigvec2_thin
+            norm = np.linalg.norm(sigvec2_thin)
+            sigvec = np.diag(sigvec_full / norm)
     else:
-        sigvec = np.diag(sigvec2_thin)
-    sigvec /= np.sqrt(np.sum(np.diag(sigvec) ** 2))  # normalize
+        if isinstance(sigvec2_thin, jax.Array):
+            norm = jnp.linalg.norm(sigvec2_thin)
+            sigvec = jnp.diag(sigvec2_thin / norm)
+        else:
+            norm = np.linalg.norm(sigvec2_thin)
+            sigvec = np.diag(sigvec2_thin / norm)
     return L, sigvec, R
 
 

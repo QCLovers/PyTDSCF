@@ -313,14 +313,14 @@ class MPSCoefMPO(MPSCoef):
                                 ints_site_idof, is_identity=True
                             )
                         else:
-                            ints_site_idof.is_identity = True
+                            ints_site_ops["ovlp"][i].is_identity = True
                     else:
                         if isinstance(ints_site_idof, np.ndarray):
                             ints_site_ops["ovlp"][i] = myndarray(
                                 ints_site_idof, is_identity=False
                             )
                         else:
-                            ints_site_idof.is_identity = False
+                            ints_site_ops["ovlp"][i].is_identity = False
             if len(ints_site_ops) != 0:
                 ints_site[statepair] = ints_site_ops
         return ints_site
@@ -528,6 +528,7 @@ class MPSCoefMPO(MPSCoef):
             if isinstance(result, np.ndarray):
                 result = myndarray(result, is_identity_next)
             else:
+                assert isinstance(result, jax.Array)
                 result.is_identity = is_identity_next
             return result, op_psite_ovlp, op_block_ovlp
 
@@ -746,16 +747,24 @@ class MPSCoefMPO(MPSCoef):
             else:
                 op_c_ovlp = ints_site[statepair]["ovlp"][psite]
 
-            # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
-            if op_l_ovlp.is_identity:
-                # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
-                assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
-                op_l_ovlp = op_l_ovlp.shape[0]
             if ints_site is not None and op_c_ovlp.is_identity:
                 # np.testing.assert_allclose(op_c_ovlp, np.eye(*op_c_ovlp.shape)):
                 assert isinstance(op_c_ovlp, np.ndarray | jax.Array)
                 op_c_ovlp = op_c_ovlp.shape[0]
-            if op_r_ovlp.is_identity:
+            # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
+            assert const.adaptive or hasattr(op_l_ovlp, "is_identity")
+            if op_l_ovlp.is_identity is None:
+                raise ValueError("op_l_ovlp.is_identity is None")
+            if hasattr(op_l_ovlp, "is_identity") and op_l_ovlp.is_identity:
+                # if op_l_ovlp.is_identity:
+                # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
+                assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
+                op_l_ovlp = op_l_ovlp.shape[0]
+            assert const.adaptive or hasattr(op_r_ovlp, "is_identity")
+            if op_r_ovlp.is_identity is None:
+                raise ValueError("op_l_ovlp.is_identity is None")
+            if hasattr(op_r_ovlp, "is_identity") and op_r_ovlp.is_identity:
+                # if op_r_ovlp.is_identity:
                 # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
                 assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
                 op_r_ovlp = op_r_ovlp.shape[0]
@@ -890,11 +899,13 @@ class MPSCoefMPO(MPSCoef):
             )
 
             # type(op) is 'int' if it is a unit-matrix --> already applied bra != ket spfs.
-            if op_l_ovlp.is_identity:
+            assert const.adaptive or hasattr(op_l_ovlp, "is_identity")
+            if hasattr(op_l_ovlp, "is_identity") and op_l_ovlp.is_identity:
                 # np.testing.assert_allclose(op_l_ovlp, np.eye(*op_l_ovlp.shape)):
                 assert isinstance(op_l_ovlp, np.ndarray | jax.Array)
                 op_l_ovlp = op_l_ovlp.shape[0]
-            if op_r_ovlp.is_identity:
+            assert const.adaptive or hasattr(op_r_ovlp, "is_identity")
+            if hasattr(op_r_ovlp, "is_identity") and op_r_ovlp.is_identity:
                 # np.testing.assert_allclose(op_r_ovlp, np.eye(*op_r_ovlp.shape)):
                 assert isinstance(op_r_ovlp, np.ndarray | jax.Array)
                 op_r_ovlp = op_r_ovlp.shape[0]

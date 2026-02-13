@@ -493,8 +493,33 @@ class SplitStack:
         """
         if const.use_jax:
             if extend and not self.in_same_as_out:
-                raise NotImplementedError("extend is not implemented")
-                # TODO: implement extend with JIT
+                if len(psi_states[0].shape) == 3:
+                    l, c, r = psi_states[0].shape  # noqa: E741
+                    L, C, R = self.tensor_shapes_out
+                    assert L >= l and C >= c and R >= r, (
+                        f"{L=}, {C=}, {R=}, {l=}, {c=}, {r=}"
+                    )
+                    psi_states = [
+                        jnp.pad(
+                            x,
+                            (
+                                (0, L - l),
+                                (0, C - c),
+                                (0, R - r),
+                            ),
+                        )
+                        for i, x in enumerate(psi_states)
+                    ]
+                elif len(psi_states[0].shape) == 2:
+                    l, r = psi_states[0].shape  # noqa: E741
+                    L, R = self.tensor_shapes_out
+                    assert L >= l and R >= r, f"{L=}, {R=}, {l=}, {r=}"
+                    psi_states = [
+                        jnp.pad(x, ((0, L - l), (0, R - r))) for x in psi_states
+                    ]
+            assert isinstance(psi_states[0], jax.Array), (
+                f"{type(psi_states[0])} {const.use_jax=}"
+            )
             if len(psi_states) > 1:
                 return _stack(psi_states)
             else:
