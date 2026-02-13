@@ -1,3 +1,4 @@
+from ase.io.formats import F
 import sys
 from typing import Literal
 
@@ -30,10 +31,10 @@ nspf = nprim = 8
 basis = [HO(nprim, freq, units="cm-1") for freq in freqs_cm1] + [
     Exciton(nstate=2, names=["S0", "S1"])
 ]
-backend = "numpy"
+backend: Literal["numpy", "jax"]
 
 
-def get_model():
+def get_model(backend: Literal["numpy", "jax"]) -> Model:
     """
     |Psi> = |HO1, HO2, HO3, E0>
 
@@ -351,11 +352,14 @@ def sweep(
                 mps.op_sys_sites.append(op_sys)
 
 
-@pytest.mark.parametrize("use_class_method", [True, False])
-def test_a1tdvp_sweep(use_class_method: bool):
-    model = get_model()
+@pytest.mark.parametrize(
+    "use_class_method, backend",
+    [(True, "numpy"), (False, "numpy"), (True, "jax"), (False, "jax")],
+)
+def test_a1tdvp_sweep(use_class_method: bool, backend: Literal["numpy", "jax"]):
+    model = get_model(backend)
     pytdscf._const_cls.const.set_runtype(
-        use_jax=False,
+        use_jax=(backend == "jax"),
         jobname="a1tdvp",
         adaptive=True,
         adaptive_p_proj=1.0e-05,
@@ -401,6 +405,13 @@ def test_a1tdvp_sweep(use_class_method: bool):
             )
         logger.info(
             f"{i_iter=}, {[core.shape[2] for core in mps.superblock_states[0][:-1]]}"
+        )
+        ener = mps.expectation(
+                None,
+                model.hamiltonian,
+        )
+        print(
+            f"{i_iter=}, {ener=}, {[core.shape[2] for core in mps.superblock_states[0][:-1]]}"
         )
 
 

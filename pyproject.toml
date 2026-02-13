@@ -54,8 +54,8 @@ build-backend = "hatchling.build"
 minimum-version = "build-system.requires"
 build-dir = "build/{wheel_tag}"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "ipywidgets>=8.1.7",
     "jupyterlab>=4.2.5",
     "ty>=0.0.10",
