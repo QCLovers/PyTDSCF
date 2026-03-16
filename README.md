@@ -163,7 +163,7 @@ See also [JAX's GPU support](https://jax.readthedocs.io/en/latest/installation.h
 2. Install GPU-supported JAX in your virtual environment:
 
     ```bash
-    $ uv pip install -U "jax[cuda12]"
+    $ uv pip install -U "jax[cuda13]"
     $ uv run python -c "import jax; print(jax.default_backend())"
     'gpu'
     ```
