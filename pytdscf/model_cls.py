@@ -15,6 +15,8 @@ from discvar.abc import DVRPrimitivesMixin
 from loguru import logger
 
 import pytdscf
+import pytdscf.basis._primints_cls
+import pytdscf.basis.abc
 from pytdscf._const_cls import const
 from pytdscf.hamiltonian_cls import (
     HamiltonianMixin,

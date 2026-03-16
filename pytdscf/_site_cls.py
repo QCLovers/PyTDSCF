@@ -214,9 +214,9 @@ class SiteCoef:
             sqrt_epsrho = SQRT_EPSRHO
             sig_reg: jax.Array | np.ndarray
             if const.use_jax:
-                U, sig, Vh = jnp.linalg.svd(
+                U, sig, Vh = jnp.linalg.svd(  # type: ignore[not-iterable]
                     matC.transpose(0, 2, 1).reshape(-1, ndim),
-                    full_matrices=False,
+                    full_matrices=False,  # type: ignore[unknown-argument]
                 )
                 sig_reg = jnp.where(
                     sig > sqrt_epsrho,
@@ -256,7 +256,7 @@ class SiteCoef:
         ndim = nspf * m_aux_sys
         if env_indx == 0:
             if const.use_jax:
-                sval, matR = gauge_trf_LQ(matC, m_aux_sys, nspf, m_aux_env)
+                sval, matR = gauge_trf_LQ(matC, m_aux_sys, nspf, m_aux_env)  # type: ignore[not-iterable, too-many-positional-arguments]
             else:
                 # Q, R = np.linalg.qr(
                 #     matC.transpose((2, 1, 0)).reshape(ndim, -1), mode="reduced"
@@ -273,7 +273,7 @@ class SiteCoef:
             coef = SiteCoef(data=matR, gauge="B", isite=self.isite)
         else:
             if const.use_jax:
-                sval, matL = gauge_trf_QR(matC, m_aux_sys, nspf, m_aux_env)
+                sval, matL = gauge_trf_QR(matC, m_aux_sys, nspf, m_aux_env)  # type: ignore[not-iterable, too-many-positional-arguments]
             else:
                 # Q, R = np.linalg.qr(matC.reshape(ndim, -1), mode="reduced")
                 Q, R = scipy.linalg.qr(

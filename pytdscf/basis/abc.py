@@ -59,8 +59,8 @@ class DVRPrimitivesMixin(ABC):
             avg_error = 0.0
             for j in range(self.ngrid):
                 for k in range(j, self.ngrid):
-                    integrand = (
-                        lambda x: np.conjugate(self.fbr_func(j, x))
+                    integrand = lambda x: (
+                        np.conjugate(self.fbr_func(j, x))
                         * x
                         * self.fbr_func(k, x)
                     )

@@ -232,7 +232,7 @@ def _kraus_contract_single_site_jax(B: jax.Array, A: jax.Array) -> jax.Array:
     # 3. reshape C to (m, n, x, kK)
     C = C.reshape(m * n * x, k * K)
     # 4. SVD of C
-    U, S, _ = jnp.linalg.svd(C, full_matrices=False)
+    U, S, _ = jnp.linalg.svd(C, full_matrices=False)  # type: ignore[not-iterable, unknown-argument]
     # 5. truncate singular values
     S = S[:K]
     U = U[:, :K]
@@ -384,7 +384,7 @@ def _kraus_contract_two_site_jax(
     """
     C = C.reshape(m * x * n, k * K)
     # 1. SVD of C (truncated if beneficial)
-    U, S, _ = jnp.linalg.svd(C, full_matrices=False)
+    U, S, _ = jnp.linalg.svd(C, full_matrices=False)  # type: ignore[not-iterable, unknown-argument]
     S = S[:K]
     U = U[:, :K]
     """
@@ -408,7 +408,7 @@ def _kraus_contract_two_site_jax(
     mx-C-Kn
     """
     # 6. SVD of C (second decomposition)
-    U, S, Vh = jnp.linalg.svd(C, full_matrices=False)
+    U, S, Vh = jnp.linalg.svd(C, full_matrices=False)  # type: ignore[not-iterable, unknown-argument]
     U = U[:, :l]
     S = S[:l]
     Vh = Vh[:l, :]

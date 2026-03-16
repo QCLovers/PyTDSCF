@@ -16,6 +16,7 @@ import scipy.linalg as linalg
 from opt_einsum import contract, contract_expression
 
 import pytdscf
+import pytdscf._helper
 from pytdscf._const_cls import const
 from pytdscf._mpo_cls import OperatorCore
 from pytdscf._site_cls import SiteCoef
@@ -223,7 +224,7 @@ def contract_with_site_mpo(
             # n n-|-j
             contraction = "msi,nsj,mpn->ipj"
             assert isinstance(op_LorR, np.ndarray | jax.Array)
-            operator.append(op_LorR)  # type: ignore
+            operator.append(op_LorR)
         case ("A", 2, 1):
             # m-|-i
             # | r

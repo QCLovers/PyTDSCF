@@ -371,7 +371,7 @@ def itrf_prim2spf(
         istate_bra = key[0]
         istate_ket = key[1]
         if not onlyDiag or istate_bra == istate_ket:
-            ints_spf_dof: list[np.ndarray]
+            ints_spf_dof: list[np.ndarray | None]
             ints_spf_dof = [None for idof in range(len(val))]
             for idof, ints in enumerate(val):
                 if ints is not None:

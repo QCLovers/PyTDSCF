@@ -1232,7 +1232,7 @@ class MPSCoef(ABC):
         # cores = [core.copy() for core in cores]
         # remain_nleg = remain_nleg + (0,) * (len(cores) - len(remain_nleg))
         if isinstance(cores[0], jax.Array):
-            return _get_pure_reduced_density_jax(cores, remain_nleg)
+            return _get_pure_reduced_density_jax(cores, remain_nleg)  # type: ignore[too-many-positional-arguments]
         else:
             core = cores.pop()
             nleg = remain_nleg[-1]
@@ -1320,7 +1320,9 @@ class MPSCoef(ABC):
             # JITのためにタプルに変換
             remain_nlegs_tuple = tuple(remain_nlegs)
             return _get_pure_reduced_densities_jax(
-                cores, remain_nlegs_tuple, center_sites
+                cores,
+                remain_nlegs_tuple,  # type: ignore[too-many-positional-arguments]
+                center_sites,
             )
 
         left_envs = {}
@@ -1467,7 +1469,7 @@ class MPSCoef(ABC):
             return np.array(
                 _get_partial_trace_jax(
                     mpdm_reshaped,
-                    remain_nleg,
+                    remain_nleg,  # type: ignore[too-many-positional-arguments]
                     center_site,
                     remain_nleg[center_site],
                 )
@@ -1542,7 +1544,7 @@ class MPSCoef(ABC):
             )
             rdms: list[jax.Array] = _get_partial_traces_jax(
                 mpdm_reshaped,
-                remain_nlegs_padded,
+                remain_nlegs_padded,  # type: ignore[too-many-positional-arguments]
                 tuple(center_sites),
             )
             return [np.array(rdm) for rdm in rdms]
@@ -3618,7 +3620,7 @@ def CC2ALambdaB(
         c, d * e
     )
     if use_jax:
-        u, lam, vh = jnp.linalg.svd(twodot_data, full_matrices=False)
+        u, lam, vh = jnp.linalg.svd(twodot_data, full_matrices=False)  # type: ignore[not-iterable, unknown-argument]
     else:
         u, lam, vh = np.linalg.svd(twodot_data, full_matrices=False)
     left_core.data = u[:, :c].reshape(a, b, c)
