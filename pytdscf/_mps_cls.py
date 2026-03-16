@@ -1079,6 +1079,7 @@ class MPSCoef(ABC):
             matPsi_states_new = _integrator.matrix_diagonalize_lanczos(
                 multiplyH, matPsi_states
             )
+            print(f"type(matPsi_states_new)={type(matPsi_states_new[0])}")
             norm = get_C_sval_states_norm(matPsi_states_new)
             matPsi_states_new = [x / norm for x in matPsi_states_new]
 
@@ -1421,7 +1422,6 @@ class MPSCoef(ABC):
                 case _:
                     raise ValueError(f"Invalid number of legs: {nleg}")
             left_env = contract(subscript, core, np.conj(core), left_env)
-            print(f"{left_env.shape=} {right_env.shape=}")
             # operation like "...ia,ia...->......" can be executed by reshaping "ia" to single index and then tensordot
             left_env = left_env.reshape(
                 *left_env.shape[:-2], left_env.shape[-2] * left_env.shape[-1]
@@ -3672,12 +3672,22 @@ def truncate_op_block(
                         f"{value.shape=} is smaller than {D=} for {key=}"
                     )
                 op_block_state_truncated[key] = value[:D, :, :]
+                if key == "ovlp" and isinstance(value, jax.Array):
+                    if (D == value.shape[2]) and value.is_identity:
+                        op_block_state_truncated[key].is_identity = True
+                    else:
+                        op_block_state_truncated[key].is_identity = False
             elif mode == "braket":
                 if value.shape[0] < D or value.shape[2] < D:
                     raise ValueError(
                         f"{value.shape=} is smaller than {D=} for {key=}"
                     )
                 op_block_state_truncated[key] = value[:D, :, :D]
+                if key == "ovlp" and isinstance(value, jax.Array):
+                    if (D == value.shape[2]) and value.is_identity:
+                        op_block_state_truncated[key].is_identity = True
+                    else:
+                        op_block_state_truncated[key].is_identity = False
             else:
                 raise ValueError(f"{mode=} is not valid")
         op_block_truncated[state_key] = op_block_state_truncated

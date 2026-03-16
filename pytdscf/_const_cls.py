@@ -199,7 +199,7 @@ class Const:
         self.doTDHamil = False
         self.oldcode = False
 
-        self.use_jax = use_jax
+        self.use_jax = use_jax and relax != "improved"
         const.thresh_exp = thresh_sil
         if not standard_method:
             logger.warning("Employing SPF is deprecated.")
