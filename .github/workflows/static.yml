@@ -43,7 +43,7 @@ jobs:
             uv run sphinx-apidoc -f -o docs pytdscf pytdscf/potentials
             uv run sphinx-build -a docs docs/_build
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
