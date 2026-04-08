@@ -781,7 +781,7 @@ def construct_nMR_recursive(
     elif min(site_order.values()) != 0 or max(site_order.values()) != ndof - 1:
         raise TypeError
     dvr_prims_site_order = [dvr_prims[site_order[p]] for p in active_dofs]
-    ngrids = [dvr_prims_site_order[p].ngrid for p in range(ndof)]
+    ngrids = [dvr_prims_site_order[p].ngrid for p in range(len(active_dofs))]
 
     nMR_operators: dict[tuple[int, ...], TensorOperator | float] = dict()
     if func is None and db is not None and df is None:
