@@ -84,6 +84,9 @@ class DVR_Mesh:
         disp_vec: np.ndarray,
         unit: str = "angstrom",
     ):
+        self.displace = {}
+        self.geometry = {}
+
         self.grid_list = [g.get_grids() for g in dvr_prims]
         self.dvr_prims = dvr_prims
         self.ndof = len(dvr_prims)
