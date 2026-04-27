@@ -20,7 +20,7 @@ dependencies = [
     # "mpmath>=1.3.0",
     "netcdf4>=1.7.2",
     "numpy>=2.1.2",
-    "polars>=1.40.0",
+    "polars>=1.40.1",
     "scipy>=1.14.1",
     # "pympo>=0.1.8",
     "pympo @ git+https://github.com/KenHino/PyMPO.git@v0.1.8",
