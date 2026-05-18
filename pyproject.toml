@@ -36,7 +36,7 @@ docs = [
     "pandoc>=2.4",
 ]
 mpi = [
-    "mpi4py>=4.0.1",
+    "mpi4py>=4.1.2",
     "pytest-mpi>=0.6",
 ]
 # radicalpy = [
