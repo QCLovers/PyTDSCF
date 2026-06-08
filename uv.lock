@@ -1454,7 +1454,7 @@ wheels = [
 
 [[package]]
 name = "jupyterlab"
-version = "4.5.6"
+version = "4.5.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "async-lru" },
@@ -1472,9 +1472,9 @@ dependencies = [
     { name = "tornado" },
     { name = "traitlets" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/d5/730628e03fff2e8a8e8ccdaedde1489ab1309f9a4fa2536248884e30b7c7/jupyterlab-4.5.6.tar.gz", hash = "sha256:642fe2cfe7f0f5922a8a558ba7a0d246c7bc133b708dfe43f7b3a826d163cf42", size = 23970670, upload-time = "2026-03-11T14:17:04.531Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0e/74/089613e6099e851a6130816f2df592c839d8565f8746a701edada05a33e4/jupyterlab-4.5.8.tar.gz", hash = "sha256:af54d7242cc689a1e6c3ad213cc9b6d9781787d9ec67c52ec9a8f4707088cadd", size = 23994076, upload-time = "2026-06-04T12:32:12.906Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/1b/dad6fdcc658ed7af26fdf3841e7394072c9549a8b896c381ab49dd11e2d9/jupyterlab-4.5.6-py3-none-any.whl", hash = "sha256:d6b3dac883aa4d9993348e0f8e95b24624f75099aed64eab6a4351a9cdd1e580", size = 12447124, upload-time = "2026-03-11T14:17:00.229Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/d1/56a400100559cbf154a23cd29989261941ae5c9f743898fc10e8a5508b7c/jupyterlab-4.5.8-py3-none-any.whl", hash = "sha256:7d514c856d0d607601ec7692374da4f26e2aaf3b6e7cd363136b422a50588d6c", size = 12449443, upload-time = "2026-06-04T12:32:08.442Z" },
 ]
 
 [[package]]
@@ -2860,7 +2860,7 @@ provides-extras = ["docs", "mpi"]
 dev = [
     { name = "ase", specifier = ">=3.26.0" },
     { name = "ipywidgets", specifier = ">=8.1.7" },
-    { name = "jupyterlab", specifier = ">=4.2.5" },
+    { name = "jupyterlab", specifier = ">=4.5.8" },
     { name = "pre-commit", specifier = ">=4.0.1" },
     { name = "pybind11", specifier = ">=2.13.6" },
     { name = "pytest", specifier = ">=9.0.3" },
