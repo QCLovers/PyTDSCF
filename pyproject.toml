@@ -24,7 +24,7 @@ dependencies = [
     "scipy>=1.14.1",
     # "pympo>=0.1.8",
     "pympo @ git+https://github.com/KenHino/PyMPO.git@v0.1.8",
-    "tqdm>=4.67.1",
+    "tqdm>=4.68.1",
 ]
 
 [project.optional-dependencies]
